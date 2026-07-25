@@ -172,7 +172,7 @@ namespace IKVM.Runtime
 
             internal static string GetGenericMethodSignature(Metadata m, int index)
             {
-                if (m != null && m.genericMetaData != null && m.genericMetaData[0] != null)
+                if (m != null && m.genericMetaData != null && m.genericMetaData[0] != null && (uint)index < (uint)m.genericMetaData[0].Length)
                     return m.genericMetaData[0][index];
 
                 return null;
@@ -180,7 +180,7 @@ namespace IKVM.Runtime
 
             internal static string GetGenericFieldSignature(Metadata m, int index)
             {
-                if (m != null && m.genericMetaData != null && m.genericMetaData[1] != null)
+                if (m != null && m.genericMetaData != null && m.genericMetaData[1] != null && (uint)index < (uint)m.genericMetaData[1].Length)
                     return m.genericMetaData[1][index];
 
                 return null;
@@ -196,7 +196,7 @@ namespace IKVM.Runtime
 
             internal static object[] GetMethodAnnotations(Metadata m, int index)
             {
-                if (m != null && m.annotations != null && m.annotations[1] != null)
+                if (m != null && m.annotations != null && m.annotations[1] != null && (uint)index < (uint)m.annotations[1].Length)
                     return (object[])m.annotations[1][index];
 
                 return null;
@@ -204,7 +204,7 @@ namespace IKVM.Runtime
 
             internal static object[][] GetMethodParameterAnnotations(Metadata m, int index)
             {
-                if (m != null && m.annotations != null && m.annotations[2] != null)
+                if (m != null && m.annotations != null && m.annotations[2] != null && (uint)index < (uint)m.annotations[2].Length)
                     return (object[][])m.annotations[2][index];
 
                 return null;
@@ -212,7 +212,7 @@ namespace IKVM.Runtime
 
             internal static MethodParametersEntry[] GetMethodParameters(Metadata m, int index)
             {
-                if (m != null && m.methodParameters != null)
+                if (m != null && m.methodParameters != null && (uint)index < (uint)m.methodParameters.Length)
                     return m.methodParameters[index];
 
                 return null;
@@ -220,7 +220,7 @@ namespace IKVM.Runtime
 
             internal static object GetMethodDefaultValue(Metadata m, int index)
             {
-                if (m != null && m.annotations != null && m.annotations[3] != null)
+                if (m != null && m.annotations != null && m.annotations[3] != null && (uint)index < (uint)m.annotations[3].Length)
                     return m.annotations[3][index];
 
                 return null;
@@ -229,7 +229,7 @@ namespace IKVM.Runtime
             // note that unlike GetGenericFieldSignature, the index is simply the field index 
             internal static object[] GetFieldAnnotations(Metadata m, int index)
             {
-                if (m != null && m.annotations != null && m.annotations[4] != null)
+                if (m != null && m.annotations != null && m.annotations[4] != null && (uint)index < (uint)m.annotations[4].Length)
                     return (object[])m.annotations[4][index];
 
                 return null;
@@ -250,7 +250,7 @@ namespace IKVM.Runtime
 
             internal static byte[] GetMethodRawTypeAnnotations(Metadata m, int index)
             {
-                if (m != null && m.methodRuntimeVisibleTypeAnnotations != null)
+                if (m != null && m.methodRuntimeVisibleTypeAnnotations != null && (uint)index < (uint)m.methodRuntimeVisibleTypeAnnotations.Length)
                     return SerializeTypeAnnotations(in m.methodRuntimeVisibleTypeAnnotations[index]);
 
                 return null;
@@ -258,7 +258,7 @@ namespace IKVM.Runtime
 
             internal static byte[] GetFieldRawTypeAnnotations(Metadata m, int index)
             {
-                if (m != null && m.fieldRuntimeVisibleTypeAnnotations != null)
+                if (m != null && m.fieldRuntimeVisibleTypeAnnotations != null && (uint)index < (uint)m.fieldRuntimeVisibleTypeAnnotations.Length)
                     return SerializeTypeAnnotations(in m.fieldRuntimeVisibleTypeAnnotations[index]);
 
                 return null;
