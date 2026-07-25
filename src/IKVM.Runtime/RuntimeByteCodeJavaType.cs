@@ -798,11 +798,23 @@ namespace IKVM.Runtime
 #endif
             }
 
+            try
+            {
 #if NETFRAMEWORK
-            return mb.MetadataToken;
+                return mb.MetadataToken;
 #else
-            return mb.GetMetadataToken();
+                return mb.GetMetadataToken();
 #endif
+            }
+            catch (InvalidOperationException)
+            {
+                // Dynamic methods (and other token-less members) have no metadata token. IKVM uses
+                // owned DynamicMethods for reflection/MethodHandle accessors (e.g. FastMethodAccessor
+                // for Method.invoke); on Mono these surface as RuntimeMethodInfo frames with a non-null
+                // DeclaringType but a nil token, so this path is reached while formatting stack traces.
+                // Return 0 so GetSourceLineNumber simply finds no matching method and reports no line.
+                return 0;
+            }
         }
 
         /// <summary>
