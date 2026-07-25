@@ -132,7 +132,7 @@ namespace IKVM.Runtime
 
                 if (!dynamicClassLiteral.TryGetValue(cacheKey, out var method))
                 {
-                    var fb = typeBuilder.DefineField("__<>class", context.JavaBase.TypeOfJavaLangClass.TypeAsSignatureType, FieldAttributes.PrivateScope | FieldAttributes.Static);
+                    var fb = typeBuilder.DefineField("__<>class" + helperNameCounter++, context.JavaBase.TypeOfJavaLangClass.TypeAsSignatureType, FieldAttributes.PrivateScope | FieldAttributes.Static);
                     var mb = DefineHelperMethod("__<>class", context.JavaBase.TypeOfJavaLangClass.TypeAsSignatureType, Type.EmptyTypes);
                     var ilgen2 = context.CodeEmitterFactory.Create(mb);
                     ilgen2.Emit(OpCodes.Ldsfld, fb);
@@ -2276,9 +2276,14 @@ namespace IKVM.Runtime
                 return tb;
             }
 
+            // PrivateScope members may legally share names, but name-based token resolution
+            // (e.g. Mono's dynamic-image fallback for baked TypeBuilders) can then bind call
+            // sites to the wrong member, so every helper gets a unique name
+            int helperNameCounter;
+
             MethodBuilder DefineHelperMethod(string name, Type returnType, Type[] parameterTypes)
             {
-                return typeBuilder.DefineMethod(name, MethodAttributes.PrivateScope | MethodAttributes.Static, returnType, parameterTypes);
+                return typeBuilder.DefineMethod(name + helperNameCounter++, MethodAttributes.PrivateScope | MethodAttributes.Static, returnType, parameterTypes);
             }
 
             internal MethodBuilder DefineMethodHandleDispatchStub(Type returnType, Type[] parameterTypes)
@@ -2288,17 +2293,17 @@ namespace IKVM.Runtime
 
             internal FieldBuilder DefineMethodHandleInvokeCacheField(Type fieldType)
             {
-                return typeBuilder.DefineField("__<>invokeCache", fieldType, FieldAttributes.Static | FieldAttributes.PrivateScope);
+                return typeBuilder.DefineField("__<>invokeCache" + helperNameCounter++, fieldType, FieldAttributes.Static | FieldAttributes.PrivateScope);
             }
 
             internal FieldBuilder DefineDynamicMethodHandleCacheField()
             {
-                return typeBuilder.DefineField("__<>dynamicMethodHandleCache", context.JavaBase.TypeOfJavaLangInvokeMethodHandle.TypeAsSignatureType, FieldAttributes.Static | FieldAttributes.PrivateScope);
+                return typeBuilder.DefineField("__<>dynamicMethodHandleCache" + helperNameCounter++, context.JavaBase.TypeOfJavaLangInvokeMethodHandle.TypeAsSignatureType, FieldAttributes.Static | FieldAttributes.PrivateScope);
             }
 
             internal FieldBuilder DefineDynamicMethodTypeCacheField()
             {
-                return typeBuilder.DefineField("__<>dynamicMethodTypeCache", context.JavaBase.TypeOfJavaLangInvokeMethodType.TypeAsSignatureType, FieldAttributes.Static | FieldAttributes.PrivateScope);
+                return typeBuilder.DefineField("__<>dynamicMethodTypeCache" + helperNameCounter++, context.JavaBase.TypeOfJavaLangInvokeMethodType.TypeAsSignatureType, FieldAttributes.Static | FieldAttributes.PrivateScope);
             }
 
             internal MethodBuilder DefineDelegateInvokeErrorStub(Type returnType, Type[] parameterTypes)
@@ -2315,7 +2320,7 @@ namespace IKVM.Runtime
                 if (!invokespecialstubcache.TryGetValue(key, out var mi))
                 {
                     var dmh = method.GetDefineMethodHelper();
-                    var stub = dmh.DefineMethod(wrapper, typeBuilder, "__<>", MethodAttributes.PrivateScope);
+                    var stub = dmh.DefineMethod(wrapper, typeBuilder, "__<>" + helperNameCounter++, MethodAttributes.PrivateScope);
                     var ilgen = context.CodeEmitterFactory.Create(stub);
                     ilgen.Emit(OpCodes.Ldarg_0);
                     for (int i = 1; i <= dmh.ParameterCount; i++)
