@@ -14,7 +14,7 @@ using IKVM.Tools.Importer;
 using IKVM.Tools.Exporter;
 #endif
 
-#if IMPORTER == false
+#if IMPORTER == false || EXPORTER == false
 using IKVM.Runtime.StubGen;
 #endif
 
@@ -47,7 +47,7 @@ namespace IKVM.Runtime
         ExceptionHelper exceptionHelper;
 #endif
 
-#if IMPORTER == false
+#if IMPORTER == false || EXPORTER == false
         StubGenerator stubGenerator;
 #endif
 
@@ -178,7 +178,7 @@ namespace IKVM.Runtime
         /// </summary>
         public RuntimeVerifierJavaTypeFactory VerifierJavaTypeFactory => GetOrCreateSingleton(ref verifierJavaTypeFactory, () => new RuntimeVerifierJavaTypeFactory(this));
 
-#if IMPORTER == false
+#if IMPORTER == false || EXPORTER == false
 
         /// <summary>
         /// Gets the <see cref="StubGenerator"/> associated with this instance of the runtime.

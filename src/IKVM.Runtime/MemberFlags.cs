@@ -79,6 +79,11 @@ namespace IKVM.Runtime
         /// </summary>
         ModuleInitializer = 8192,
 
+        /// <summary>
+        /// Member has a Java Deprecated attribute.
+        /// </summary>
+        Deprecated = 16384,
+
     }
 
 }

@@ -947,6 +947,16 @@ namespace IKVM.Runtime
 
 #if IMPORTER
 
+        internal object GetRawMethodDefaultValue(RuntimeJavaMethod method)
+        {
+            var methods = GetMethods();
+            for (int i = 0; i < methods.Length; i++)
+                if (methods[i] == method)
+                    return impl.GetMethodDefaultValue(i);
+
+            return null;
+        }
+
         protected virtual Type GetBaseTypeForDefineType()
         {
             return BaseTypeWrapper.TypeAsBaseType;

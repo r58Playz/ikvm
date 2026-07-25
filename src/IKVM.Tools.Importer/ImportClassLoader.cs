@@ -391,7 +391,7 @@ namespace IKVM.Tools.Importer
                         }
                         else
                         {
-                            itemRef.MarkAsStub();
+                            itemRef.MarkAsStub(tw);
                         }
 
                         int pos = f.Name.LastIndexOf('.');
@@ -583,6 +583,7 @@ namespace IKVM.Tools.Importer
         void PrepareSave()
         {
             ((DynamicClassLoader)this.GetTypeWrapperFactory()).FinishAll();
+            WriteResources();
         }
 
         void Save()
@@ -778,15 +779,18 @@ namespace IKVM.Tools.Importer
                 var mem = new MemoryStream();
                 using (var zip = new ZipArchive(mem, ZipArchiveMode.Create))
                 {
-                    var stubs = new List<string>();
                     foreach (Jar.Item item in state.jars[i])
                     {
                         if (item.IsStub)
                         {
-                            // we don't want stub class pseudo resources for classes loaded from the file system
-                            if (i != state.classesJar)
-                                stubs.Add(item.Name);
+                            // Removed items (for example under -nojarstubs) have no associated type.
+                            if (item.StubType == null)
+                                continue;
 
+                            var stubZipEntry = zip.CreateEntry(item.Name, state.compressedResources ? CompressionLevel.Optimal : CompressionLevel.NoCompression);
+                            using var stubStream = stubZipEntry.Open();
+                            Context.StubGenerator.Write(stubStream, item.StubType, true, true, true, true, false, assemblyBuilder.FullName);
+                            hasEntries = true;
                             continue;
                         }
                         var zipEntry = zip.CreateEntry(item.Name, state.compressedResources ? CompressionLevel.Optimal : CompressionLevel.NoCompression);
@@ -799,20 +803,6 @@ namespace IKVM.Tools.Importer
                         hasEntries = true;
                     }
 
-                    if (stubs.Count != 0)
-                    {
-                        // generate the --ikvm-classes-- file in the jar
-                        var zipEntry = zip.CreateEntry(JVM.Internal.JarClassList);
-
-                        using Stream stream = zipEntry.Open();
-                        using BinaryWriter bw = new BinaryWriter(stream);
-
-                        bw.Write(stubs.Count);
-                        foreach (string classFile in stubs)
-                            bw.Write(classFile);
-
-                        hasEntries = true;
-                    }
                 }
 
                 // don't include empty classes.jar
@@ -3033,7 +3023,6 @@ namespace IKVM.Tools.Importer
             }
 
             Diagnostics.GenericCompilerInfo("Compiling class files (2)");
-            WriteResources();
 
             // add external resources
             if (state.externalResources != null)

@@ -9,7 +9,7 @@ using IKVM.ByteCode.Decoding;
 using IKVM.ByteCode.Buffers;
 
 
-#if EXPORTER
+#if EXPORTER || IMPORTER
 using IKVM.Reflection;
 
 using Type = IKVM.Reflection.Type;
@@ -44,7 +44,7 @@ namespace IKVM.Runtime.StubGen
         /// <param name="includeNonPublicMembers"></param>
         /// <param name="includeParameterNames"></param>
         /// <param name="includeSerialVersionUID"></param>
-        internal void Write(Stream stream, RuntimeJavaType type, bool includeNonPublicTypes, bool includeNonPublicInterfaces, bool includeNonPublicMembers, bool includeParameterNames, bool includeSerialVersionUID)
+        internal void Write(Stream stream, RuntimeJavaType type, bool includeNonPublicTypes, bool includeNonPublicInterfaces, bool includeNonPublicMembers, bool includeParameterNames, bool includeSerialVersionUID, string assemblyName = null)
         {
             var name = type.Name.Replace('.', '/');
 
@@ -61,7 +61,7 @@ namespace IKVM.Runtime.StubGen
             AddFields(builder, type, includeNonPublicMembers, includeSerialVersionUID);
             AddInnerClassesAttribute(builder, type, name, includeNonPublicTypes);
             AddSignatureAttribute(builder, type);
-            AddAssemblyAttribute(builder, type);
+            AddAssemblyAttribute(builder, type, assemblyName);
             AddDeprecatedAttribute(builder, type);
             AddRuntimeVisibleAnnotationsAttribute(builder, type);
             AddRuntimeVisibleTypeAnnotationsAttribute(builder, type);
@@ -127,14 +127,27 @@ namespace IKVM.Runtime.StubGen
                             attributes.AnnotationDefault(e => EncodeAnnotationDefault(builder, ref e, method.ReturnType));
                     }
 
+#if IMPORTER
+                    AddExceptionsAttribute(builder, type, method, attributes, null);
+                    if (method.IsDeprecated)
+                        attributes.Deprecated();
+
+                    if (type is RuntimeByteCodeJavaType byteCodeType)
+                    {
+                        var value = byteCodeType.GetRawMethodDefaultValue(method);
+                        if (value != null)
+                            attributes.AnnotationDefault(e => EncodeElementValue(builder, ref e, value));
+                    }
+#else
                     var methodBase = method.GetMethod();
                     if (methodBase != null)
                     {
                         AddExceptionsAttribute(builder, type, method, attributes, methodBase);
                         AddDeprecatedAttribute(builder, type, method, attributes, methodBase);
                         AddAnnotationDefaultAttribute(builder, type, method, attributes, methodBase);
-                        AddMethodParameters(builder, type, method, attributes, includeParameterNames);
                     }
+#endif
+                    AddMethodParameters(builder, type, method, attributes, includeParameterNames);
 
                     AddSignatureAttribute(builder, type, method, attributes);
                     AddRuntimeVisibleAnnotationsAttribute(builder, type, method, attributes);
@@ -293,12 +306,12 @@ namespace IKVM.Runtime.StubGen
         /// </summary>
         /// <param name="builder"></param>
         /// <param name="javaType"></param>
-        void AddAssemblyAttribute(ClassFileBuilder builder, RuntimeJavaType javaType)
+        void AddAssemblyAttribute(ClassFileBuilder builder, RuntimeJavaType javaType, string assemblyName)
         {
 
             // consists of a U2 constant pointing to the full name of the assembly
             var assemblyAttributeBlob = new BlobBuilder();
-            new ClassFormatWriter(assemblyAttributeBlob.ReserveBytes(ClassFormatWriter.U2).GetBytes()).WriteU2(builder.Constants.GetOrAddUtf8(GetAssemblyName(javaType)).Slot);
+            new ClassFormatWriter(assemblyAttributeBlob.ReserveBytes(ClassFormatWriter.U2).GetBytes()).WriteU2(builder.Constants.GetOrAddUtf8(assemblyName ?? GetAssemblyName(javaType)).Slot);
             builder.Attributes.Encoder.Attribute(builder.Constants.GetOrAddUtf8("IKVM.NET.Assembly"), assemblyAttributeBlob);
         }
 
@@ -312,6 +325,17 @@ namespace IKVM.Runtime.StubGen
         /// <param name="methodBase"></param>
         void AddExceptionsAttribute(ClassFileBuilder builder, RuntimeJavaType type, RuntimeJavaMethod method, AttributeTableBuilder attributes, MethodBase methodBase)
         {
+#if IMPORTER
+            var throwsArray = method.GetDeclaredExceptions();
+            if (throwsArray != null && throwsArray.Length > 0)
+            {
+                attributes.Exceptions(e =>
+                {
+                    foreach (string ex in throwsArray)
+                        e.Class(builder.Constants.GetOrAddClass(ex.Replace('.', '/')));
+                });
+            }
+#else
             var throws = context.AttributeHelper.GetThrows(methodBase);
             if (throws == null)
             {
@@ -341,6 +365,7 @@ namespace IKVM.Runtime.StubGen
                     });
                 }
             }
+#endif
         }
 
 
@@ -540,9 +565,14 @@ namespace IKVM.Runtime.StubGen
         /// <param name="attributes"></param>
         void AddDeprecatedAttribute(ClassFileBuilder builder, RuntimeJavaType type, RuntimeJavaField field, AttributeTableBuilder attributes)
         {
+#if IMPORTER
+            if (field.IsDeprecated)
+                attributes.Deprecated();
+#else
             // .NET ObsoleteAttribute translates to Deprecated attribute
             if (field.GetField() != null && field.GetField().IsDefined(context.Resolver.ResolveCoreType(typeof(ObsoleteAttribute).FullName).AsReflection(), false))
                 attributes.Deprecated();
+#endif
         }
 
         /// <summary>
@@ -585,7 +615,7 @@ namespace IKVM.Runtime.StubGen
         {
             var any = false;
 
-#if !FIRST_PASS && !EXPORTER
+#if !FIRST_PASS && !EXPORTER && !IMPORTER
             if (source != null)
             {
                 foreach (var cad in CustomAttributeData.GetCustomAttributes(source))
@@ -613,7 +643,7 @@ namespace IKVM.Runtime.StubGen
         {
             var any = false;
 
-#if !FIRST_PASS && !EXPORTER
+#if !FIRST_PASS && !EXPORTER && !IMPORTER
             if (source != null)
             {
                 var parameters = source.GetParameters();
@@ -651,7 +681,7 @@ namespace IKVM.Runtime.StubGen
         /// <exception cref="Exception"></exception>
         bool ImportTypeAnnotations(ClassFileBuilder builder, ref TypeAnnotationTableEncoder encoder, RuntimeJavaType type, byte[] typeAnnotations)
         {
-#if !FIRST_PASS && !EXPORTER
+#if !FIRST_PASS && !EXPORTER && !IMPORTER
             if (typeAnnotations != null)
             {
                 var reader = new ClassFormatReader(typeAnnotations);
@@ -818,7 +848,7 @@ namespace IKVM.Runtime.StubGen
 
         }
 
-#if !FIRST_PASS && !EXPORTER
+#if !FIRST_PASS && !EXPORTER && !IMPORTER
 
         /// <summary>
         /// Extracts our internal annotation format data from a custom attribute.
@@ -937,6 +967,8 @@ namespace IKVM.Runtime.StubGen
 
             return arg.Value;
         }
+
+#endif
 
         /// <summary>
         /// Encodes multiple objects in our internal annotation format.
@@ -1064,7 +1096,7 @@ namespace IKVM.Runtime.StubGen
 
         static string DecodeTypeName(string typeName)
         {
-#if !FIRST_PASS && !EXPORTER
+#if !FIRST_PASS && !EXPORTER && !IMPORTER
             int index = typeName.IndexOf(',');
             if (index > 0)
             {
@@ -1084,8 +1116,6 @@ namespace IKVM.Runtime.StubGen
             return typeName;
         }
 
-#endif
-
         object[] UnpackArray(IList<CustomAttributeTypedArgument> list)
         {
             var arr = new object[list.Count];
@@ -1097,7 +1127,7 @@ namespace IKVM.Runtime.StubGen
 
         int GetObsoleteCount(MethodBase mb)
         {
-#if EXPORTER
+#if EXPORTER || IMPORTER
             return mb.__GetCustomAttributes(context.Resolver.ResolveCoreType(typeof(ObsoleteAttribute).FullName).AsReflection(), false).Count;
 #else
             return mb.GetCustomAttributes(typeof(ObsoleteAttribute), false).Length;
@@ -1106,7 +1136,7 @@ namespace IKVM.Runtime.StubGen
 
         CustomAttributeData GetAnnotationDefault(MethodBase mb)
         {
-#if EXPORTER
+#if EXPORTER || IMPORTER
             var attr = CustomAttributeData.__GetCustomAttributes(mb, context.Resolver.ResolveRuntimeType(typeof(Attributes.AnnotationDefaultAttribute).FullName).AsReflection(), false);
             return attr.Count == 1 ? attr[0] : null;
 #else

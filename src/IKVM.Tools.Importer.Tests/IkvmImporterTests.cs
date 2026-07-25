@@ -1,11 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
+using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 
 using FluentAssertions;
 
+using IKVM.Attributes;
 using IKVM.Java.Tests.Util;
 using IKVM.Tests.Util;
 
@@ -61,6 +65,57 @@ namespace IKVM.Tools.Importer.Tests
             ret.Should().Be(0);
             File.Exists(asm).Should().BeTrue();
             new FileInfo(asm).Length.Should().BeGreaterThanOrEqualTo(128);
+
+            var output = Assembly.LoadFile(asm);
+            var jars = output.GetModules()
+                .SelectMany(i => i.GetCustomAttributes<JavaModuleAttribute>())
+                .SelectMany(i => i.Jars ?? Array.Empty<string>());
+            var classFile = "ikvm/tools/importer/tests/IkvmImporterTests.class";
+            byte[] stub = null;
+
+            foreach (var jar in jars)
+            {
+                using var resource = output.GetManifestResourceStream(jar);
+                using var archive = new ZipArchive(resource, ZipArchiveMode.Read);
+                archive.GetEntry("--ikvm-classes--/").Should().BeNull();
+
+                if (archive.GetEntry(classFile) is ZipArchiveEntry entry)
+                {
+                    using var input = entry.Open();
+                    using var memory = new MemoryStream();
+                    input.CopyTo(memory);
+                    stub = memory.ToArray();
+                }
+            }
+
+            stub.Should().NotBeNull();
+            stub.Take(4).Should().Equal((byte)0xca, (byte)0xfe, (byte)0xba, (byte)0xbe);
+
+            if (ikvmFramework == "net8.0" && targetFramework == "net8.0")
+            {
+                var noStubsAssembly = Path.ChangeExtension(j, ".nojarstubs.dll");
+                var noStubsArgs = args.Where(i => i.StartsWith("-out:") == false).ToList();
+                noStubsArgs.Insert(noStubsArgs.Count - 1, "-nojarstubs");
+                noStubsArgs.Insert(noStubsArgs.Count - 1, $"-out:{noStubsAssembly}");
+
+                ret = await ImportTool.InvokeAsync(noStubsArgs.ToArray(), CancellationToken.None);
+                ret.Should().Be(0);
+
+                var noStubsOutput = Assembly.LoadFile(noStubsAssembly);
+                var noStubsJars = noStubsOutput.GetModules()
+                    .SelectMany(i => i.GetCustomAttributes<JavaModuleAttribute>())
+                    .SelectMany(i => i.Jars ?? Array.Empty<string>())
+                    .ToArray();
+                noStubsJars.Should().NotBeEmpty();
+
+                foreach (var jar in noStubsJars)
+                {
+                    using var resource = noStubsOutput.GetManifestResourceStream(jar);
+                    using var archive = new ZipArchive(resource, ZipArchiveMode.Read);
+                    archive.GetEntry("--ikvm-classes--/").Should().BeNull();
+                    archive.GetEntry(classFile).Should().BeNull();
+                }
+            }
         }
     }
 

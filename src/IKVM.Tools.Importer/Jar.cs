@@ -24,6 +24,8 @@
 using System.Collections.Generic;
 using System.IO;
 
+using IKVM.Runtime;
+
 namespace IKVM.Tools.Importer
 {
 
@@ -59,12 +61,14 @@ namespace IKVM.Tools.Importer
             internal readonly string name;
             internal readonly byte[] data;
             internal readonly FileInfo path;            // path of the original file, if it was individual file (used to construct source file path)
+            internal readonly RuntimeJavaType stubType;
 
-            internal JarItem(string name, byte[] data, FileInfo path)
+            internal JarItem(string name, byte[] data, FileInfo path, RuntimeJavaType stubType = null)
             {
                 this.name = name;
                 this.data = data;
                 this.path = path;
+                this.stubType = stubType;
             }
         }
 
@@ -99,15 +103,17 @@ namespace IKVM.Tools.Importer
                 Jar.Items[Index] = new JarItem();
             }
 
-            internal void MarkAsStub()
+            internal void MarkAsStub(RuntimeJavaType type)
             {
-                Jar.Items[Index] = new JarItem(Jar.Items[Index].name, null, null);
+                Jar.Items[Index] = new JarItem(Jar.Items[Index].name, null, null, type);
             }
 
             internal bool IsStub
             {
                 get { return Jar.Items[Index].data == null; }
             }
+
+            internal RuntimeJavaType StubType => Jar.Items[Index].stubType;
         }
 
         internal struct JarEnumerator

@@ -160,6 +160,9 @@ namespace IKVM.Runtime
 
                         methods[i] = new RuntimeTypicalJavaMethod(wrapper, m.Name, m.Signature, null, null, null, m.Modifiers, flags);
                     }
+
+                    if (m.DeprecatedAttribute)
+                        methods[i].SetDeprecated();
                 }
 
                 if (hasclinit)
@@ -199,6 +202,9 @@ namespace IKVM.Runtime
                     {
                         fields[i] = RuntimeJavaField.Create(wrapper, null, null, fld.Name, fld.Signature, new ExModifiers(fld.Modifiers, fld.IsInternal));
                     }
+
+                    if (fld.DeprecatedAttribute)
+                        fields[i].SetDeprecated();
                 }
 #if IMPORTER
                 wrapper.AddMapXmlFields(ref fields);
@@ -2469,6 +2475,12 @@ namespace IKVM.Runtime
 
 #if IMPORTER
                     wrapper.Context.AttributeHelper.SetThrowsAttribute(method, exceptions);
+
+                    // Persist the original Java method identity for all emitted methods so
+                    // later managed-wrapper lookups can resolve Java override chains without
+                    // depending on the CLR-visible method name.
+                    if (method is MethodBuilder emittedMethod && !(classFile.IsInterface && !m.IsStatic && !m.IsPublic))
+                        wrapper.Context.AttributeHelper.SetNameSig(emittedMethod, m.Name, m.Signature);
 
                     if (setModifiers || m.IsInternal || (m.Modifiers & (Modifiers.Synthetic | Modifiers.Bridge)) != 0)
                         wrapper.Context.AttributeHelper.SetModifiers(method, m.Modifiers, m.IsInternal);

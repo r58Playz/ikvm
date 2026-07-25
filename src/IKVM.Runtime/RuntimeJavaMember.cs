@@ -185,6 +185,10 @@ namespace IKVM.Runtime
 
         internal bool IsHideFromReflection => (flags & MemberFlags.HideFromReflection) != 0;
 
+        internal bool IsDeprecated => (flags & MemberFlags.Deprecated) != 0;
+
+        internal void SetDeprecated() => flags |= MemberFlags.Deprecated;
+
         internal bool IsExplicitOverride => (flags & MemberFlags.ExplicitOverride) != 0;
 
         internal bool IsMirandaMethod => (flags & MemberFlags.MirandaMethod) != 0;
