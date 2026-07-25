@@ -57,6 +57,7 @@ class VMManagementImpl implements VMManagement {
     private static boolean threadAllocatedMemorySupport;
     private static boolean gcNotificationSupport;
     private static boolean remoteDiagnosticCommandsSupport;
+    private static final long vmStartupTime = System.currentTimeMillis();
 
     // Optional supports
     public boolean isCompilationTimeMonitoringSupported() {
@@ -186,7 +187,7 @@ class VMManagementImpl implements VMManagement {
     }
 
     public long getUptime() {
-        return cli.System.DateTime.get_Now().Subtract(cli.System.Diagnostics.Process.GetCurrentProcess().get_StartTime()).get_Ticks() / 10000L;
+        return System.currentTimeMillis() - vmStartupTime;
     }
 
     private List<String> vmArgs = null;
@@ -204,7 +205,7 @@ class VMManagementImpl implements VMManagement {
     }
 
     public long getStartupTime() {
-        return (long)(cli.System.Diagnostics.Process.GetCurrentProcess().get_StartTime().ToUniversalTime().Subtract(new cli.System.DateTime(1970, 1, 1))).get_TotalMilliseconds();
+        return vmStartupTime;
     }
     public int getAvailableProcessors() {
         return cli.System.Environment.get_ProcessorCount();
