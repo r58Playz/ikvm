@@ -3123,7 +3123,8 @@ namespace IKVM.Runtime
                         RuntimeJavaType tw = ma.GetStackTypeWrapper(instructionIndex, args.Length - 1 - i);
                         if (tw.IsUnloadable || (args[i].IsInterfaceOrInterfaceArray && NeedsInterfaceDownCast(tw, args[i])))
                         {
-                            ilGenerator.EmitAssertType(args[i].TypeAsTBD);
+                            // declaringType is null on the invokedynamic path
+                            ilGenerator.EmitAssertType(args[i].TypeAsTBD, "IKVM interface-downcast: arg #" + i + " (" + args[i].Name + ") in " + classFile.Name + "." + m.Name + m.Signature + (declaringType != null ? " calling " + declaringType.Name : ""));
                             Profiler.Count("InterfaceDownCast");
                         }
                     }
@@ -3136,7 +3137,7 @@ namespace IKVM.Runtime
                 {
                     if (declaringType.IsInterface)
                     {
-                        ilGenerator.EmitAssertType(declaringType.TypeAsTBD);
+                        ilGenerator.EmitAssertType(declaringType.TypeAsTBD, "IKVM interface-downcast: receiver (" + declaringType.Name + ") in " + classFile.Name + "." + m.Name + m.Signature);
                     }
                     else if (declaringType.IsNonPrimitiveValueType)
                     {

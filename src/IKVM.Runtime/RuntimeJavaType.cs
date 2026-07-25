@@ -1322,7 +1322,7 @@ namespace IKVM.Runtime
                 // for any interface reference
                 else if (IsInterfaceOrInterfaceArray && (sourceType == null || sourceType.IsUnloadable || !sourceType.IsAssignableTo(this)))
                 {
-                    ilgen.EmitAssertType(TypeAsTBD);
+                    ilgen.EmitAssertType(TypeAsTBD, "IKVM interface-downcast: checkcast to " + Name + (sourceType != null ? " from " + sourceType.Name : ""));
                     Profiler.Count("InterfaceDownCast");
                 }
                 else if (IsNonPrimitiveValueType)

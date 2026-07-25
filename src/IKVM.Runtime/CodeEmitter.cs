@@ -2490,6 +2490,15 @@ namespace IKVM.Runtime
         // throws an IncompatibleClassChangeError on failure.
         internal void EmitAssertType(Type type)
         {
+            EmitAssertType(type, null);
+        }
+
+        // As above, but attaches a diagnostic message to the thrown
+        // IncompatibleClassChangeError. The default (message-less) throw is
+        // useless for locating a failing interface downcast, so callers on the
+        // interface-downcast paths pass context (compiling method + target type).
+        internal void EmitAssertType(Type type, string message)
+        {
             var isnull = DefineLabel();
             Emit(OpCodes.Dup);
             EmitBrfalse(isnull);
@@ -2497,7 +2506,10 @@ namespace IKVM.Runtime
             Emit(OpCodes.Dup);
             var ok = DefineLabel();
             EmitBrtrue(ok);
-            EmitThrow("java.lang.IncompatibleClassChangeError");
+            if (message != null)
+                EmitThrow("java.lang.IncompatibleClassChangeError", message);
+            else
+                EmitThrow("java.lang.IncompatibleClassChangeError");
             MarkLabel(isnull);
             Emit(OpCodes.Pop);
             Emit(OpCodes.Ldnull);

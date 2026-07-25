@@ -257,7 +257,8 @@ public abstract class AnnotationAttributeBase
             catch (IllegalAccessException x)
             {
                 // TODO this probably isn't the right exception
-                throw new IncompatibleClassChangeError();
+                throw new IncompatibleClassChangeError("[ikvm-diag] AnnotationAttributeBase.decodeValues: annotation "
+                    + (annotationClass == null ? "?" : annotationClass.getName()) + " element '" + name + "': " + x);
             }
             catch (NoSuchMethodException x)
             {
