@@ -233,15 +233,30 @@ namespace IKVM.Runtime
             // define a new anonymous class to implement the functional interface
             var tb = context.DefineAnonymousClass();
 
-            // we're not implementing the interfaces recursively (because we don't care about .NET Compact anymore),
-            // but should we decide to do that, we'd need to somehow communicate to AnonymousTypeWrapper what the 'real' interface is
-            tb.AddInterfaceImplementation(interfaceType.TypeAsBaseType);
+            // Implement the functional interface and walk its parent interface chain.
+            //
+            // We can't rely on the CLR's automatic transitive interface dispatch here:
+            // the anonymous lambda type is finalized before its interface (e.g. a
+            // sub-interface of Callable) has its own parent interface chain visible
+            // to the runtime's interface_offsets cache. Without explicitly listing
+            // every parent interface here, dispatching against one of those parents
+            // (e.g. Callable.call() on a lambda typed as CrashReportDetail) will fail
+            // the interface offset lookup at runtime.
+            //
+            // The original code only registered the direct interface with a TODO
+            // noting that registering recursively would need careful handling of
+            // ghost interfaces and AnonymousTypeWrapper's notion of the "real"
+            // interface — but in practice the missing transitive registration is
+            // exactly what causes runtime interface dispatch failures.
+            var addedInterfaces = new HashSet<RuntimeJavaType>();
+            AddInterfaceAndParents(tb, interfaceType, addedInterfaces);
+
             if (serializable && Array.IndexOf(markers, context.Context.JavaBase.TypeOfJavaIoSerializable) == -1)
-                tb.AddInterfaceImplementation(context.Context.JavaBase.TypeOfJavaIoSerializable.TypeAsBaseType);
+                AddInterfaceAndParents(tb, context.Context.JavaBase.TypeOfJavaIoSerializable, addedInterfaces);
 
             // implement marker interfaces
             foreach (var marker in markers)
-                tb.AddInterfaceImplementation(marker.TypeAsBaseType);
+                AddInterfaceAndParents(tb, marker, addedInterfaces);
 
             getInstance = CreateConstructorAndDispatch(context, cpi, tb, methods, implParameters, samMethodType, implMethod, instantiatedMethodType, serializable);
             AddDefaultInterfaceMethods(context, methodList, tb);
@@ -252,6 +267,42 @@ namespace IKVM.Runtime
         static void Fail(string msg)
         {
             Console.WriteLine("Fail: " + msg);
+        }
+
+        [Conditional("TRACE_LAMBDA_METAFACTORY")]
+        static void Trace(string msg)
+        {
+            Console.WriteLine("[LMF] " + msg);
+        }
+
+        // Synthetic bridge methods get the "<bridge>" prefix on their CLR-level name in IKVM
+        // (see RuntimeByteCodeJavaType.JavaTypeImpl.cs and FinishContext.cs). When walking
+        // an interface hierarchy here we need to treat "<bridge>foo" and "foo" as the same
+        // override, since the bridge is the concrete override of the abstract parent method
+        // it bridges to.
+        static string StripBridgePrefix(string name)
+        {
+            return name != null && name.StartsWith(NamePrefix.Bridge, StringComparison.Ordinal)
+                ? name.Substring(NamePrefix.Bridge.Length)
+                : name;
+        }
+
+        /// <summary>
+        /// Add an interface to the TypeBuilder and recursively register all of its
+        /// parent interfaces too. Skips interfaces that aren't accessible from the
+        /// lambda's anonymous-class context. Avoids re-registering interfaces via
+        /// the <paramref name="visited"/> set so we don't add the same interface
+        /// twice when multiple parents converge.
+        /// </summary>
+        static void AddInterfaceAndParents(TypeBuilder tb, RuntimeJavaType ifaceType, HashSet<RuntimeJavaType> visited)
+        {
+            if (ifaceType == null || !visited.Add(ifaceType))
+                return;
+
+            tb.AddInterfaceImplementation(ifaceType.TypeAsBaseType);
+
+            foreach (var parent in ifaceType.Interfaces)
+                AddInterfaceAndParents(tb, parent, visited);
         }
 
         /// <summary>
@@ -915,9 +966,11 @@ namespace IKVM.Runtime
 
         static bool CheckSupportedInterfaces(RuntimeJavaType caller, RuntimeJavaType tw, RuntimeJavaType[] markers, ClassFile.ConstantPoolItemMethodType[] bridges, out RuntimeJavaMethod[] methodList)
         {
+            Trace($"CheckSupportedInterfaces: caller={caller.Name} tw={tw.Name} markers={markers.Length} bridges={(bridges == null ? "<null>" : bridges.Length.ToString())}");
             // we don't need to check for unloadable, because we already did that while validating the invoke signature
             if (!IsSupportedInterface(tw, caller))
             {
+                Trace($"  IsSupportedInterface({tw.Name}) failed: isInterface={tw.IsInterface} isGhost={tw.IsGhost} accessible={tw.IsAccessibleFrom(caller)} isISerializable={tw.Context.Serialization.IsISerializable(tw)}");
                 methodList = null;
                 return false;
             }
@@ -925,7 +978,9 @@ namespace IKVM.Runtime
             Dictionary<MethodKey, RuntimeJavaMethod> methods = new Dictionary<MethodKey, RuntimeJavaMethod>();
             int abstractMethodCount = 0;
             int bridgeMethodCount = 0;
-            if (GatherAllInterfaceMethods(tw, bridges, methods, ref abstractMethodCount, ref bridgeMethodCount) && abstractMethodCount == 1)
+            var gatherOk = GatherAllInterfaceMethods(tw, bridges, methods, ref abstractMethodCount, ref bridgeMethodCount);
+            Trace($"  after primary gather: ok={gatherOk} abstractMethodCount={abstractMethodCount} bridgeMethodCount={bridgeMethodCount} dictSize={methods.Count}");
+            if (gatherOk && abstractMethodCount == 1)
             {
                 foreach (var marker in markers)
                 {
@@ -959,6 +1014,7 @@ namespace IKVM.Runtime
 
         static bool GatherAllInterfaceMethods(RuntimeJavaType tw, ClassFile.ConstantPoolItemMethodType[] bridges, Dictionary<MethodKey, RuntimeJavaMethod> methods, ref int abstractMethodCount, ref int bridgeMethodCount)
         {
+            Trace($"  Gather walk: {tw.Name}");
             foreach (var mw in tw.GetMethods())
             {
                 if (mw.IsVirtual)
@@ -966,7 +1022,10 @@ namespace IKVM.Runtime
                     if (mw is RuntimeMirandaJavaMethod mmw)
                     {
                         if (mmw.Error != null)
+                        {
+                            Trace($"    bail: miranda method '{mw.Name}{mw.Signature}' has error '{mmw.Error}'");
                             return false;
+                        }
 
                         continue;
                     }
@@ -977,8 +1036,10 @@ namespace IKVM.Runtime
                         if (!MatchSignatures(mw, current))
                         {
                             // linkage error (or unloadable type)
+                            Trace($"    bail: MatchSignatures false for '{mw.Name}{mw.Signature}' (existing from {current.DeclaringType.Name}, new from {mw.DeclaringType.Name})");
                             return false;
                         }
+                        Trace($"    dup key '{mw.Name}{mw.Signature}' from {mw.DeclaringType.Name}; existing from {current.DeclaringType.Name} (existingAbstract={current.IsAbstract} newAbstract={mw.IsAbstract})");
                     }
                     else
                     {
@@ -987,18 +1048,34 @@ namespace IKVM.Runtime
                         if (mw.IsAbstract && !IsObjectMethod(mw))
                         {
                             if (bridges != null && IsBridge(mw, bridges))
+                            {
                                 bridgeMethodCount++;
+                                Trace($"    add+bridge '{mw.Name}{mw.Signature}' (from {tw.Name}) bridgeCount={bridgeMethodCount}");
+                            }
                             else
+                            {
                                 abstractMethodCount++;
+                                Trace($"    add+abstract '{mw.Name}{mw.Signature}' (from {tw.Name}) abstractCount={abstractMethodCount}");
+                            }
+                        }
+                        else
+                        {
+                            Trace($"    add '{mw.Name}{mw.Signature}' (from {tw.Name}) abstract={mw.IsAbstract} isObjectMethod={IsObjectMethod(mw)}");
                         }
                     }
 
                     mw.Link();
                     if (mw.GetMethod() == null)
+                    {
+                        Trace($"    bail: GetMethod() null for '{mw.Name}{mw.Signature}' after Link");
                         return false;
+                    }
 
-                    if (current != null && mw.RealName != current.RealName)
+                    if (current != null && StripBridgePrefix(mw.RealName) != StripBridgePrefix(current.RealName))
+                    {
+                        Trace($"    bail: RealName mismatch '{mw.Name}{mw.Signature}': existing.RealName='{current.RealName}' new.RealName='{mw.RealName}'");
                         return false;
+                    }
                 }
             }
 
