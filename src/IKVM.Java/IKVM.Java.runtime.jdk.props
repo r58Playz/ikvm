@@ -36,6 +36,10 @@
         <OpenJdkSource Remove="$(OpenJdkDir)jdk\src\share\classes\java\lang\System.java" />
         <OpenJdkSource Remove="$(OpenJdkDir)jdk\src\share\classes\java\lang\Thread.java" />
         <OpenJdkSource Include="$(OpenJdkDir)jdk\src\share\classes\java\lang\annotation\**\*.java" PackagePath="java\lang\annotation" />
+        <!-- java.lang.instrument API classes (IllegalClassFormatException, ClassFileTransformer, ...).
+             Pure-Java, self-contained; the native agent impl (sun.instrument.*) is intentionally left out.
+             JVMDowngrader's j15 MethodHandles.Lookup stub references IllegalClassFormatException. -->
+        <OpenJdkSource Include="$(OpenJdkDir)jdk\src\share\classes\java\lang\instrument\**\*.java" PackagePath="java\lang\instrument" />
         <OpenJdkSource Include="$(OpenJdkDir)jdk\src\share\classes\java\lang\invoke\**\*.java" PackagePath="java\lang\invoke" />
         <OpenJdkSource Remove="$(OpenJdkDir)jdk\src\share\classes\java\lang\invoke\DirectMethodHandle.java" />
         <OpenJdkSource Include="$(OpenJdkDir)jdk\src\share\classes\java\lang\management\**\*.java" PackagePath="java\lang\management" />
