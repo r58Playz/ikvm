@@ -17,7 +17,7 @@
             <Targets>dist%5Cdist-jre:Publish</Targets>
             <Properties>PublishDir=$(DistDir)\jre</Properties>
         </TargetsForPublish>
-        <TargetsForPublish Include="$(SolutionFile)">
+        <!--<TargetsForPublish Include="$(SolutionFile)">
             <Targets>dist%5Cdist-jdk:Publish</Targets>
             <Properties>PublishDir=$(DistDir)\jdk</Properties>
         </TargetsForPublish>
@@ -28,7 +28,7 @@
         <TargetsForPublish Include="$(SolutionFile)">
             <Targets>dist%5Cdist-tests:Publish</Targets>
             <Properties>PublishDir=$(DistDir)\tests</Properties>
-        </TargetsForPublish>
+        </TargetsForPublish>-->
     </ItemGroup>
 
     <Target Name="Publish">

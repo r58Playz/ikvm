@@ -41,7 +41,7 @@
             <PublishItemGroup>PublishIkvmImageBinItem</PublishItemGroup>
             <PublishItemMetadata>TargetFramework=net472;RuntimeIdentifier=$(ImageRuntimeIdentifier)</PublishItemMetadata>
         </PublishProjectReference>
-        <PublishProjectReference Include="@(BinProject)" Condition="$(SupportedImageTargetFrameworks.Contains(';net6.0;'))">
+        <PublishProjectReference Include="@(BinProject)" Condition="$(SupportedImageTargetFrameworks.Contains(';net6.0;')) And '$(BuildNet6JreImages)' != 'false'">
             <SetTargetFramework>TargetFramework=net6.0</SetTargetFramework>
             <SetRuntimeIdentifier>RuntimeIdentifier=$(ImageRuntimeIdentifier)</SetRuntimeIdentifier>
             <PublishItemGroup>PublishIkvmImageBinItem</PublishItemGroup>
