@@ -279,6 +279,14 @@ namespace IKVM.Runtime
         // unlimited direct memory
         p["sun.nio.MaxDirectMemorySize"] = "-1";
 
+        // single-threaded WASM build: tell java.lang.ref.Finalizer not to start the
+        // finalizer thread (the runtime cannot start threads; Thread.start traps).
+        // Read from the env var here because OpenJDK's System.getenv does not see
+        // mono's withEnvironmentVariable values on wasm, whereas this becomes a real
+        // system property consulted in Finalizer's static initializer.
+        if (SafeGetEnvironmentVariable("IKVM_DISABLE_FINALIZER") != null)
+            p["ikvm.finalizer.disabled"] = "true";
+
         // default to FORK on OSX, instead of posix_spawn with jspawnhelper
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             p["jdk.lang.Process.launchMechanism"] = "FORK";
