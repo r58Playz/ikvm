@@ -45,41 +45,42 @@ class UnixConstants {
     static final int W_OK = 2;
     static final int X_OK = 1;
     static final int F_OK = 0;
-    static final int ENOENT = 2;
-    static final int ENXIO = 6;
-    static final int EACCES = 13;
-    static final int EEXIST = 17;
-    static final int ENOTDIR = 20;
-    static final int EINVAL = 22;
-    static final int EXDEV = 18;
-    static final int EISDIR = 21;
-    static final int ENOTEMPTY = 39;
-    static final int ENOSPC = 28;
-    static final int EAGAIN = 11;
-    static final int EWOULDBLOCK = 11;
-    static final int ENOSYS = 38;
-    static final int ELOOP = 40;
-    static final int EROFS = 30;
+    // Emscripten's libc uses WASI errno values, not Linux kernel errno values.
+    static final int ENOENT = 44;
+    static final int ENXIO = 60;
+    static final int EACCES = 2;
+    static final int EEXIST = 20;
+    static final int ENOTDIR = 54;
+    static final int EINVAL = 28;
+    static final int EXDEV = 75;
+    static final int EISDIR = 31;
+    static final int ENOTEMPTY = 55;
+    static final int ENOSPC = 51;
+    static final int EAGAIN = 6;
+    static final int EWOULDBLOCK = 6;
+    static final int ENOSYS = 52;
+    static final int ELOOP = 32;
+    static final int EROFS = 69;
 
 
 
 
 
-    static final int ENODATA = 61;
+    static final int ENODATA = 116;
 
 
 
 
 
 
-    static final int XATTR_NOT_FOUND = 61;
+    static final int XATTR_NOT_FOUND = 116;
 
 
 
 
 
-    static final int ERANGE = 34;
-    static final int EMFILE = 24;
+    static final int ERANGE = 68;
+    static final int EMFILE = 33;
 
 
 
