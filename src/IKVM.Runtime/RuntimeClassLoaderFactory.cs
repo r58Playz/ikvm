@@ -23,6 +23,7 @@
 */
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 
 using IKVM.CoreLib.Diagnostics;
@@ -54,7 +55,7 @@ namespace IKVM.Runtime
 
         readonly RuntimeContext context;
         readonly object wrapperLock = new object();
-        internal readonly Dictionary<Type, RuntimeJavaType> globalTypeToTypeWrapper = new Dictionary<Type, RuntimeJavaType>();
+        internal readonly ConcurrentDictionary<Type, RuntimeJavaType> globalTypeToTypeWrapper = new ConcurrentDictionary<Type, RuntimeJavaType>();
         internal readonly Dictionary<Type, string> remappedTypes = new Dictionary<Type, string>();
         readonly List<RuntimeGenericClassLoader> genericClassLoaders = new List<RuntimeGenericClassLoader>();
 
@@ -187,8 +188,7 @@ namespace IKVM.Runtime
             Debug.Assert(!type.IsByRef);
 
             RuntimeJavaType wrapper;
-            lock (globalTypeToTypeWrapper)
-                globalTypeToTypeWrapper.TryGetValue(type, out wrapper);
+			globalTypeToTypeWrapper.TryGetValue(type, out wrapper);
 
             if (wrapper != null)
                 return wrapper;
@@ -197,7 +197,7 @@ namespace IKVM.Runtime
             if (type.__IsMissing || type.__ContainsMissingType)
             {
                 wrapper = new RuntimeUnloadableJavaType(context, type);
-                globalTypeToTypeWrapper.Add(type, wrapper);
+                globalTypeToTypeWrapper.TryAdd(type, wrapper);
                 return wrapper;
             }
 #endif
@@ -230,7 +230,7 @@ namespace IKVM.Runtime
                     var tw = new RuntimeAnonymousJavaType(context, type);
                     lock (typeToTypeWrapper)
                         if (!typeToTypeWrapper.TryGetValue(type, out wrapper))
-                            typeToTypeWrapper.Add(type, wrapper = tw);
+                            typeToTypeWrapper.TryAdd(type, wrapper = tw);
 
                     return wrapper;
                 }
@@ -247,8 +247,6 @@ namespace IKVM.Runtime
                 wrapper = context.AssemblyClassLoaderFactory.FromAssembly(asm).GetJavaTypeFromAssemblyType(type);
             }
 
-            lock (globalTypeToTypeWrapper)
-            {
                 try
                 {
                     // critical code in the finally block to avoid Thread.Abort interrupting the thread
@@ -257,7 +255,6 @@ namespace IKVM.Runtime
                 {
                     globalTypeToTypeWrapper[type] = wrapper;
                 }
-            }
 
             return wrapper;
         }
@@ -416,17 +413,14 @@ namespace IKVM.Runtime
             RuntimeJavaType.AssertFinished(type);
 #endif
 
-            lock (globalTypeToTypeWrapper)
-            {
                 try
                 {
                     // critical code in the finally block to avoid Thread.Abort interrupting the thread
                 }
                 finally
                 {
-                    globalTypeToTypeWrapper.Add(type, wrapper);
+                    globalTypeToTypeWrapper.TryAdd(type, wrapper);
                 }
-            }
         }
 
     }

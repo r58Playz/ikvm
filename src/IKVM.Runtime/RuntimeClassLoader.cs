@@ -106,8 +106,7 @@ namespace IKVM.Runtime
             lock (types)
                 types.Add(tw.Name, tw);
 
-            lock (Context.ClassLoaderFactory.globalTypeToTypeWrapper)
-                context.ClassLoaderFactory.globalTypeToTypeWrapper.Add(type, tw);
+			context.ClassLoaderFactory.globalTypeToTypeWrapper.TryAdd(type, tw);
 
             context.ClassLoaderFactory.remappedTypes.Add(type, tw.Name);
         }
