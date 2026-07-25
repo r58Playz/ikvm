@@ -1157,14 +1157,20 @@ namespace IKVM.Runtime
                         ilGenerator.EmitLdc_I8(1L);
                         break;
                     case NormalizedByteCode.__fconst_0:
-                    case NormalizedByteCode.__dconst_0:
-                        // floats are stored as native size on the stack, so both R4 and R8 are the same
                         ilGenerator.EmitLdc_R4(0.0f);
                         break;
+                    case NormalizedByteCode.__dconst_0:
+                        // Java dconst_0 pushes a double, must be R8 — passing as
+                        // R4 corrupts the value when stored into a double call
+                        // argument slot (only 4 bytes get written).
+                        ilGenerator.EmitLdc_R8(0.0);
+                        break;
                     case NormalizedByteCode.__fconst_1:
-                    case NormalizedByteCode.__dconst_1:
-                        // floats are stored as native size on the stack, so both R4 and R8 are the same
                         ilGenerator.EmitLdc_R4(1.0f);
+                        break;
+                    case NormalizedByteCode.__dconst_1:
+                        // Java dconst_1 pushes a double, must be R8.
+                        ilGenerator.EmitLdc_R8(1.0);
                         break;
                     case NormalizedByteCode.__fconst_2:
                         ilGenerator.EmitLdc_R4(2.0f);
