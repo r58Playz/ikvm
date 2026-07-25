@@ -7,6 +7,8 @@ using System.Threading;
 
 using IKVM.Runtime.Accessors.Java.Util;
 
+using Mono.Interop;
+
 namespace IKVM.Runtime
 {
     using IKVM.CoreLib.Diagnostics;
@@ -51,13 +53,13 @@ namespace IKVM.Runtime
         }
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        delegate int JNI_GetDefaultJavaVMInitArgsDelegate(void* vm_args);
+        internal delegate int JNI_GetDefaultJavaVMInitArgsDelegate(void* vm_args);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        delegate int JNI_GetCreatedJavaVMsDelegate(JavaVM** vmBuf, int bufLen, int* nVMs);
+        internal delegate int JNI_GetCreatedJavaVMsDelegate(JavaVM** vmBuf, int bufLen, int* nVMs);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        delegate int JNI_CreateJavaVMDelegate(JavaVM** p_vm, void** p_env, void* vm_args);
+        internal delegate int JNI_CreateJavaVMDelegate(JavaVM** p_vm, void** p_env, void* vm_args);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         delegate void JVM_ThrowExceptionDelegate([MarshalAs(UnmanagedType.LPUTF8Str)] string name, [MarshalAs(UnmanagedType.LPUTF8Str)] string message);
@@ -105,7 +107,7 @@ namespace IKVM.Runtime
         /// </summary>
         public static readonly LibJvm Instance = new();
 
-        readonly ikvm.@internal.CallerID callerID = ikvm.@internal.CallerID.create(typeof(LibJvm).TypeHandle);
+        static readonly ikvm.@internal.CallerID callerID = ikvm.@internal.CallerID.create(typeof(LibJvm).TypeHandle);
         readonly JVMInvokeInterface* jvmii;
 
         readonly JVM_InitDelegate _JVM_Init;
@@ -218,7 +220,8 @@ namespace IKVM.Runtime
         /// Invoked by the native code to get an event handle to wait on for thread interruption.
         /// </summary>
         /// <returns></returns>
-        nint JVM_GetThreadInterruptEvent()
+        [MonoPInvokeCallback(typeof(JVM_GetThreadInterruptEventDelegate))]
+        static nint JVM_GetThreadInterruptEvent()
         {
             try
             {
@@ -241,7 +244,8 @@ namespace IKVM.Runtime
         /// Invoked by the native code to get the active number of processors.
         /// </summary>
         /// <returns></returns>
-        int JVM_ActiveProcessorCount()
+        [MonoPInvokeCallback(typeof(JVM_ActiveProcessorCountDelegate))]
+        static int JVM_ActiveProcessorCount()
         {
             return Environment.ProcessorCount;
         }
@@ -252,7 +256,8 @@ namespace IKVM.Runtime
         /// <param name="env"></param>
         /// <param name="handle"></param>
         /// <returns></returns>
-        int JVM_IHashCode(JNIEnv* env, nint handle)
+        [MonoPInvokeCallback(typeof(JVM_IHashCodeDelegate))]
+        static int JVM_IHashCode(JNIEnv* env, nint handle)
         {
             return handle == 0 ? 0 : RuntimeHelpers.GetHashCode(env->UnwrapRef(handle));
         }
@@ -267,7 +272,8 @@ namespace IKVM.Runtime
         /// <param name="dst"></param>
         /// <param name="dst_pos"></param>
         /// <param name="length"></param>
-        void JVM_ArrayCopy(JNIEnv* env, nint ignored, nint src, int src_pos, nint dst, int dst_pos, int length)
+        [MonoPInvokeCallback(typeof(JVM_ArrayCopyDelegate))]
+        static void JVM_ArrayCopy(JNIEnv* env, nint ignored, nint src, int src_pos, nint dst, int dst_pos, int length)
         {
             try
             {
@@ -314,7 +320,8 @@ namespace IKVM.Runtime
         /// <param name="dst"></param>
         /// <param name="dst_pos"></param>
         /// <param name="length"></param>
-        nint JVM_InitProperties(JNIEnv* env, nint props)
+        [MonoPInvokeCallback(typeof(JVM_InitPropertiesDelegate))]
+        static nint JVM_InitProperties(JNIEnv* env, nint props)
         {
             try
             {
@@ -341,7 +348,8 @@ namespace IKVM.Runtime
         /// Invoked by the native code to create a monitor lock.
         /// </summary>
         /// <returns></returns>
-        nint JVM_RawMonitorCreate()
+        [MonoPInvokeCallback(typeof(JVM_RawMonitorCreateDelegate))]
+        static nint JVM_RawMonitorCreate()
         {
             try
             {
@@ -358,7 +366,8 @@ namespace IKVM.Runtime
         /// Invoked by the native code to destroy a monitor lock.
         /// </summary>v
         /// <returns></returns>
-        void JVM_RawMonitorDestroy(nint mon)
+        [MonoPInvokeCallback(typeof(JVM_RawMonitorDestroyDelegate))]
+        static void JVM_RawMonitorDestroy(nint mon)
         {
             try
             {
@@ -375,7 +384,8 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="mon"></param>
         /// <returns></returns>
-        int JVM_RawMonitorEnter(nint mon)
+        [MonoPInvokeCallback(typeof(JVM_RawMonitorEnterDelegate))]
+        static int JVM_RawMonitorEnter(nint mon)
         {
             try
             {
@@ -394,7 +404,8 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="mon"></param>
         /// <returns></returns>
-        void JVM_RawMonitorExit(nint mon)
+        [MonoPInvokeCallback(typeof(JVM_RawMonitorExitDelegate))]
+        static void JVM_RawMonitorExit(nint mon)
         {
             try
             {
@@ -416,7 +427,8 @@ namespace IKVM.Runtime
         /// <param name="dstOffset"></param>
         /// <param name="size"></param>
         /// <param name="elemSize"></param>
-        unsafe void JVM_CopySwapMemory(JNIEnv* env, nint srcObj, long srcOffset, nint dstObj, long dstOffset, long size, long elemSize)
+        [MonoPInvokeCallback(typeof(JVM_CopySwapMemoryDelegate))]
+        static unsafe void JVM_CopySwapMemory(JNIEnv* env, nint srcObj, long srcOffset, nint dstObj, long dstOffset, long size, long elemSize)
         {
             JVM_CopySwapMemory((Array)env->UnwrapRef(srcObj), srcOffset, (Array)env->UnwrapRef(dstObj), dstOffset, size, elemSize);
         }

@@ -24,6 +24,8 @@
 using System;
 using System.Runtime.InteropServices;
 
+using Mono.Interop;
+
 using IKVM.ByteCode.Text;
 using IKVM.Runtime.Extensions;
 
@@ -43,9 +45,9 @@ namespace IKVM.Runtime.JNI
         internal static JavaVM* pJavaVM;
         void** vtable;
         void* firstVtableEntry;
-        delegate int pf_int(JavaVM* pJVM);
-        delegate int pf_int_ppvoid_pvoid(JavaVM* pJVM, void** p1, void* p2);
-        delegate int pf_int_ppvoid_int(JavaVM* pJVM, void** p1, int p2);
+        internal delegate int pf_int(JavaVM* pJVM);
+        internal delegate int pf_int_ppvoid_pvoid(JavaVM* pJVM, void** p1, void* p2);
+        internal delegate int pf_int_ppvoid_int(JavaVM* pJVM, void** p1, int p2);
 
         static Delegate[] vtableDelegates =
         {
@@ -78,6 +80,7 @@ namespace IKVM.Runtime.JNI
         /// </summary>
         /// <param name="pJVM"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(pf_int))]
         internal static jint DestroyJavaVM(JavaVM* pJVM)
         {
             if (JNIVM.jvmDestroyed)
@@ -95,6 +98,7 @@ namespace IKVM.Runtime.JNI
         /// <param name="penv"></param>
         /// <param name="args"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(pf_int_ppvoid_pvoid))]
         internal static jint AttachCurrentThread(JavaVM* pJVM, void** penv, void* args)
         {
             return AttachCurrentThreadImpl(pJVM, penv, (JavaVMAttachArgs*)args, false);
@@ -161,6 +165,7 @@ namespace IKVM.Runtime.JNI
         /// </summary>
         /// <param name="pJVM"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(pf_int))]
         internal static jint DetachCurrentThread(JavaVM* pJVM)
         {
             if (JNIEnvContext.Current == null)
@@ -175,6 +180,7 @@ namespace IKVM.Runtime.JNI
             return JNIEnv.JNI_OK;
         }
 
+        [MonoPInvokeCallback(typeof(pf_int_ppvoid_int))]
         internal static jint GetEnv(JavaVM* pJVM, void** penv, jint version)
         {
             if (JNIVM.IsSupportedJNIVersion(version))
@@ -194,6 +200,7 @@ namespace IKVM.Runtime.JNI
             return JNIEnv.JNI_EVERSION;
         }
 
+        [MonoPInvokeCallback(typeof(pf_int_ppvoid_pvoid))]
         internal static jint AttachCurrentThreadAsDaemon(JavaVM* pJVM, void** penv, void* args)
         {
             return AttachCurrentThreadImpl(pJVM, penv, (JavaVMAttachArgs*)args, true);

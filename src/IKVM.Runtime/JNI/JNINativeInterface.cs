@@ -82,214 +82,214 @@ namespace IKVM.Runtime.JNI
         #region Delegates
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        delegate int GetMethodArgsDelegateType(JNIEnv* pEnv, jmethodID methodID, byte* sig);
+        internal delegate int GetMethodArgsDelegateType(JNIEnv* pEnv, jmethodID methodID, byte* sig);
 
-        delegate jint GetVersionDelegateType(JNIEnv* pEnv);
-        delegate jclass DefineClassDelegateType(JNIEnv* pEnv, byte* name, jobject loader, jbyte* pbuf, jint length);
-        delegate jclass FindClassDelegateType(JNIEnv* pEnv, byte* name);
+        internal delegate jint GetVersionDelegateType(JNIEnv* pEnv);
+        internal delegate jclass DefineClassDelegateType(JNIEnv* pEnv, byte* name, jobject loader, jbyte* pbuf, jint length);
+        internal delegate jclass FindClassDelegateType(JNIEnv* pEnv, byte* name);
 
-        delegate jmethodID FromReflectedMethodDelegateType(JNIEnv* pEnv, jmethodID methodID);
-        delegate jfieldID FromReflectedFieldDelegateType(JNIEnv* pEnv, jfieldID fieldID);
+        internal delegate jmethodID FromReflectedMethodDelegateType(JNIEnv* pEnv, jmethodID methodID);
+        internal delegate jfieldID FromReflectedFieldDelegateType(JNIEnv* pEnv, jfieldID fieldID);
 
-        delegate jobject ToReflectedMethodDelegateType(JNIEnv* pEnv, jclass clazz_ignored, jmethodID method, jboolean isStatic);
+        internal delegate jobject ToReflectedMethodDelegateType(JNIEnv* pEnv, jclass clazz_ignored, jmethodID method, jboolean isStatic);
 
-        delegate jclass GetSuperclassDelegateType(JNIEnv* pEnv, jclass sub);
-        delegate jboolean IsAssignableFromDelegateType(JNIEnv* pEnv, jclass sub, jclass super);
+        internal delegate jclass GetSuperclassDelegateType(JNIEnv* pEnv, jclass sub);
+        internal delegate jboolean IsAssignableFromDelegateType(JNIEnv* pEnv, jclass sub, jclass super);
 
-        delegate jobject ToReflectedFieldDelegateType(JNIEnv* pEnv, jclass clazz_ignored, jfieldID field, jboolean isStatic);
+        internal delegate jobject ToReflectedFieldDelegateType(JNIEnv* pEnv, jclass clazz_ignored, jfieldID field, jboolean isStatic);
 
-        delegate jint ThrowDelegateType(JNIEnv* pEnv, jthrowable throwable);
-        delegate jint ThrowNewDelegateType(JNIEnv* pEnv, jclass clazz, byte* msg);
-        delegate jthrowable ExceptionOccurredDelegateType(JNIEnv* pEnv);
-        delegate void ExceptionDescribeDelegateType(JNIEnv* pEnv);
-        delegate void ExceptionClearDelegateType(JNIEnv* pEnv);
-        delegate void FatalErrorDelegateType(JNIEnv* pEnv, byte* msg);
+        internal delegate jint ThrowDelegateType(JNIEnv* pEnv, jthrowable throwable);
+        internal delegate jint ThrowNewDelegateType(JNIEnv* pEnv, jclass clazz, byte* msg);
+        internal delegate jthrowable ExceptionOccurredDelegateType(JNIEnv* pEnv);
+        internal delegate void ExceptionDescribeDelegateType(JNIEnv* pEnv);
+        internal delegate void ExceptionClearDelegateType(JNIEnv* pEnv);
+        internal delegate void FatalErrorDelegateType(JNIEnv* pEnv, byte* msg);
 
-        delegate jint PushLocalFrameDelegateType(JNIEnv* pEnv, jint capacity);
-        delegate jobject PopLocalFrameDelegateType(JNIEnv* pEnv, jobject result);
+        internal delegate jint PushLocalFrameDelegateType(JNIEnv* pEnv, jint capacity);
+        internal delegate jobject PopLocalFrameDelegateType(JNIEnv* pEnv, jobject result);
 
-        delegate jobject NewGlobalRefDelegateType(JNIEnv* pEnv, jobject obj);
-        delegate void DeleteGlobalRefDelegateType(JNIEnv* pEnv, jobject obj);
-        delegate void DeleteLocalRefDelegateType(JNIEnv* pEnv, jobject obj);
-        delegate jboolean IsSameObjectDelegateType(JNIEnv* pEnv, jobject obj1, jobject obj2);
-        delegate jobject NewLocalRefDelegateType(JNIEnv* pEnv, jobject obj);
-        delegate jint EnsureLocalCapacityDelegateType(JNIEnv* pEnv, jint capacity);
+        internal delegate jobject NewGlobalRefDelegateType(JNIEnv* pEnv, jobject obj);
+        internal delegate void DeleteGlobalRefDelegateType(JNIEnv* pEnv, jobject obj);
+        internal delegate void DeleteLocalRefDelegateType(JNIEnv* pEnv, jobject obj);
+        internal delegate jboolean IsSameObjectDelegateType(JNIEnv* pEnv, jobject obj1, jobject obj2);
+        internal delegate jobject NewLocalRefDelegateType(JNIEnv* pEnv, jobject obj);
+        internal delegate jint EnsureLocalCapacityDelegateType(JNIEnv* pEnv, jint capacity);
 
-        delegate jobject AllocObjectDelegateType(JNIEnv* pEnv, jclass clazz);
-        delegate jobject NewObjectADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jobject AllocObjectDelegateType(JNIEnv* pEnv, jclass clazz);
+        internal delegate jobject NewObjectADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
 
-        delegate jclass GetObjectClassDelegateType(JNIEnv* pEnv, jobject obj);
-        delegate jboolean IsInstanceOfDelegateType(JNIEnv* pEnv, jobject obj, jclass clazz);
+        internal delegate jclass GetObjectClassDelegateType(JNIEnv* pEnv, jobject obj);
+        internal delegate jboolean IsInstanceOfDelegateType(JNIEnv* pEnv, jobject obj, jclass clazz);
 
-        delegate jmethodID GetMethodIDDelegateType(JNIEnv* pEnv, jclass clazz, byte* name, byte* sig);
+        internal delegate jmethodID GetMethodIDDelegateType(JNIEnv* pEnv, jclass clazz, byte* name, byte* sig);
 
-        delegate jobject CallObjectMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
-        delegate jboolean CallBooleanMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
-        delegate jbyte CallByteMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
-        delegate jchar CallCharMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
-        delegate jshort CallShortMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
-        delegate jint CallIntMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
-        delegate jlong CallLongMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
-        delegate jfloat CallFloatMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
-        delegate jdouble CallDoubleMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
-        delegate void CallVoidMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
+        internal delegate jobject CallObjectMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
+        internal delegate jboolean CallBooleanMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
+        internal delegate jbyte CallByteMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
+        internal delegate jchar CallCharMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
+        internal delegate jshort CallShortMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
+        internal delegate jint CallIntMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
+        internal delegate jlong CallLongMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
+        internal delegate jfloat CallFloatMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
+        internal delegate jdouble CallDoubleMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
+        internal delegate void CallVoidMethodADelegateType(JNIEnv* pEnv, jobject obj, jmethodID methodID, JValue* args);
 
-        delegate jobject CallNonvirtualObjectMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
-        delegate jboolean CallNonvirtualBooleanMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
-        delegate jbyte CallNonvirtualByteMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
-        delegate jchar CallNonvirtualCharMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
-        delegate jshort CallNonvirtualShortMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
-        delegate jint CallNonvirtualIntMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
-        delegate jlong CallNonvirtualLongMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
-        delegate jfloat CallNonvirtualFloatMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
-        delegate jdouble CallNonvirtualDoubleMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
-        delegate void CallNonvirtualVoidMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jobject CallNonvirtualObjectMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jboolean CallNonvirtualBooleanMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jbyte CallNonvirtualByteMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jchar CallNonvirtualCharMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jshort CallNonvirtualShortMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jint CallNonvirtualIntMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jlong CallNonvirtualLongMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jfloat CallNonvirtualFloatMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jdouble CallNonvirtualDoubleMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate void CallNonvirtualVoidMethodADelegateType(JNIEnv* pEnv, jobject obj, jclass clazz, jmethodID methodID, JValue* args);
 
-        delegate jfieldID GetFieldIDDelegateType(JNIEnv* pEnv, jclass clazz, byte* name, byte* sig);
+        internal delegate jfieldID GetFieldIDDelegateType(JNIEnv* pEnv, jclass clazz, byte* name, byte* sig);
 
-        delegate jobject GetObjectFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
-        delegate jboolean GetBooleanFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
-        delegate jbyte GetByteFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
-        delegate jchar GetCharFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
-        delegate jshort GetShortFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
-        delegate jint GetIntFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
-        delegate jlong GetLongFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
-        delegate jfloat GetFloatFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
-        delegate jdouble GetDoubleFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
+        internal delegate jobject GetObjectFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
+        internal delegate jboolean GetBooleanFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
+        internal delegate jbyte GetByteFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
+        internal delegate jchar GetCharFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
+        internal delegate jshort GetShortFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
+        internal delegate jint GetIntFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
+        internal delegate jlong GetLongFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
+        internal delegate jfloat GetFloatFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
+        internal delegate jdouble GetDoubleFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID);
 
-        delegate void SetObjectFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jobject val);
-        delegate void SetBooleanFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jboolean val);
-        delegate void SetByteFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jbyte val);
-        delegate void SetCharFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jchar val);
-        delegate void SetShortFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jshort val);
-        delegate void SetIntFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jint val);
-        delegate void SetLongFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jlong val);
-        delegate void SetFloatFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jfloat val);
-        delegate void SetDoubleFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jdouble val);
+        internal delegate void SetObjectFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jobject val);
+        internal delegate void SetBooleanFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jboolean val);
+        internal delegate void SetByteFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jbyte val);
+        internal delegate void SetCharFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jchar val);
+        internal delegate void SetShortFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jshort val);
+        internal delegate void SetIntFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jint val);
+        internal delegate void SetLongFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jlong val);
+        internal delegate void SetFloatFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jfloat val);
+        internal delegate void SetDoubleFieldDelegateType(JNIEnv* pEnv, jobject obj, jfieldID fieldID, jdouble val);
 
-        delegate jmethodID GetStaticMethodIDDelegateType(JNIEnv* pEnv, jclass clazz, byte* name, byte* sig);
+        internal delegate jmethodID GetStaticMethodIDDelegateType(JNIEnv* pEnv, jclass clazz, byte* name, byte* sig);
 
-        delegate jobject CallStaticObjectMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
-        delegate jboolean CallStaticBooleanMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
-        delegate jbyte CallStaticByteMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
-        delegate jchar CallStaticCharMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
-        delegate jshort CallStaticShortMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
-        delegate jint CallStaticIntMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
-        delegate jlong CallStaticLongMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
-        delegate jfloat CallStaticFloatMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
-        delegate jdouble CallStaticDoubleMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
-        delegate void CallStaticVoidMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jobject CallStaticObjectMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jboolean CallStaticBooleanMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jbyte CallStaticByteMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jchar CallStaticCharMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jshort CallStaticShortMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jint CallStaticIntMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jlong CallStaticLongMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jfloat CallStaticFloatMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate jdouble CallStaticDoubleMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
+        internal delegate void CallStaticVoidMethodADelegateType(JNIEnv* pEnv, jclass clazz, jmethodID methodID, JValue* args);
 
-        delegate jfieldID GetStaticFieldIDDelegateType(JNIEnv* pEnv, jclass clazz, byte* name, byte* sig);
+        internal delegate jfieldID GetStaticFieldIDDelegateType(JNIEnv* pEnv, jclass clazz, byte* name, byte* sig);
 
-        delegate jobject GetStaticObjectFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
-        delegate jboolean GetStaticBooleanFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
-        delegate jbyte GetStaticByteFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
-        delegate jchar GetStaticCharFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
-        delegate jshort GetStaticShortFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
-        delegate jint GetStaticIntFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
-        delegate jlong GetStaticLongFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
-        delegate jfloat GetStaticFloatFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
-        delegate jdouble GetStaticDoubleFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
+        internal delegate jobject GetStaticObjectFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
+        internal delegate jboolean GetStaticBooleanFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
+        internal delegate jbyte GetStaticByteFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
+        internal delegate jchar GetStaticCharFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
+        internal delegate jshort GetStaticShortFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
+        internal delegate jint GetStaticIntFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
+        internal delegate jlong GetStaticLongFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
+        internal delegate jfloat GetStaticFloatFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
+        internal delegate jdouble GetStaticDoubleFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID);
 
-        delegate void SetStaticObjectFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jobject val);
-        delegate void SetStaticBooleanFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jboolean val);
-        delegate void SetStaticByteFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jbyte val);
-        delegate void SetStaticCharFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jchar val);
-        delegate void SetStaticShortFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jshort val);
-        delegate void SetStaticIntFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jint val);
-        delegate void SetStaticLongFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jlong val);
-        delegate void SetStaticFloatFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jfloat val);
-        delegate void SetStaticDoubleFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jdouble val);
+        internal delegate void SetStaticObjectFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jobject val);
+        internal delegate void SetStaticBooleanFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jboolean val);
+        internal delegate void SetStaticByteFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jbyte val);
+        internal delegate void SetStaticCharFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jchar val);
+        internal delegate void SetStaticShortFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jshort val);
+        internal delegate void SetStaticIntFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jint val);
+        internal delegate void SetStaticLongFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jlong val);
+        internal delegate void SetStaticFloatFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jfloat val);
+        internal delegate void SetStaticDoubleFieldDelegateType(JNIEnv* pEnv, jclass clazz, jfieldID fieldID, jdouble val);
 
-        delegate jstring NewStringDelegateType(JNIEnv* pEnv, jchar* unicode, int len);
-        delegate jint GetStringLengthDelegateType(JNIEnv* pEnv, jstring str);
-        delegate jchar* GetStringCharsDelegateType(JNIEnv* pEnv, jstring str, jboolean* isCopy);
-        delegate void ReleaseStringCharsDelegateType(JNIEnv* pEnv, jstring str, jchar* chars);
+        internal delegate jstring NewStringDelegateType(JNIEnv* pEnv, jchar* unicode, int len);
+        internal delegate jint GetStringLengthDelegateType(JNIEnv* pEnv, jstring str);
+        internal delegate jchar* GetStringCharsDelegateType(JNIEnv* pEnv, jstring str, jboolean* isCopy);
+        internal delegate void ReleaseStringCharsDelegateType(JNIEnv* pEnv, jstring str, jchar* chars);
 
-        delegate jobject NewStringUTFDelegateType(JNIEnv* pEnv, byte* bytes);
-        delegate jint GetStringUTFLengthDelegateType(JNIEnv* pEnv, jstring str);
-        delegate byte* GetStringUTFCharsDelegateType(JNIEnv* pEnv, jstring @string, jboolean* isCopy);
-        delegate void ReleaseStringUTFCharsDelegateType(JNIEnv* pEnv, jstring @string, byte* utf);
+        internal delegate jobject NewStringUTFDelegateType(JNIEnv* pEnv, byte* bytes);
+        internal delegate jint GetStringUTFLengthDelegateType(JNIEnv* pEnv, jstring str);
+        internal delegate byte* GetStringUTFCharsDelegateType(JNIEnv* pEnv, jstring @string, jboolean* isCopy);
+        internal delegate void ReleaseStringUTFCharsDelegateType(JNIEnv* pEnv, jstring @string, byte* utf);
 
-        delegate jsize GetArrayLengthDelegateType(JNIEnv* pEnv, jarray array);
+        internal delegate jsize GetArrayLengthDelegateType(JNIEnv* pEnv, jarray array);
 
-        delegate jobjectArray NewObjectArrayDelegateType(JNIEnv* pEnv, jsize len, jclass clazz, jobject init);
-        delegate jobject GetObjectArrayElementDelegateType(JNIEnv* pEnv, jarray array, jsize index);
-        delegate void SetObjectArrayElementDelegateType(JNIEnv* pEnv, jarray array, jsize index, jobject val);
+        internal delegate jobjectArray NewObjectArrayDelegateType(JNIEnv* pEnv, jsize len, jclass clazz, jobject init);
+        internal delegate jobject GetObjectArrayElementDelegateType(JNIEnv* pEnv, jarray array, jsize index);
+        internal delegate void SetObjectArrayElementDelegateType(JNIEnv* pEnv, jarray array, jsize index, jobject val);
 
-        delegate jbooleanArray NewBooleanArrayDelegateType(JNIEnv* pEnv, jsize len);
-        delegate jbyteArray NewByteArrayDelegateType(JNIEnv* pEnv, jsize len);
-        delegate jcharArray NewCharArrayDelegateType(JNIEnv* pEnv, jsize len);
-        delegate jshortArray NewShortArrayDelegateType(JNIEnv* pEnv, jsize len);
-        delegate jintArray NewIntArrayDelegateType(JNIEnv* pEnv, jsize len);
-        delegate jlongArray NewLongArrayDelegateType(JNIEnv* pEnv, jsize len);
-        delegate jfloatArray NewFloatArrayDelegateType(JNIEnv* pEnv, jsize len);
-        delegate jdoubleArray NewDoubleArrayDelegateType(JNIEnv* pEnv, jsize len);
+        internal delegate jbooleanArray NewBooleanArrayDelegateType(JNIEnv* pEnv, jsize len);
+        internal delegate jbyteArray NewByteArrayDelegateType(JNIEnv* pEnv, jsize len);
+        internal delegate jcharArray NewCharArrayDelegateType(JNIEnv* pEnv, jsize len);
+        internal delegate jshortArray NewShortArrayDelegateType(JNIEnv* pEnv, jsize len);
+        internal delegate jintArray NewIntArrayDelegateType(JNIEnv* pEnv, jsize len);
+        internal delegate jlongArray NewLongArrayDelegateType(JNIEnv* pEnv, jsize len);
+        internal delegate jfloatArray NewFloatArrayDelegateType(JNIEnv* pEnv, jsize len);
+        internal delegate jdoubleArray NewDoubleArrayDelegateType(JNIEnv* pEnv, jsize len);
 
-        delegate jboolean* GetBooleanArrayElementsDelegateType(JNIEnv* pEnv, jbooleanArray array, jboolean* isCopy);
-        delegate jbyte* GetByteArrayElementsDelegateType(JNIEnv* pEnv, jbyteArray array, jboolean* isCopy);
-        delegate jchar* GetCharArrayElementsDelegateType(JNIEnv* pEnv, jcharArray array, jboolean* isCopy);
-        delegate jshort* GetShortArrayElementsDelegateType(JNIEnv* pEnv, jshortArray array, jboolean* isCopy);
-        delegate jint* GetIntArrayElementsDelegateType(JNIEnv* pEnv, jintArray array, jboolean* isCopy);
-        delegate jlong* GetLongArrayElementsDelegateType(JNIEnv* pEnv, jlongArray array, jboolean* isCopy);
-        delegate jfloat* GetFloatArrayElementsDelegateType(JNIEnv* pEnv, jfloatArray array, jboolean* isCopy);
-        delegate jdouble* GetDoubleArrayElementsDelegateType(JNIEnv* pEnv, jdoubleArray array, jboolean* isCopy);
+        internal delegate jboolean* GetBooleanArrayElementsDelegateType(JNIEnv* pEnv, jbooleanArray array, jboolean* isCopy);
+        internal delegate jbyte* GetByteArrayElementsDelegateType(JNIEnv* pEnv, jbyteArray array, jboolean* isCopy);
+        internal delegate jchar* GetCharArrayElementsDelegateType(JNIEnv* pEnv, jcharArray array, jboolean* isCopy);
+        internal delegate jshort* GetShortArrayElementsDelegateType(JNIEnv* pEnv, jshortArray array, jboolean* isCopy);
+        internal delegate jint* GetIntArrayElementsDelegateType(JNIEnv* pEnv, jintArray array, jboolean* isCopy);
+        internal delegate jlong* GetLongArrayElementsDelegateType(JNIEnv* pEnv, jlongArray array, jboolean* isCopy);
+        internal delegate jfloat* GetFloatArrayElementsDelegateType(JNIEnv* pEnv, jfloatArray array, jboolean* isCopy);
+        internal delegate jdouble* GetDoubleArrayElementsDelegateType(JNIEnv* pEnv, jdoubleArray array, jboolean* isCopy);
 
-        delegate void ReleaseBooleanArrayElementsDelegateType(JNIEnv* pEnv, jbooleanArray array, jboolean* elems, jint mode);
-        delegate void ReleaseByteArrayElementsDelegateType(JNIEnv* pEnv, jbyteArray array, jbyte* elems, jint mode);
-        delegate void ReleaseCharArrayElementsDelegateType(JNIEnv* pEnv, jcharArray array, jchar* elems, jint mode);
-        delegate void ReleaseShortArrayElementsDelegateType(JNIEnv* pEnv, jshortArray array, jshort* elems, jint mode);
-        delegate void ReleaseIntArrayElementsDelegateType(JNIEnv* pEnv, jintArray array, jint* elems, jint mode);
-        delegate void ReleaseLongArrayElementsDelegateType(JNIEnv* pEnv, jlongArray array, jlong* elems, jint mode);
-        delegate void ReleaseFloatArrayElementsDelegateType(JNIEnv* pEnv, jfloatArray array, jfloat* elems, jint mode);
-        delegate void ReleaseDoubleArrayElementsDelegateType(JNIEnv* pEnv, jdoubleArray array, jdouble* elems, jint mode);
+        internal delegate void ReleaseBooleanArrayElementsDelegateType(JNIEnv* pEnv, jbooleanArray array, jboolean* elems, jint mode);
+        internal delegate void ReleaseByteArrayElementsDelegateType(JNIEnv* pEnv, jbyteArray array, jbyte* elems, jint mode);
+        internal delegate void ReleaseCharArrayElementsDelegateType(JNIEnv* pEnv, jcharArray array, jchar* elems, jint mode);
+        internal delegate void ReleaseShortArrayElementsDelegateType(JNIEnv* pEnv, jshortArray array, jshort* elems, jint mode);
+        internal delegate void ReleaseIntArrayElementsDelegateType(JNIEnv* pEnv, jintArray array, jint* elems, jint mode);
+        internal delegate void ReleaseLongArrayElementsDelegateType(JNIEnv* pEnv, jlongArray array, jlong* elems, jint mode);
+        internal delegate void ReleaseFloatArrayElementsDelegateType(JNIEnv* pEnv, jfloatArray array, jfloat* elems, jint mode);
+        internal delegate void ReleaseDoubleArrayElementsDelegateType(JNIEnv* pEnv, jdoubleArray array, jdouble* elems, jint mode);
 
-        delegate void GetBooleanArrayRegionDelegateType(JNIEnv* pEnv, jbooleanArray array, jsize start, jsize len, jboolean* buf);
-        delegate void GetByteArrayRegionDelegateType(JNIEnv* pEnv, jbyteArray array, jsize start, jsize len, jbyte* buf);
-        delegate void GetCharArrayRegionDelegateType(JNIEnv* pEnv, jcharArray array, jsize start, jsize len, jchar* buf);
-        delegate void GetShortArrayRegionDelegateType(JNIEnv* pEnv, jshortArray array, jsize start, jsize len, jshort* buf);
-        delegate void GetIntArrayRegionDelegateType(JNIEnv* pEnv, jintArray array, jsize start, jsize len, jint* buf);
-        delegate void GetLongArrayRegionDelegateType(JNIEnv* pEnv, jlongArray array, jsize start, jsize len, jlong* buf);
-        delegate void GetFloatArrayRegionDelegateType(JNIEnv* pEnv, jfloatArray array, jsize start, jsize len, jfloat* buf);
-        delegate void GetDoubleArrayRegionDelegateType(JNIEnv* pEnv, jdoubleArray array, jsize start, jsize len, jdouble* buf);
+        internal delegate void GetBooleanArrayRegionDelegateType(JNIEnv* pEnv, jbooleanArray array, jsize start, jsize len, jboolean* buf);
+        internal delegate void GetByteArrayRegionDelegateType(JNIEnv* pEnv, jbyteArray array, jsize start, jsize len, jbyte* buf);
+        internal delegate void GetCharArrayRegionDelegateType(JNIEnv* pEnv, jcharArray array, jsize start, jsize len, jchar* buf);
+        internal delegate void GetShortArrayRegionDelegateType(JNIEnv* pEnv, jshortArray array, jsize start, jsize len, jshort* buf);
+        internal delegate void GetIntArrayRegionDelegateType(JNIEnv* pEnv, jintArray array, jsize start, jsize len, jint* buf);
+        internal delegate void GetLongArrayRegionDelegateType(JNIEnv* pEnv, jlongArray array, jsize start, jsize len, jlong* buf);
+        internal delegate void GetFloatArrayRegionDelegateType(JNIEnv* pEnv, jfloatArray array, jsize start, jsize len, jfloat* buf);
+        internal delegate void GetDoubleArrayRegionDelegateType(JNIEnv* pEnv, jdoubleArray array, jsize start, jsize len, jdouble* buf);
 
-        delegate void SetBooleanArrayRegionDelegateType(JNIEnv* pEnv, jbooleanArray array, jsize start, jsize len, jboolean* buf);
-        delegate void SetByteArrayRegionDelegateType(JNIEnv* pEnv, jbyteArray array, jsize start, jsize len, jbyte* buf);
-        delegate void SetCharArrayRegionDelegateType(JNIEnv* pEnv, jcharArray array, jsize start, jsize len, jchar* buf);
-        delegate void SetShortArrayRegionDelegateType(JNIEnv* pEnv, jshortArray array, jsize start, jsize len, jshort* buf);
-        delegate void SetIntArrayRegionDelegateType(JNIEnv* pEnv, jintArray array, jsize start, jsize len, jint* buf);
-        delegate void SetLongArrayRegionDelegateType(JNIEnv* pEnv, jlongArray array, jsize start, jsize len, jlong* buf);
-        delegate void SetFloatArrayRegionDelegateType(JNIEnv* pEnv, jfloatArray array, jsize start, jsize len, jfloat* buf);
-        delegate void SetDoubleArrayRegionDelegateType(JNIEnv* pEnv, jdoubleArray array, jsize start, jsize len, jdouble* buf);
+        internal delegate void SetBooleanArrayRegionDelegateType(JNIEnv* pEnv, jbooleanArray array, jsize start, jsize len, jboolean* buf);
+        internal delegate void SetByteArrayRegionDelegateType(JNIEnv* pEnv, jbyteArray array, jsize start, jsize len, jbyte* buf);
+        internal delegate void SetCharArrayRegionDelegateType(JNIEnv* pEnv, jcharArray array, jsize start, jsize len, jchar* buf);
+        internal delegate void SetShortArrayRegionDelegateType(JNIEnv* pEnv, jshortArray array, jsize start, jsize len, jshort* buf);
+        internal delegate void SetIntArrayRegionDelegateType(JNIEnv* pEnv, jintArray array, jsize start, jsize len, jint* buf);
+        internal delegate void SetLongArrayRegionDelegateType(JNIEnv* pEnv, jlongArray array, jsize start, jsize len, jlong* buf);
+        internal delegate void SetFloatArrayRegionDelegateType(JNIEnv* pEnv, jfloatArray array, jsize start, jsize len, jfloat* buf);
+        internal delegate void SetDoubleArrayRegionDelegateType(JNIEnv* pEnv, jdoubleArray array, jsize start, jsize len, jdouble* buf);
 
-        delegate jint RegisterNativesDelegateType(JNIEnv* pEnv, jclass clazz, JNIEnv.JNINativeMethod* methods, jint nMethods);
-        delegate jint UnregisterNativesDelegateType(JNIEnv* pEnv, jclass clazz);
+        internal delegate jint RegisterNativesDelegateType(JNIEnv* pEnv, jclass clazz, JNIEnv.JNINativeMethod* methods, jint nMethods);
+        internal delegate jint UnregisterNativesDelegateType(JNIEnv* pEnv, jclass clazz);
 
-        delegate jint MonitorEnterDelegateType(JNIEnv* pEnv, jobject obj);
-        delegate jint MonitorExitDelegateType(JNIEnv* pEnv, jobject obj);
+        internal delegate jint MonitorEnterDelegateType(JNIEnv* pEnv, jobject obj);
+        internal delegate jint MonitorExitDelegateType(JNIEnv* pEnv, jobject obj);
 
-        delegate jint GetJavaVMDelegateType(JNIEnv* pEnv, JavaVM** ppJavaVM);
+        internal delegate jint GetJavaVMDelegateType(JNIEnv* pEnv, JavaVM** ppJavaVM);
 
-        delegate void GetStringRegionDelegateType(JNIEnv* pEnv, jstring str, jsize start, jsize len, jchar* buf);
-        delegate void GetStringUTFRegionDelegateType(JNIEnv* pEnv, jstring str, jsize start, jsize len, byte* buf);
+        internal delegate void GetStringRegionDelegateType(JNIEnv* pEnv, jstring str, jsize start, jsize len, jchar* buf);
+        internal delegate void GetStringUTFRegionDelegateType(JNIEnv* pEnv, jstring str, jsize start, jsize len, byte* buf);
 
-        delegate void* GetPrimitiveArrayCriticalDelegateType(JNIEnv* pEnv, jarray array, jboolean* isCopy);
-        delegate void ReleasePrimitiveArrayCriticalDelegateType(JNIEnv* pEnv, jarray array, void* carray, jint mode);
+        internal delegate void* GetPrimitiveArrayCriticalDelegateType(JNIEnv* pEnv, jarray array, jboolean* isCopy);
+        internal delegate void ReleasePrimitiveArrayCriticalDelegateType(JNIEnv* pEnv, jarray array, void* carray, jint mode);
 
-        delegate jchar* GetStringCriticalDelegateType(JNIEnv* pEnv, jstring str, jboolean* isCopy);
-        delegate void ReleaseStringCriticalDelegateType(JNIEnv* pEnv, jstring str, jchar* cstring);
+        internal delegate jchar* GetStringCriticalDelegateType(JNIEnv* pEnv, jstring str, jboolean* isCopy);
+        internal delegate void ReleaseStringCriticalDelegateType(JNIEnv* pEnv, jstring str, jchar* cstring);
 
-        delegate jweak NewWeakGlobalRefDelegateType(JNIEnv* pEnv, jobject obj);
-        delegate void DeleteWeakGlobalRefDelegateType(JNIEnv* pEnv, jweak obj);
+        internal delegate jweak NewWeakGlobalRefDelegateType(JNIEnv* pEnv, jobject obj);
+        internal delegate void DeleteWeakGlobalRefDelegateType(JNIEnv* pEnv, jweak obj);
 
-        delegate jboolean ExceptionCheckDelegateType(JNIEnv* pEnv);
+        internal delegate jboolean ExceptionCheckDelegateType(JNIEnv* pEnv);
 
-        delegate jobject NewDirectByteBufferDelegateType(JNIEnv* pEnv, IntPtr address, jlong capacity);
-        delegate void* GetDirectBufferAddressDelegateType(JNIEnv* pEnv, jobject buf);
-        delegate jlong GetDirectBufferCapacityDelegateType(JNIEnv* pEnv, jobject buf);
+        internal delegate jobject NewDirectByteBufferDelegateType(JNIEnv* pEnv, IntPtr address, jlong capacity);
+        internal delegate void* GetDirectBufferAddressDelegateType(JNIEnv* pEnv, jobject buf);
+        internal delegate jlong GetDirectBufferCapacityDelegateType(JNIEnv* pEnv, jobject buf);
 
-        delegate JObjectRefType GetObjectRefTypeDelegateType(JNIEnv* pEnv, jobject obj);
+        internal delegate JObjectRefType GetObjectRefTypeDelegateType(JNIEnv* pEnv, jobject obj);
 
         #endregion
 

@@ -31,6 +31,8 @@ using System.Security;
 
 using IKVM.Runtime;
 
+using Mono.Interop;
+
 namespace IKVM.Java.Externs.sun.misc
 {
 
@@ -88,6 +90,7 @@ namespace IKVM.Java.Externs.sun.misc
 
 		private static object defaultConsoleCtrlDelegate;
 
+		[MonoPInvokeCallback(typeof(ConsoleCtrlDelegate))]
 		private static bool ConsoleCtrlCheck(CtrlTypes ctrlType)
 		{
 #if !FIRST_PASS

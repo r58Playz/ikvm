@@ -34,6 +34,8 @@ using IKVM.ByteCode.Text;
 using IKVM.CoreLib.Diagnostics;
 using IKVM.Runtime.Extensions;
 
+using Mono.Interop;
+
 namespace IKVM.Runtime.JNI
 {
 
@@ -161,6 +163,7 @@ namespace IKVM.Runtime.JNI
         /// <param name="methodID"></param>
         /// <param name="sig"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetMethodArgsDelegateType))]
         internal static int GetMethodArgs(JNIEnv* pEnv, nint methodID, byte* sig)
         {
             var args = RuntimeJavaMethod.FromCookie(methodID).GetParameters();
@@ -170,11 +173,13 @@ namespace IKVM.Runtime.JNI
             return args.Length;
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetVersionDelegateType))]
         internal static int GetVersion(JNIEnv* pEnv)
         {
             return JNI_VERSION_1_8;
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.DefineClassDelegateType))]
         internal static nint DefineClass(JNIEnv* pEnv, byte* name, nint loader, jbyte* pbuf, jint length)
         {
             try
@@ -204,6 +209,7 @@ namespace IKVM.Runtime.JNI
                 return env.context.ClassLoaderFactory.GetClassLoaderWrapper(java.lang.ClassLoader.getSystemClassLoader());
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.FindClassDelegateType))]
         internal static nint FindClass(JNIEnv* pEnv, byte* name)
         {
             try
@@ -241,6 +247,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.FromReflectedMethodDelegateType))]
         internal static nint FromReflectedMethod(JNIEnv* pEnv, nint method)
         {
             try
@@ -254,6 +261,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.FromReflectedFieldDelegateType))]
         internal static nint FromReflectedField(JNIEnv* pEnv, nint field)
         {
             try
@@ -267,6 +275,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ToReflectedMethodDelegateType))]
         internal static nint ToReflectedMethod(JNIEnv* pEnv, nint clazz_ignored, nint method, sbyte isStatic)
         {
             try
@@ -280,6 +289,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetSuperclassDelegateType))]
         internal static nint GetSuperclass(JNIEnv* pEnv, nint sub)
         {
             try
@@ -294,6 +304,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.IsAssignableFromDelegateType))]
         internal static sbyte IsAssignableFrom(JNIEnv* pEnv, nint sub, nint super)
         {
             try
@@ -309,6 +320,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ToReflectedFieldDelegateType))]
         internal static nint ToReflectedField(JNIEnv* pEnv, nint clazz_ignored, nint field, jboolean isStatic)
         {
             try
@@ -322,6 +334,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ThrowDelegateType))]
         internal static jint Throw(JNIEnv* pEnv, nint throwable)
         {
             try
@@ -340,6 +353,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ThrowNewDelegateType))]
         internal static jint ThrowNew(JNIEnv* pEnv, nint clazz, byte* msg)
         {
             try
@@ -379,6 +393,7 @@ namespace IKVM.Runtime.JNI
         /// </summary>
         /// <param name="pEnv"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ExceptionOccurredDelegateType))]
         internal static nint ExceptionOccurred(JNIEnv* pEnv)
         {
             try
@@ -396,6 +411,7 @@ namespace IKVM.Runtime.JNI
         /// Implements the JNI 'ExceptionDescribe' function.
         /// </summary>
         /// <param name="pEnv"></param>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ExceptionDescribeDelegateType))]
         internal static void ExceptionDescribe(JNIEnv* pEnv)
         {
             try
@@ -425,6 +441,7 @@ namespace IKVM.Runtime.JNI
         /// Implements the JNI 'ExceptionClear' function.
         /// </summary>
         /// <param name="pEnv"></param>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ExceptionClearDelegateType))]
         internal static void ExceptionClear(JNIEnv* pEnv)
         {
             try
@@ -442,6 +459,7 @@ namespace IKVM.Runtime.JNI
         /// </summary>
         /// <param name="pEnv"></param>
         /// <param name="msg"></param>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.FatalErrorDelegateType))]
         internal static void FatalError(JNIEnv* pEnv, byte* msg)
         {
             Console.Error.WriteLine("FATAL ERROR in native method: {0}", msg == null ? "(null)" : DecodeMUTF8Argument(msg, nameof(msg)));
@@ -455,6 +473,7 @@ namespace IKVM.Runtime.JNI
         /// <param name="pEnv"></param>
         /// <param name="capacity"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.PushLocalFrameDelegateType))]
         internal static jint PushLocalFrame(JNIEnv* pEnv, jint capacity)
         {
             try
@@ -474,6 +493,7 @@ namespace IKVM.Runtime.JNI
         /// <param name="pEnv"></param>
         /// <param name="result"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.PopLocalFrameDelegateType))]
         internal static nint PopLocalFrame(JNIEnv* pEnv, nint result)
         {
             try
@@ -494,6 +514,7 @@ namespace IKVM.Runtime.JNI
         /// <param name="pEnv"></param>
         /// <param name="obj"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.NewGlobalRefDelegateType))]
         internal static nint NewGlobalRef(JNIEnv* pEnv, nint obj)
         {
             try
@@ -513,6 +534,7 @@ namespace IKVM.Runtime.JNI
         /// </summary>
         /// <param name="pEnv"></param>
         /// <param name="obj"></param>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.DeleteGlobalRefDelegateType))]
         internal static void DeleteGlobalRef(JNIEnv* pEnv, nint obj)
         {
             try
@@ -537,6 +559,7 @@ namespace IKVM.Runtime.JNI
         /// </summary>
         /// <param name="pEnv"></param>
         /// <param name="obj"></param>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.DeleteLocalRefDelegateType))]
         internal static void DeleteLocalRef(JNIEnv* pEnv, nint obj)
         {
             try
@@ -556,6 +579,7 @@ namespace IKVM.Runtime.JNI
         /// <param name="obj1"></param>
         /// <param name="obj2"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.IsSameObjectDelegateType))]
         internal static jboolean IsSameObject(JNIEnv* pEnv, nint obj1, nint obj2)
         {
             try
@@ -575,6 +599,7 @@ namespace IKVM.Runtime.JNI
         /// <param name="pEnv"></param>
         /// <param name="obj"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.NewLocalRefDelegateType))]
         internal static nint NewLocalRef(JNIEnv* pEnv, nint obj)
         {
             try
@@ -594,6 +619,7 @@ namespace IKVM.Runtime.JNI
         /// <param name="pEnv"></param>
         /// <param name="capacity"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.EnsureLocalCapacityDelegateType))]
         internal static jint EnsureLocalCapacity(JNIEnv* pEnv, jint capacity)
         {
             // since we can dynamically grow the local ref table, we'll just return success for any number
@@ -606,6 +632,7 @@ namespace IKVM.Runtime.JNI
         /// <param name="pEnv"></param>
         /// <param name="clazz"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.AllocObjectDelegateType))]
         internal static nint AllocObject(JNIEnv* pEnv, nint clazz)
         {
             try
@@ -749,6 +776,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.NewObjectADelegateType))]
         public static nint NewObjectA(JNIEnv* pEnv, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -778,6 +806,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetObjectClassDelegateType))]
         internal static nint GetObjectClass(JNIEnv* pEnv, nint obj)
         {
             try
@@ -791,6 +820,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.IsInstanceOfDelegateType))]
         internal static jboolean IsInstanceOf(JNIEnv* pEnv, nint obj, nint clazz)
         {
             try
@@ -897,6 +927,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetMethodIDDelegateType))]
         internal static nint GetMethodID(JNIEnv* pEnv, nint clazz, byte* name, byte* sig)
         {
             try
@@ -910,6 +941,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallObjectMethodADelegateType))]
         internal static nint CallObjectMethodA(JNIEnv* pEnv, nint obj, nint methodID, JValue* args)
         {
             try
@@ -923,6 +955,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallBooleanMethodADelegateType))]
         internal static jboolean CallBooleanMethodA(JNIEnv* pEnv, nint obj, nint methodID, JValue* args)
         {
             try
@@ -940,6 +973,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallByteMethodADelegateType))]
         internal static jbyte CallByteMethodA(JNIEnv* pEnv, nint obj, nint methodID, JValue* args)
         {
             try
@@ -957,6 +991,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallCharMethodADelegateType))]
         internal static jchar CallCharMethodA(JNIEnv* pEnv, nint obj, nint methodID, JValue* args)
         {
             try
@@ -974,6 +1009,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallShortMethodADelegateType))]
         internal static jshort CallShortMethodA(JNIEnv* pEnv, nint obj, nint methodID, JValue* args)
         {
             try
@@ -991,6 +1027,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallIntMethodADelegateType))]
         internal static jint CallIntMethodA(JNIEnv* pEnv, nint obj, nint methodID, JValue* args)
         {
             try
@@ -1008,6 +1045,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallLongMethodADelegateType))]
         internal static jlong CallLongMethodA(JNIEnv* pEnv, nint obj, nint methodID, JValue* args)
         {
             try
@@ -1025,6 +1063,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallFloatMethodADelegateType))]
         internal static jfloat CallFloatMethodA(JNIEnv* pEnv, nint obj, nint methodID, JValue* args)
         {
             try
@@ -1042,6 +1081,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallDoubleMethodADelegateType))]
         internal static jdouble CallDoubleMethodA(JNIEnv* pEnv, nint obj, nint methodID, JValue* args)
         {
             try
@@ -1059,6 +1099,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallVoidMethodADelegateType))]
         internal static void CallVoidMethodA(JNIEnv* pEnv, nint obj, nint methodID, JValue* args)
         {
             try
@@ -1071,6 +1112,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallNonvirtualObjectMethodADelegateType))]
         internal static nint CallNonvirtualObjectMethodA(JNIEnv* pEnv, nint obj, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1084,6 +1126,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallNonvirtualBooleanMethodADelegateType))]
         internal static jboolean CallNonvirtualBooleanMethodA(JNIEnv* pEnv, nint obj, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1101,6 +1144,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallNonvirtualByteMethodADelegateType))]
         internal static jbyte CallNonvirtualByteMethodA(JNIEnv* pEnv, nint obj, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1118,6 +1162,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallNonvirtualCharMethodADelegateType))]
         internal static jchar CallNonvirtualCharMethodA(JNIEnv* pEnv, nint obj, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1135,6 +1180,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallNonvirtualShortMethodADelegateType))]
         internal static jshort CallNonvirtualShortMethodA(JNIEnv* pEnv, nint obj, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1152,6 +1198,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallNonvirtualIntMethodADelegateType))]
         internal static jint CallNonvirtualIntMethodA(JNIEnv* pEnv, nint obj, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1169,6 +1216,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallNonvirtualLongMethodADelegateType))]
         internal static jlong CallNonvirtualLongMethodA(JNIEnv* pEnv, nint obj, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1186,6 +1234,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallNonvirtualFloatMethodADelegateType))]
         internal static jfloat CallNonvirtualFloatMethodA(JNIEnv* pEnv, nint obj, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1203,6 +1252,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallNonvirtualDoubleMethodADelegateType))]
         internal static jdouble CallNonvirtualDoubleMethodA(JNIEnv* pEnv, nint obj, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1220,6 +1270,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallNonvirtualVoidMethodADelegateType))]
         internal static void CallNonvirtualVoidMethodA(JNIEnv* pEnv, nint obj, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1274,6 +1325,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetFieldIDDelegateType))]
         internal static nint GetFieldID(JNIEnv* pEnv, nint clazz, byte* name, byte* sig)
         {
             try
@@ -1292,6 +1344,7 @@ namespace IKVM.Runtime.JNI
             return RuntimeJavaField.FromCookie(cookie);
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetObjectFieldDelegateType))]
         internal static nint GetObjectField(JNIEnv* pEnv, nint obj, nint fieldID)
         {
 #if FIRST_PASS
@@ -1309,6 +1362,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetBooleanFieldDelegateType))]
         internal static jboolean GetBooleanField(JNIEnv* pEnv, nint obj, nint fieldID)
         {
 #if FIRST_PASS
@@ -1326,6 +1380,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetByteFieldDelegateType))]
         internal static jbyte GetByteField(JNIEnv* pEnv, nint obj, nint fieldID)
         {
 #if FIRST_PASS
@@ -1343,6 +1398,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetCharFieldDelegateType))]
         internal static jchar GetCharField(JNIEnv* pEnv, nint obj, nint fieldID)
         {
 #if FIRST_PASS
@@ -1360,6 +1416,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetShortFieldDelegateType))]
         internal static jshort GetShortField(JNIEnv* pEnv, nint obj, nint fieldID)
         {
 #if FIRST_PASS
@@ -1377,6 +1434,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetIntFieldDelegateType))]
         internal static jint GetIntField(JNIEnv* pEnv, nint obj, nint fieldID)
         {
 #if FIRST_PASS
@@ -1394,6 +1452,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetLongFieldDelegateType))]
         internal static jlong GetLongField(JNIEnv* pEnv, nint obj, nint fieldID)
         {
 #if FIRST_PASS
@@ -1411,6 +1470,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetFloatFieldDelegateType))]
         internal static jfloat GetFloatField(JNIEnv* pEnv, nint obj, nint fieldID)
         {
 #if FIRST_PASS
@@ -1428,6 +1488,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetDoubleFieldDelegateType))]
         internal static jdouble GetDoubleField(JNIEnv* pEnv, nint obj, nint fieldID)
         {
 #if FIRST_PASS
@@ -1445,6 +1506,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetObjectFieldDelegateType))]
         internal static void SetObjectField(JNIEnv* pEnv, nint obj, nint fieldID, nint val)
         {
 #if FIRST_PASS
@@ -1461,6 +1523,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetBooleanFieldDelegateType))]
         internal static void SetBooleanField(JNIEnv* pEnv, nint obj, nint fieldID, jboolean val)
         {
 #if FIRST_PASS
@@ -1477,6 +1540,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetByteFieldDelegateType))]
         internal static void SetByteField(JNIEnv* pEnv, nint obj, nint fieldID, jbyte val)
         {
 #if FIRST_PASS
@@ -1493,6 +1557,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetCharFieldDelegateType))]
         internal static void SetCharField(JNIEnv* pEnv, nint obj, nint fieldID, jchar val)
         {
 #if FIRST_PASS
@@ -1509,6 +1574,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetShortFieldDelegateType))]
         internal static void SetShortField(JNIEnv* pEnv, nint obj, nint fieldID, jshort val)
         {
 #if FIRST_PASS
@@ -1525,6 +1591,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetIntFieldDelegateType))]
         internal static void SetIntField(JNIEnv* pEnv, nint obj, nint fieldID, jint val)
         {
 #if FIRST_PASS
@@ -1541,6 +1608,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetLongFieldDelegateType))]
         internal static void SetLongField(JNIEnv* pEnv, nint obj, nint fieldID, jlong val)
         {
 #if FIRST_PASS
@@ -1557,6 +1625,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetFloatFieldDelegateType))]
         internal static void SetFloatField(JNIEnv* pEnv, nint obj, nint fieldID, jfloat val)
         {
 #if FIRST_PASS
@@ -1573,6 +1642,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetDoubleFieldDelegateType))]
         internal static void SetDoubleField(JNIEnv* pEnv, nint obj, nint fieldID, jdouble val)
         {
 #if FIRST_PASS
@@ -1589,11 +1659,13 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStaticMethodIDDelegateType))]
         internal static nint GetStaticMethodID(JNIEnv* pEnv, nint clazz, byte* name, byte* sig)
         {
             return FindMethodID(pEnv, clazz, name, sig, true);
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallStaticObjectMethodADelegateType))]
         internal static nint CallStaticObjectMethodA(JNIEnv* pEnv, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1607,6 +1679,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallStaticBooleanMethodADelegateType))]
         internal static jboolean CallStaticBooleanMethodA(JNIEnv* pEnv, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1621,6 +1694,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallStaticByteMethodADelegateType))]
         internal static jbyte CallStaticByteMethodA(JNIEnv* pEnv, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1635,6 +1709,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallStaticCharMethodADelegateType))]
         internal static jchar CallStaticCharMethodA(JNIEnv* pEnv, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1649,6 +1724,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallStaticShortMethodADelegateType))]
         internal static jshort CallStaticShortMethodA(JNIEnv* pEnv, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1663,6 +1739,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallStaticIntMethodADelegateType))]
         internal static jint CallStaticIntMethodA(JNIEnv* pEnv, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1677,6 +1754,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallStaticLongMethodADelegateType))]
         internal static jlong CallStaticLongMethodA(JNIEnv* pEnv, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1691,6 +1769,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallStaticFloatMethodADelegateType))]
         internal static jfloat CallStaticFloatMethodA(JNIEnv* pEnv, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1705,6 +1784,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallStaticDoubleMethodADelegateType))]
         internal static jdouble CallStaticDoubleMethodA(JNIEnv* pEnv, nint clazz, nint methodID, JValue* args)
         {
             try
@@ -1719,6 +1799,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.CallStaticVoidMethodADelegateType))]
         internal static void CallStaticVoidMethodA(JNIEnv* pEnv, nint cls, nint methodID, JValue* args)
         {
             try
@@ -1731,6 +1812,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStaticFieldIDDelegateType))]
         internal static nint GetStaticFieldID(JNIEnv* pEnv, nint clazz, byte* name, byte* sig)
         {
             try
@@ -1744,6 +1826,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStaticObjectFieldDelegateType))]
         internal static nint GetStaticObjectField(JNIEnv* pEnv, nint clazz, nint fieldID)
         {
 #if FIRST_PASS
@@ -1761,6 +1844,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStaticBooleanFieldDelegateType))]
         internal static jboolean GetStaticBooleanField(JNIEnv* pEnv, nint clazz, nint fieldID)
         {
 #if FIRST_PASS
@@ -1778,6 +1862,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStaticByteFieldDelegateType))]
         internal static jbyte GetStaticByteField(JNIEnv* pEnv, nint clazz, nint fieldID)
         {
 #if FIRST_PASS
@@ -1795,6 +1880,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStaticCharFieldDelegateType))]
         internal static jchar GetStaticCharField(JNIEnv* pEnv, nint clazz, nint fieldID)
         {
 #if FIRST_PASS
@@ -1812,6 +1898,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStaticShortFieldDelegateType))]
         internal static jshort GetStaticShortField(JNIEnv* pEnv, nint clazz, nint fieldID)
         {
 #if FIRST_PASS
@@ -1829,6 +1916,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStaticIntFieldDelegateType))]
         internal static jint GetStaticIntField(JNIEnv* pEnv, nint clazz, nint fieldID)
         {
 #if FIRST_PASS
@@ -1846,6 +1934,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStaticLongFieldDelegateType))]
         internal static jlong GetStaticLongField(JNIEnv* pEnv, nint clazz, nint fieldID)
         {
 #if FIRST_PASS
@@ -1863,6 +1952,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStaticFloatFieldDelegateType))]
         internal static jfloat GetStaticFloatField(JNIEnv* pEnv, nint clazz, nint fieldID)
         {
 #if FIRST_PASS
@@ -1880,6 +1970,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStaticDoubleFieldDelegateType))]
         internal static jdouble GetStaticDoubleField(JNIEnv* pEnv, nint clazz, nint fieldID)
         {
 #if FIRST_PASS
@@ -1897,6 +1988,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetStaticObjectFieldDelegateType))]
         internal static void SetStaticObjectField(JNIEnv* pEnv, nint clazz, nint fieldID, nint val)
         {
 #if FIRST_PASS
@@ -1913,6 +2005,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetStaticBooleanFieldDelegateType))]
         internal static void SetStaticBooleanField(JNIEnv* pEnv, nint clazz, nint fieldID, jboolean val)
         {
 #if FIRST_PASS
@@ -1929,6 +2022,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetStaticByteFieldDelegateType))]
         internal static void SetStaticByteField(JNIEnv* pEnv, nint clazz, nint fieldID, jbyte val)
         {
 #if FIRST_PASS
@@ -1945,6 +2039,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetStaticCharFieldDelegateType))]
         internal static void SetStaticCharField(JNIEnv* pEnv, nint clazz, nint fieldID, jchar val)
         {
 #if FIRST_PASS
@@ -1961,6 +2056,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetStaticShortFieldDelegateType))]
         internal static void SetStaticShortField(JNIEnv* pEnv, nint clazz, nint fieldID, jshort val)
         {
 #if FIRST_PASS
@@ -1977,6 +2073,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetStaticIntFieldDelegateType))]
         internal static void SetStaticIntField(JNIEnv* pEnv, nint clazz, nint fieldID, jint val)
         {
 #if FIRST_PASS
@@ -1993,6 +2090,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetStaticLongFieldDelegateType))]
         internal static void SetStaticLongField(JNIEnv* pEnv, nint clazz, nint fieldID, jlong val)
         {
 #if FIRST_PASS
@@ -2009,6 +2107,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetStaticFloatFieldDelegateType))]
         internal static void SetStaticFloatField(JNIEnv* pEnv, nint clazz, nint fieldID, jfloat val)
         {
 #if FIRST_PASS
@@ -2025,6 +2124,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetStaticDoubleFieldDelegateType))]
         internal static void SetStaticDoubleField(JNIEnv* pEnv, nint clazz, nint fieldID, jdouble val)
         {
 #if FIRST_PASS
@@ -2034,16 +2134,19 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.NewStringDelegateType))]
         internal static nint NewString(JNIEnv* pEnv, jchar* unicode, int len)
         {
             return pEnv->MakeLocalRef(new String((char*)unicode, 0, len));
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStringLengthDelegateType))]
         internal static jint GetStringLength(JNIEnv* pEnv, nint str)
         {
             return ((string)pEnv->UnwrapRef(str)).Length;
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStringCharsDelegateType))]
         internal static jchar* GetStringChars(JNIEnv* pEnv, nint str, jboolean* isCopy)
         {
             try
@@ -2061,6 +2164,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ReleaseStringCharsDelegateType))]
         internal static void ReleaseStringChars(JNIEnv* pEnv, nint str, jchar* chars)
         {
             try
@@ -2074,6 +2178,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.NewStringUTFDelegateType))]
         internal static nint NewStringUTF(JNIEnv* pEnv, byte* bytes)
         {
             try
@@ -2087,6 +2192,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStringUTFLengthDelegateType))]
         internal static jint GetStringUTFLength(JNIEnv* pEnv, nint str)
         {
             try
@@ -2100,6 +2206,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStringUTFCharsDelegateType))]
         internal static byte* GetStringUTFChars(JNIEnv* pEnv, nint @string, jboolean* isCopy)
         {
             try
@@ -2142,16 +2249,19 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ReleaseStringUTFCharsDelegateType))]
         internal static void ReleaseStringUTFChars(JNIEnv* pEnv, nint @string, byte* utf)
         {
             JNIMemory.Free((IntPtr)(void*)utf);
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetArrayLengthDelegateType))]
         internal static jsize GetArrayLength(JNIEnv* pEnv, nint array)
         {
             return ((Array)pEnv->UnwrapRef(array)).Length;
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.NewObjectArrayDelegateType))]
         internal static nint NewObjectArray(JNIEnv* pEnv, jsize len, nint clazz, nint init)
         {
             try
@@ -2177,6 +2287,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetObjectArrayElementDelegateType))]
         internal static nint GetObjectArrayElement(JNIEnv* pEnv, nint array, jsize index)
         {
             try
@@ -2191,6 +2302,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetObjectArrayElementDelegateType))]
         internal static void SetObjectArrayElement(JNIEnv* pEnv, nint array, jsize index, nint val)
         {
             try
@@ -2216,6 +2328,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.NewBooleanArrayDelegateType))]
         internal static nint NewBooleanArray(JNIEnv* pEnv, jsize len)
         {
             try
@@ -2229,6 +2342,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.NewByteArrayDelegateType))]
         internal static nint NewByteArray(JNIEnv* pEnv, jsize len)
         {
             try
@@ -2242,6 +2356,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.NewCharArrayDelegateType))]
         internal static nint NewCharArray(JNIEnv* pEnv, jsize len)
         {
             try
@@ -2255,6 +2370,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.NewShortArrayDelegateType))]
         internal static nint NewShortArray(JNIEnv* pEnv, jsize len)
         {
             try
@@ -2268,6 +2384,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.NewIntArrayDelegateType))]
         internal static nint NewIntArray(JNIEnv* pEnv, jsize len)
         {
             try
@@ -2281,6 +2398,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.NewLongArrayDelegateType))]
         internal static nint NewLongArray(JNIEnv* pEnv, jsize len)
         {
             try
@@ -2294,6 +2412,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.NewFloatArrayDelegateType))]
         internal static nint NewFloatArray(JNIEnv* pEnv, jsize len)
         {
             try
@@ -2307,6 +2426,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.NewDoubleArrayDelegateType))]
         internal static nint NewDoubleArray(JNIEnv* pEnv, jsize len)
         {
             try
@@ -2320,6 +2440,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetBooleanArrayElementsDelegateType))]
         internal static jboolean* GetBooleanArrayElements(JNIEnv* pEnv, nint array, jboolean* isCopy)
         {
             var b = (bool[])pEnv->UnwrapRef(array);
@@ -2333,6 +2454,7 @@ namespace IKVM.Runtime.JNI
             return p;
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetByteArrayElementsDelegateType))]
         internal static jbyte* GetByteArrayElements(JNIEnv* pEnv, nint array, jboolean* isCopy)
         {
             byte[] b = (byte[])pEnv->UnwrapRef(array);
@@ -2346,6 +2468,7 @@ namespace IKVM.Runtime.JNI
             return p;
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetCharArrayElementsDelegateType))]
         internal static jchar* GetCharArrayElements(JNIEnv* pEnv, nint array, jboolean* isCopy)
         {
             char[] b = (char[])pEnv->UnwrapRef(array);
@@ -2358,6 +2481,7 @@ namespace IKVM.Runtime.JNI
             return (jchar*)(void*)buf;
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetShortArrayElementsDelegateType))]
         internal static jshort* GetShortArrayElements(JNIEnv* pEnv, nint array, jboolean* isCopy)
         {
             short[] b = (short[])pEnv->UnwrapRef(array);
@@ -2370,6 +2494,7 @@ namespace IKVM.Runtime.JNI
             return (jshort*)(void*)buf;
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetIntArrayElementsDelegateType))]
         internal static jint* GetIntArrayElements(JNIEnv* pEnv, nint array, jboolean* isCopy)
         {
             int[] b = (int[])pEnv->UnwrapRef(array);
@@ -2382,6 +2507,7 @@ namespace IKVM.Runtime.JNI
             return (jint*)(void*)buf;
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetLongArrayElementsDelegateType))]
         internal static jlong* GetLongArrayElements(JNIEnv* pEnv, nint array, jboolean* isCopy)
         {
             long[] b = (long[])pEnv->UnwrapRef(array);
@@ -2394,6 +2520,7 @@ namespace IKVM.Runtime.JNI
             return (jlong*)(void*)buf;
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetFloatArrayElementsDelegateType))]
         internal static jfloat* GetFloatArrayElements(JNIEnv* pEnv, nint array, jboolean* isCopy)
         {
             float[] b = (float[])pEnv->UnwrapRef(array);
@@ -2406,6 +2533,7 @@ namespace IKVM.Runtime.JNI
             return (jfloat*)(void*)buf;
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetDoubleArrayElementsDelegateType))]
         internal static jdouble* GetDoubleArrayElements(JNIEnv* pEnv, nint array, jboolean* isCopy)
         {
             double[] b = (double[])pEnv->UnwrapRef(array);
@@ -2418,6 +2546,7 @@ namespace IKVM.Runtime.JNI
             return (jdouble*)(void*)buf;
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ReleaseBooleanArrayElementsDelegateType))]
         internal static void ReleaseBooleanArrayElements(JNIEnv* pEnv, nint array, jboolean* elems, jint mode)
         {
             if (mode == 0 || mode == JNI_COMMIT)
@@ -2434,6 +2563,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ReleaseByteArrayElementsDelegateType))]
         internal static void ReleaseByteArrayElements(JNIEnv* pEnv, nint array, jbyte* elems, jint mode)
         {
             if (mode == 0 || mode == JNI_COMMIT)
@@ -2450,6 +2580,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ReleaseCharArrayElementsDelegateType))]
         internal static void ReleaseCharArrayElements(JNIEnv* pEnv, nint array, jchar* elems, jint mode)
         {
             if (mode == 0 || mode == JNI_COMMIT)
@@ -2463,6 +2594,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ReleaseShortArrayElementsDelegateType))]
         internal static void ReleaseShortArrayElements(JNIEnv* pEnv, nint array, jshort* elems, jint mode)
         {
             if (mode == 0 || mode == JNI_COMMIT)
@@ -2476,6 +2608,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ReleaseIntArrayElementsDelegateType))]
         internal static void ReleaseIntArrayElements(JNIEnv* pEnv, nint array, jint* elems, jint mode)
         {
             if (mode == 0 || mode == JNI_COMMIT)
@@ -2489,6 +2622,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ReleaseLongArrayElementsDelegateType))]
         internal static void ReleaseLongArrayElements(JNIEnv* pEnv, nint array, jlong* elems, jint mode)
         {
             if (mode == 0 || mode == JNI_COMMIT)
@@ -2502,6 +2636,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ReleaseFloatArrayElementsDelegateType))]
         internal static void ReleaseFloatArrayElements(JNIEnv* pEnv, nint array, jfloat* elems, jint mode)
         {
             if (mode == 0 || mode == JNI_COMMIT)
@@ -2515,6 +2650,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ReleaseDoubleArrayElementsDelegateType))]
         internal static void ReleaseDoubleArrayElements(JNIEnv* pEnv, nint array, jdouble* elems, jint mode)
         {
             if (mode == 0 || mode == JNI_COMMIT)
@@ -2528,6 +2664,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetBooleanArrayRegionDelegateType))]
         internal static void GetBooleanArrayRegion(JNIEnv* pEnv, nint array, int start, int len, jboolean* buf)
         {
             try
@@ -2545,6 +2682,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetByteArrayRegionDelegateType))]
         internal static void GetByteArrayRegion(JNIEnv* pEnv, nint array, int start, int len, jbyte* buf)
         {
             try
@@ -2562,6 +2700,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetCharArrayRegionDelegateType))]
         internal static void GetCharArrayRegion(JNIEnv* pEnv, nint array, int start, int len, jchar* buf)
         {
             try
@@ -2575,6 +2714,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetShortArrayRegionDelegateType))]
         internal static void GetShortArrayRegion(JNIEnv* pEnv, nint array, int start, int len, jshort* buf)
         {
             try
@@ -2588,6 +2728,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetIntArrayRegionDelegateType))]
         internal static void GetIntArrayRegion(JNIEnv* pEnv, nint array, int start, int len, jint* buf)
         {
             try
@@ -2601,6 +2742,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetLongArrayRegionDelegateType))]
         internal static void GetLongArrayRegion(JNIEnv* pEnv, nint array, int start, int len, jlong* buf)
         {
             try
@@ -2614,6 +2756,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetFloatArrayRegionDelegateType))]
         internal static void GetFloatArrayRegion(JNIEnv* pEnv, nint array, int start, int len, jfloat* buf)
         {
             try
@@ -2627,6 +2770,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetDoubleArrayRegionDelegateType))]
         internal static void GetDoubleArrayRegion(JNIEnv* pEnv, nint array, int start, int len, jdouble* buf)
         {
             try
@@ -2640,6 +2784,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetBooleanArrayRegionDelegateType))]
         internal static void SetBooleanArrayRegion(JNIEnv* pEnv, nint array, int start, int len, jboolean* buf)
         {
             try
@@ -2657,6 +2802,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetByteArrayRegionDelegateType))]
         internal static void SetByteArrayRegion(JNIEnv* pEnv, nint array, int start, int len, jbyte* buf)
         {
             try
@@ -2674,6 +2820,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetCharArrayRegionDelegateType))]
         internal static void SetCharArrayRegion(JNIEnv* pEnv, nint array, int start, int len, jchar* buf)
         {
             try
@@ -2687,6 +2834,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetShortArrayRegionDelegateType))]
         internal static void SetShortArrayRegion(JNIEnv* pEnv, nint array, int start, int len, jshort* buf)
         {
             try
@@ -2700,6 +2848,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetIntArrayRegionDelegateType))]
         internal static void SetIntArrayRegion(JNIEnv* pEnv, nint array, int start, int len, jint* buf)
         {
             try
@@ -2713,6 +2862,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetLongArrayRegionDelegateType))]
         internal static void SetLongArrayRegion(JNIEnv* pEnv, nint array, int start, int len, jlong* buf)
         {
             try
@@ -2726,6 +2876,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetFloatArrayRegionDelegateType))]
         internal static void SetFloatArrayRegion(JNIEnv* pEnv, nint array, int start, int len, jfloat* buf)
         {
             try
@@ -2739,6 +2890,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.SetDoubleArrayRegionDelegateType))]
         internal static void SetDoubleArrayRegion(JNIEnv* pEnv, nint array, int start, int len, jdouble* buf)
         {
             try
@@ -2760,6 +2912,7 @@ namespace IKVM.Runtime.JNI
             public void* fnPtr;
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.RegisterNativesDelegateType))]
         internal static jint RegisterNatives(JNIEnv* pEnv, nint clazz, JNINativeMethod* methods, jint nMethods)
         {
             try
@@ -2800,6 +2953,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.UnregisterNativesDelegateType))]
         internal static jint UnregisterNatives(JNIEnv* pEnv, nint clazz)
         {
             try
@@ -2830,6 +2984,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.MonitorEnterDelegateType))]
         internal static jint MonitorEnter(JNIEnv* pEnv, nint obj)
         {
             try
@@ -2848,6 +3003,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.MonitorExitDelegateType))]
         internal static jint MonitorExit(JNIEnv* pEnv, nint obj)
         {
             try
@@ -2862,12 +3018,14 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetJavaVMDelegateType))]
         internal static jint GetJavaVM(JNIEnv* pEnv, JavaVM** ppJavaVM)
         {
             *ppJavaVM = JavaVM.pJavaVM;
             return JNI_OK;
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStringRegionDelegateType))]
         internal static void GetStringRegion(JNIEnv* pEnv, nint str, jsize start, jsize len, jchar* buf)
         {
             string s = (string)pEnv->UnwrapRef(str);
@@ -2895,6 +3053,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStringUTFRegionDelegateType))]
         internal static void GetStringUTFRegion(JNIEnv* pEnv, nint str, jsize start, jsize len, byte* buf)
         {
             string s = (string)pEnv->UnwrapRef(str);
@@ -2974,6 +3133,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetPrimitiveArrayCriticalDelegateType))]
         internal static void* GetPrimitiveArrayCritical(JNIEnv* pEnv, nint array, jboolean* isCopy)
         {
             if (isCopy != null)
@@ -2982,6 +3142,7 @@ namespace IKVM.Runtime.JNI
             return pEnv->PinObject(pEnv->UnwrapRef(array));
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ReleasePrimitiveArrayCriticalDelegateType))]
         internal static void ReleasePrimitiveArrayCritical(JNIEnv* pEnv, nint array, void* carray, jint mode)
         {
             pEnv->UnpinObject(pEnv->UnwrapRef(array));
@@ -2994,6 +3155,7 @@ namespace IKVM.Runtime.JNI
         /// <param name="str"></param>
         /// <param name="isCopy"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetStringCriticalDelegateType))]
         internal static jchar* GetStringCritical(JNIEnv* pEnv, nint str, jboolean* isCopy)
         {
             if (isCopy != null)
@@ -3008,6 +3170,7 @@ namespace IKVM.Runtime.JNI
         /// <param name="pEnv"></param>
         /// <param name="str"></param>
         /// <param name="cstring"></param>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ReleaseStringCriticalDelegateType))]
         internal static void ReleaseStringCritical(JNIEnv* pEnv, nint str, jchar* cstring)
         {
             pEnv->UnpinObject(pEnv->UnwrapRef(str));
@@ -3019,6 +3182,7 @@ namespace IKVM.Runtime.JNI
         /// <param name="pEnv"></param>
         /// <param name="obj"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.NewWeakGlobalRefDelegateType))]
         internal static nint NewWeakGlobalRef(JNIEnv* pEnv, nint obj)
         {
             var o = pEnv->UnwrapRef(obj);
@@ -3030,6 +3194,7 @@ namespace IKVM.Runtime.JNI
         /// </summary>
         /// <param name="pEnv"></param>
         /// <param name="obj"></param>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.DeleteWeakGlobalRefDelegateType))]
         internal static void DeleteWeakGlobalRef(JNIEnv* pEnv, nint obj)
         {
             if (IsGlobalRef(obj))
@@ -3047,6 +3212,7 @@ namespace IKVM.Runtime.JNI
         /// </summary>
         /// <param name="pEnv"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(JNINativeInterface.ExceptionCheckDelegateType))]
         internal static jboolean ExceptionCheck(JNIEnv* pEnv)
         {
             return JVM.GetPendingException() != null ? JNI_TRUE : JNI_FALSE;
@@ -3075,6 +3241,7 @@ namespace IKVM.Runtime.JNI
 #endif
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetDirectBufferAddressDelegateType))]
         internal static void* GetDirectBufferAddress(JNIEnv* pEnv, nint buf)
         {
             try
@@ -3088,6 +3255,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetDirectBufferCapacityDelegateType))]
         internal static jlong GetDirectBufferCapacity(JNIEnv* pEnv, nint buf)
         {
             try
@@ -3101,6 +3269,7 @@ namespace IKVM.Runtime.JNI
             }
         }
 
+        [MonoPInvokeCallback(typeof(JNINativeInterface.GetObjectRefTypeDelegateType))]
         internal static JObjectRefType GetObjectRefType(JNIEnv* pEnv, nint obj)
         {
             int i = ((IntPtr)obj).ToInt32();

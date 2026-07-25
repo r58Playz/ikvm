@@ -28,6 +28,8 @@ using System.Text;
 using IKVM.ByteCode.Text;
 using IKVM.Runtime.Extensions;
 
+using Mono.Interop;
+
 namespace IKVM.Runtime.JNI
 {
 
@@ -77,6 +79,7 @@ namespace IKVM.Runtime.JNI
         /// <param name="p_env"></param>
         /// <param name="vm_args"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(LibJvm.JNI_CreateJavaVMDelegate))]
         public static int CreateJavaVM(JavaVM** p_vm, void** p_env, void* vm_args)
         {
             var pInitArgs = (JavaVMInitArgs*)vm_args;
@@ -130,6 +133,7 @@ namespace IKVM.Runtime.JNI
         /// </summary>
         /// <param name="vm_args"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(LibJvm.JNI_GetDefaultJavaVMInitArgsDelegate))]
         public static int GetDefaultJavaVMInitArgs(void* vm_args)
         {
             // This is only used for JDK 1.1 JavaVMInitArgs, and we don't support those.
@@ -143,6 +147,7 @@ namespace IKVM.Runtime.JNI
         /// <param name="bufLen"></param>
         /// <param name="nVMs"></param>
         /// <returns></returns>
+        [MonoPInvokeCallback(typeof(LibJvm.JNI_GetCreatedJavaVMsDelegate))]
         public static int GetCreatedJavaVMs(JavaVM** ppvmBuf, jsize bufLen, jsize* nVMs)
         {
             if (jvmCreated)
