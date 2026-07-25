@@ -35,6 +35,10 @@ namespace IKVM.Runtime
         LoadOrNull = Load | ReturnNull,
         LoadOrThrow = Load | ThrowClassNotFound,
         Link = Load | ReturnUnloadable | SuppressExceptions,
+        // OpenJDK-aligned lazy linking: never invokes user-defined loadClass (no Load bit); classes
+        // not resolvable through trusted no-user-code paths become unloadable and are resolved
+        // lazily at first execution of the referencing instruction via the __dynamic_* stubs.
+        LinkLazy = ReturnUnloadable | SuppressExceptions | TrustedProbe,
 
         // call into Java class loader
         Load = 0x0001,
@@ -51,6 +55,11 @@ namespace IKVM.Runtime
 
         // warnings
         WarnClassNotFound = 0x0020,
+
+        // may resolve through loaders that run no user code (boot image) and through names the
+        // initiating loader explicitly vouches for (ikvm.lang.LinkTrustPolicy), but never through
+        // an unsolicited user-defined loadClass
+        TrustedProbe = 0x0040,
 
     }
 

@@ -246,6 +246,23 @@ namespace IKVM.Runtime
                 throw new JavaSecurityException("Prohibited package name: " + className.Substring(0, className.LastIndexOf('.')));
         }
 
+        /// <summary>
+        /// Returns true if loading a class through this loader may invoke user-defined loadClass code.
+        /// Lazy (OpenJDK-aligned) linking only applies to classes defined by such loaders; all other
+        /// loaders resolve classes without observable side effects and continue to link eagerly.
+        /// </summary>
+        internal virtual bool InvokesUserLoadClass
+        {
+            get
+            {
+#if !IMPORTER && !FIRST_PASS && !EXPORTER
+                return javaClassLoader != null;
+#else
+                return false;
+#endif
+            }
+        }
+
 #if !EXPORTER
         internal RuntimeJavaType DefineClass(ClassFile f, ProtectionDomain protectionDomain)
         {
@@ -373,7 +390,16 @@ namespace IKVM.Runtime
                 if (javaType != null)
                     return RegisterInitiatingLoader(javaType);
 
-                if (!(name.Length > 1 && name[0] == '[') && ((mode & LoadMode.WarnClassNotFound) != 0) || WarningLevelHigh)
+                // lazy linking: we may not invoke user loadClass, but trusted no-user-code paths may
+                // still resolve the reference eagerly (full speed direct binding)
+                if ((mode & LoadMode.Load) == 0 && (mode & LoadMode.TrustedProbe) != 0)
+                {
+                    javaType = TryTrustedEagerLink(name, mode);
+                    if (javaType != null)
+                        return javaType;
+                }
+
+                if (!(name.Length > 1 && name[0] == '[') && (mode & LoadMode.WarnClassNotFound) != 0 && (mode & LoadMode.TrustedProbe) == 0 || WarningLevelHigh)
                     Diagnostics.ClassNotFound(name);
 
                 return (mode & LoadMode.MaskReturn) switch
@@ -439,6 +465,62 @@ namespace IKVM.Runtime
 
             return javaType;
         }
+
+        /// <summary>
+        /// Attempts to resolve a class reference at link time without invoking an unsolicited
+        /// user-defined loadClass (lazy linking, see <see cref="LoadMode.LinkLazy"/>). Names the
+        /// loader vouches for via ikvm.lang.LinkTrustPolicy load eagerly through the normal path;
+        /// anything else may only resolve through the boot image, which runs no user code. Boot
+        /// probe hits are deliberately not registered as initiating loads so that findLoadedClass
+        /// stays faithful to what the loader actually initiated.
+        /// </summary>
+        RuntimeJavaType TryTrustedEagerLink(string name, LoadMode mode)
+        {
+#if !IMPORTER && !FIRST_PASS && !EXPORTER
+            if (IsEagerLinkSafe(name))
+            {
+                var javaType = LoadClassImpl(name, mode | LoadMode.Load);
+                if (javaType != null)
+                    return RegisterInitiatingLoader(javaType);
+            }
+            else
+            {
+                var bootstrap = context.ClassLoaderFactory.GetBootstrapClassLoader();
+                if (bootstrap != this)
+                    return bootstrap.TryLoadClassByName(name);
+            }
+#endif
+            return null;
+        }
+
+#if !IMPORTER && !FIRST_PASS && !EXPORTER
+
+        System.Collections.Concurrent.ConcurrentDictionary<string, bool> eagerLinkSafeCache;
+
+        /// <summary>
+        /// Consults the loader's ikvm.lang.LinkTrustPolicy, if implemented; memoized per name.
+        /// </summary>
+        bool IsEagerLinkSafe(string name)
+        {
+            if (javaClassLoader is not ikvm.lang.LinkTrustPolicy policy)
+                return false;
+
+            var cache = eagerLinkSafeCache;
+            if (cache == null)
+            {
+                Interlocked.CompareExchange(ref eagerLinkSafeCache, new System.Collections.Concurrent.ConcurrentDictionary<string, bool>(), null);
+                cache = eagerLinkSafeCache;
+            }
+
+            if (cache.TryGetValue(name, out var safe))
+                return safe;
+
+            safe = policy.isEagerLinkSafe(name);
+            cache.TryAdd(name, safe);
+            return safe;
+        }
+
+#endif
 
         /// <summary>
         /// Returns the <see cref="RuntimeJavaType"/> for the given array class name.

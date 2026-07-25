@@ -1153,6 +1153,12 @@ namespace IKVM.Runtime
 
 #if !IMPORTER && !FIRST_PASS && !EXPORTER
 
+        /// <summary>
+        /// Assembly class loaders resolve from .NET metadata; only a custom assembly class loader
+        /// (CustomAssemblyClassLoaderAttribute / app.config redirect) runs user loadClass code.
+        /// </summary>
+        internal override bool InvokesUserLoadClass => GetCustomClassLoaderType() != null;
+
         Type GetCustomClassLoaderType()
         {
             LoadCustomClassLoaderRedirects(this);

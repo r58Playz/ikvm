@@ -26,6 +26,13 @@ namespace IKVM.Runtime
         internal static bool RelaxedVerification = true;
         internal static bool AllowNonVirtualCalls;
         internal static readonly bool DisableEagerClassLoading = SafeGetEnvironmentVariable("IKVM_DISABLE_EAGER_CLASS_LOADING") != null;
+        // OpenJDK-aligned lazy linking for classes defined by user Java class loaders: constant pool
+        // and member signatures link without invoking user loadClass; unresolved references fall back
+        // to the __dynamic_* stubs which resolve at first execution (JVMS §5.4.3 timing).
+        internal static readonly bool LazyClassLoading = SafeGetEnvironmentVariable("IKVM_LAZY_CLASS_LOADING") != null;
+        // logs every invocation of a Java class loader's loadClass with the loader's type, for
+        // diffing load order/set against a real JVM run with -verbose:class
+        internal static readonly bool TraceLoadClass = SafeGetEnvironmentVariable("IKVM_TRACE_LOADCLASS") != null;
 #endif
 
         /// <summary>
