@@ -163,7 +163,13 @@ namespace IKVM.Runtime
             throw new NotImplementedException();
 #else
             Profiler.Count("DynamicAastore");
-            ((Array)arrayref).SetValue(val, index);
+            // any Java reference type array is assignable to object[], so this takes the same
+            // stelem.ref path (including the array store check) the compiler emits for loadable
+            // array types; only remapped non-primitive value type arrays need the reflective path
+            if (arrayref is object[] arr)
+                arr[index] = val;
+            else
+                ((Array)arrayref).SetValue(val, index);
 #endif
         }
 
@@ -174,6 +180,10 @@ namespace IKVM.Runtime
             throw new NotImplementedException();
 #else
             Profiler.Count("DynamicAaload");
+            // same ldelem.ref path the compiler emits for loadable array types; only remapped
+            // non-primitive value type arrays need the reflective (boxing) path
+            if (arrayref is object[] arr)
+                return arr[index];
             return ((Array)arrayref).GetValue(index);
 #endif
         }
