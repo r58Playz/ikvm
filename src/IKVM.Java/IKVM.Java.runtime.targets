@@ -16,10 +16,15 @@
     <Import Project="$(MSBuildThisFileDirectory)..\..\targets\openjdk.buildtools.targets" />
 
     <Target Name="FindJdk">
-        <FindJdk Family="8">
+        <!-- If JAVA_HOME is explicitly set (e.g., from GitHub Actions setup-java), use it directly -->
+        <PropertyGroup>
+            <JdkPath Condition=" '$(JAVA_HOME)' != '' ">$(JAVA_HOME)</JdkPath>
+        </PropertyGroup>
+        <!-- Otherwise, fall back to searching for JDK 8 -->
+        <FindJdk Family="8" Condition=" '$(JdkPath)' == '' ">
             <Output TaskParameter="JdkPath" PropertyName="JdkPath" />
         </FindJdk>
-        <Error Condition=" '$(JdkPath)' == '' " Text="Failed to locate JDK. IKVM.Java requires JDK version 8 available on the system." />
+        <Error Condition=" '$(JdkPath)' == '' " Text="Failed to locate JDK. IKVM.Java requires JDK version 8 or higher available on the system." />
     </Target>
 
     <Target Name="ResolveJava" DependsOnTargets="FindJdk" Condition=" '$(JavaPath)' == '' ">
