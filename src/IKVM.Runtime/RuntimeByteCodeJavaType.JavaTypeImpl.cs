@@ -1320,6 +1320,9 @@ namespace IKVM.Runtime
 #if !IMPORTER
                 catch (Exception x)
                 {
+                    // the wrapped exception's stack can get lost when surfaced to Java (notably on
+                    // mono-wasm), so dump the full details here
+                    Console.Error.WriteLine($"[IKVM finish-failed] {wrapper.Name}: {x}");
                     throw new InternalException($"Exception during finishing of: {wrapper.Name}", x);
                 }
 #endif
@@ -1947,7 +1950,7 @@ namespace IKVM.Runtime
                 var tw = wrapper.BaseTypeWrapper;
                 while (tw != null)
                 {
-                    var baseMethod = tw.GetMethod(name, sig, true);
+                    var baseMethod = GetBaseMethodByNameOrSignature(tw, name, sig);
                     if (baseMethod == null)
                         break;
                     else if (baseMethod.IsAccessStub)
@@ -1964,7 +1967,7 @@ namespace IKVM.Runtime
 
                 while (tw != null)
                 {
-                    var baseMethod = tw.GetMethod(name, sig, true);
+                    var baseMethod = GetBaseMethodByNameOrSignature(tw, name, sig);
                     if (baseMethod == null)
                     {
                         break;
@@ -2006,7 +2009,7 @@ namespace IKVM.Runtime
                             tw = wrapper.BaseTypeWrapper;
                             while (tw != null)
                             {
-                                var baseMethod2 = tw.GetMethod(name, sig, true);
+                                var baseMethod2 = GetBaseMethodByNameOrSignature(tw, name, sig);
                                 if (baseMethod2 == null || baseMethod2 == baseMethod)
                                     break;
 
@@ -2069,7 +2072,7 @@ namespace IKVM.Runtime
                             tw = topPublicOrProtectedMethod.DeclaringType.BaseTypeWrapper;
                             while (tw != null)
                             {
-                                var baseMethod2 = tw.GetMethod(name, sig, true);
+                                var baseMethod2 = GetBaseMethodByNameOrSignature(tw, name, sig);
                                 if (baseMethod2 == null)
                                     break;
 
@@ -2130,11 +2133,11 @@ namespace IKVM.Runtime
                 return false;
             }
 
-            static RuntimeJavaMethod GetPackageBaseMethod(RuntimeJavaType tw, string name, string sig, RuntimeJavaType package)
+            RuntimeJavaMethod GetPackageBaseMethod(RuntimeJavaType tw, string name, string sig, RuntimeJavaType package)
             {
                 while (tw != null)
                 {
-                    var mw = tw.GetMethod(name, sig, true);
+                    var mw = GetBaseMethodByNameOrSignature(tw, name, sig);
                     if (mw == null)
                         break;
 
@@ -2153,7 +2156,7 @@ namespace IKVM.Runtime
                 var tw = wrapper.BaseTypeWrapper;
                 while (tw != null)
                 {
-                    var baseMethod = tw.GetMethod(name, sig, true);
+                    var baseMethod = GetBaseMethodByNameOrSignature(tw, name, sig);
                     if (baseMethod == null)
                     {
                         return null;
@@ -2191,7 +2194,7 @@ namespace IKVM.Runtime
                             tw = baseMethod.DeclaringType.BaseTypeWrapper;
                             while (tw != null)
                             {
-                                RuntimeJavaMethod baseMethod2 = tw.GetMethod(name, sig, true);
+                                RuntimeJavaMethod baseMethod2 = GetBaseMethodByNameOrSignature(tw, name, sig);
                                 if (baseMethod2 == null)
                                 {
                                     break;
@@ -2238,6 +2241,15 @@ namespace IKVM.Runtime
                 }
 
                 return null;
+            }
+
+            RuntimeJavaMethod GetBaseMethodByNameOrSignature(RuntimeJavaType tw, string name, string sig)
+            {
+                // Base method discovery must stay within the Java override relation that the
+                // wrapper hierarchy already resolved. Signature-only scans can bind unrelated
+                // methods such as Object.toString() to a different child method with the same
+                // descriptor, which then produces invalid CLR MethodImpls.
+                return tw.GetMethod(name, sig, true);
             }
 
             static MethodInfo GetBaseFinalizeMethod(RuntimeJavaType wrapper)
@@ -2748,6 +2760,7 @@ namespace IKVM.Runtime
                     bool newslot = baseMethods[index] != null
                         && (methods[index].IsExplicitOverride || baseMethods[index][0].RealName != name || CheckRequireOverrideStub(methods[index], baseMethods[index][0]))
                         && !needFinalize;
+
                     if (newslot)
                     {
                         attribs |= MethodAttributes.NewSlot;
@@ -2787,7 +2800,14 @@ namespace IKVM.Runtime
                             }
                             else if (subsequent || methods[index].IsExplicitOverride || baseMethod.RealName != name)
                             {
-                                typeBuilder.DefineMethodOverride(mb, (MethodInfo)baseMethod.GetMethod());
+                                var baseMethodInfo = (MethodInfo)baseMethod.GetMethod();
+
+                                if (!HasMethodImplCompatibleSignature(mb, baseMethodInfo))
+                                {
+                                    throw new InvalidOperationException($"MethodImpl signature mismatch: body={wrapper.Name}::{methods[index].Name}{methods[index].Signature} clr={FormatClrSignature(mb)} declaration={baseMethod.DeclaringType.Name}::{baseMethod.Name}{baseMethod.Signature} clr={FormatClrSignature(baseMethodInfo)}");
+                                }
+
+                                typeBuilder.DefineMethodOverride(mb, baseMethodInfo);
                             }
 
                             // the non-primary base methods always need an explicit method override
@@ -2900,6 +2920,34 @@ namespace IKVM.Runtime
                     default:
                         return MethodAttributes.Assembly;
                 }
+            }
+
+            static bool HasMethodImplCompatibleSignature(MethodInfo body, MethodInfo declaration)
+            {
+                if (body.ReturnType != declaration.ReturnType)
+                    return false;
+
+                var bodyParams = body.GetParameters();
+                var declarationParams = declaration.GetParameters();
+                if (bodyParams.Length != declarationParams.Length)
+                    return false;
+
+                for (int i = 0; i < bodyParams.Length; i++)
+                    if (bodyParams[i].ParameterType != declarationParams[i].ParameterType)
+                        return false;
+
+                return true;
+            }
+
+            static string FormatClrSignature(MethodInfo method)
+            {
+                var parameters = method.GetParameters();
+                var types = new string[parameters.Length];
+                for (int i = 0; i < parameters.Length; i++)
+                    types[i] = parameters[i].ParameterType.FullName ?? parameters[i].ParameterType.ToString();
+
+                var returnType = method.ReturnType.FullName ?? method.ReturnType.ToString();
+                return method.Name + "(" + string.Join(",", types) + "):" + returnType;
             }
 
 #if IMPORTER
