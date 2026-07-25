@@ -611,7 +611,12 @@ public class ZipFile implements ZipConstants, Closeable
       buffer = new byte[bufferSize];
       bufferOffset = -buffer.length;
       pos = buffer.length;
-      end = raf.length();
+      // raf.length() does seek-cur/seek-end/seek-set on the shared fd,
+      // which would race with another thread's fillBuffer seek+read pair.
+      synchronized (raf)
+        {
+          end = raf.length();
+        }
       lazy = true;
     }
 
@@ -620,12 +625,16 @@ public class ZipFile implements ZipConstants, Closeable
     // where the record starts.
     long seekEndOfCentralDirectory() throws IOException
     {
-      /* Search for the End Of Central Directory.  When a zip comment is 
+      /* Search for the End Of Central Directory.  When a zip comment is
        * present the directory may start earlier.
        * Note that a comment has a maximum length of 64K, so that is the
        * maximum we search backwards.
        */
-      long length = raf.length();
+      long length;
+      synchronized (raf)
+        {
+          length = raf.length();
+        }
       if (length == 0)
         throw new ZipException("zip file is empty");
       long pos = length - ENDHDR;
