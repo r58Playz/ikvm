@@ -38,6 +38,7 @@ using IKVM.Tools.Importer;
 using Type = IKVM.Reflection.Type;
 #else
 using System.Reflection;
+using System.Reflection.Emit;
 #endif
 
 #if EXPORTER == false
@@ -375,6 +376,24 @@ namespace IKVM.Runtime
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
+#if !IMPORTER
+            // fast path: resolve the member and compile a small direct-call thunk instead of going
+            // through the MethodHandle/LambdaForm machinery; shapes the thunk builder cannot handle
+            // (missing members, CallerID, ghost/remapped receivers, packed-arg delegates, volatile
+            // fields, access errors) fall through to the MethodHandle path below, which also
+            // produces the correct linkage errors
+            try
+            {
+                var direct = TryCreateDirectBinderDelegate<T>((MethodHandleKind)kind, clazz, name, sig, callerID);
+                if (direct != null)
+                    return direct;
+            }
+            catch (RetargetableJavaException e)
+            {
+                throw e.ToJava();
+            }
+#endif
+
             try
             {
                 var mh = DynamicLoadMethodHandleImpl(kind, clazz, name, sig, callerID);
@@ -398,6 +417,235 @@ namespace IKVM.Runtime
             }
 #endif
         }
+
+#if !FIRST_PASS && !IMPORTER
+
+        /// <summary>
+        /// Attempts to resolve the member referenced by a __dynamic_* call site and compile a small
+        /// DynamicMethod thunk with the call site delegate's exact signature that casts and invokes
+        /// the member directly. Returns null for any shape it cannot handle; the caller then falls
+        /// back to the MethodHandle path, which also produces the correct linkage errors.
+        /// </summary>
+        static T TryCreateDirectBinderDelegate<T>(MethodHandleKind kind, string clazz, string name, string sig, ikvm.@internal.CallerID callerID)
+            where T : class, Delegate
+        {
+            var context = JVM.Context;
+            var tw = LoadTypeWrapper(clazz, callerID);
+            if (tw.IsGhost || tw.IsRemapped || tw.IsNonPrimitiveValueType || tw.IsFakeTypeContainer)
+                return null;
+
+            var caller = RuntimeJavaType.FromClass(callerID.getCallerClass());
+            var invoke = context.MethodHandleUtil.GetDelegateInvokeMethod(typeof(T));
+            var dp = invoke.GetParameters();
+
+            RuntimeJavaMethod mw = null;
+            RuntimeJavaField fw = null;
+            RuntimeJavaType[] args;
+            RuntimeJavaType ret;
+            bool hasReceiver;
+
+            switch (kind)
+            {
+                case MethodHandleKind.InvokeStatic:
+                case MethodHandleKind.InvokeVirtual:
+                case MethodHandleKind.InvokeInterface:
+                case MethodHandleKind.NewInvokeSpecial:
+                    mw = tw.GetMethod(name, sig, kind != MethodHandleKind.NewInvokeSpecial);
+                    if (mw == null || mw.HasCallerID || mw.IsFinalizeOrClone)
+                        return null;
+                    mw.Link();
+                    if (!mw.IsAccessibleFrom(tw, caller, tw))
+                        return null;
+                    if (kind == MethodHandleKind.InvokeStatic ? !mw.IsStatic : mw.IsStatic)
+                        return null;
+                    if (kind == MethodHandleKind.NewInvokeSpecial && (!mw.IsConstructor || tw.IsAbstract))
+                        return null;
+                    if ((kind == MethodHandleKind.InvokeVirtual || kind == MethodHandleKind.InvokeInterface) && mw.IsConstructor)
+                        return null;
+                    hasReceiver = kind == MethodHandleKind.InvokeVirtual || kind == MethodHandleKind.InvokeInterface;
+                    args = mw.GetParameters();
+                    ret = kind == MethodHandleKind.NewInvokeSpecial ? tw : mw.ReturnType;
+                    break;
+                case MethodHandleKind.GetField:
+                case MethodHandleKind.GetStatic:
+                case MethodHandleKind.PutField:
+                case MethodHandleKind.PutStatic:
+                    fw = tw.GetFieldWrapper(name, sig);
+                    if (fw == null)
+                        return null;
+                    fw.Link();
+                    if (!fw.IsAccessibleFrom(tw, caller, tw))
+                        return null;
+                    var isStaticKind = kind == MethodHandleKind.GetStatic || kind == MethodHandleKind.PutStatic;
+                    var isPut = kind == MethodHandleKind.PutField || kind == MethodHandleKind.PutStatic;
+                    if (fw.IsStatic != isStaticKind)
+                        return null;
+                    // preserve the MethodHandle path's final-field error and volatile access semantics
+                    if (isPut && fw.IsFinal)
+                        return null;
+                    if (fw.IsVolatile)
+                        return null;
+                    hasReceiver = !isStaticKind;
+                    args = isPut ? new[] { fw.FieldTypeWrapper } : Array.Empty<RuntimeJavaType>();
+                    ret = isPut ? context.PrimitiveJavaTypeFactory.VOID : fw.FieldTypeWrapper;
+                    break;
+                default:
+                    return null;
+            }
+
+            var firstArg = hasReceiver ? 1 : 0;
+
+            // a length mismatch means the delegate uses packed args (arity > MaxArity)
+            if (dp.Length != firstArg + args.Length)
+                return null;
+
+            if (hasReceiver && (dp[0].ParameterType.IsValueType || tw.TypeAsSignatureType.IsValueType))
+                return null;
+            for (int i = 0; i < args.Length; i++)
+                if (!CanEmitDirectBinderConversion(dp[firstArg + i].ParameterType, args[i]))
+                    return null;
+            if (!CanEmitDirectBinderReturn(ret, invoke.ReturnType, context))
+                return null;
+
+            // the DynamicMethod signature and body must not reference unbaked types (unloadable
+            // signature types are already erased to object and cannot be finished), and the member
+            // must be re-resolved from its builder to the baked runtime member
+            tw.Finish();
+            foreach (var arg in args)
+                if (!arg.IsUnloadable)
+                    arg.Finish();
+            if (!ret.IsUnloadable)
+                ret.Finish();
+
+            if (mw != null)
+            {
+                mw.DeclaringType.Finish();
+                mw.ResolveMethod();
+            }
+            else
+            {
+                fw.DeclaringType.Finish();
+                fw.ResolveField();
+            }
+
+            Profiler.Count("DynamicBinderDirect");
+
+            // owning the DynamicMethod with the target type can run the target's class initializer
+            // at delegate creation; that matches JVMS timing for the kinds that must initialize on
+            // first execution (we are inside the referencing instruction's first execution), but
+            // getfield/invokevirtual/invokeinterface must never trigger initialization (JVMS §5.5)
+            var initializes = kind == MethodHandleKind.InvokeStatic || kind == MethodHandleKind.NewInvokeSpecial
+                || kind == MethodHandleKind.GetStatic || kind == MethodHandleKind.PutStatic;
+            var owner = initializes ? tw.TypeAsBaseType : typeof(ByteCodeHelper);
+            if (!ReflectUtil.CanOwnDynamicMethod(owner))
+                owner = typeof(ByteCodeHelper);
+
+            var dpTypes = new Type[dp.Length];
+            for (int i = 0; i < dp.Length; i++)
+                dpTypes[i] = dp[i].ParameterType;
+
+            var dm = new DynamicMethod($"__<>DynamicBinder__{tw.Name}__{name}", invoke.ReturnType, dpTypes, owner, true);
+            var ilgen = context.CodeEmitterFactory.Create(dm);
+
+            if (hasReceiver)
+            {
+                ilgen.EmitLdarg(0);
+                if (dpTypes[0] != tw.TypeAsSignatureType)
+                    tw.EmitCheckcast(ilgen);
+            }
+
+            for (int i = 0; i < args.Length; i++)
+            {
+                ilgen.EmitLdarg(firstArg + i);
+                EmitDirectBinderConversion(ilgen, dpTypes[firstArg + i], args[i]);
+            }
+
+            if (mw != null)
+            {
+                if (kind == MethodHandleKind.NewInvokeSpecial)
+                    mw.EmitNewobj(ilgen);
+                else if (hasReceiver)
+                    mw.EmitCallvirt(ilgen);
+                else
+                    mw.EmitCall(ilgen);
+            }
+            else if (kind == MethodHandleKind.GetField || kind == MethodHandleKind.GetStatic)
+            {
+                fw.EmitGet(ilgen);
+            }
+            else
+            {
+                fw.EmitSet(ilgen);
+            }
+
+            EmitDirectBinderReturn(ilgen, ret, invoke.ReturnType, context);
+
+            ilgen.Emit(OpCodes.Ret);
+            ilgen.DoEmit();
+
+            return (T)dm.CreateDelegate(typeof(T));
+        }
+
+        static bool CanEmitDirectBinderConversion(Type have, RuntimeJavaType want)
+        {
+            if (want.IsUnloadable)
+                return !have.IsValueType;
+
+            var wantType = want.TypeAsSignatureType;
+            if (have == wantType)
+                return true;
+
+            if (want.IsGhost)
+                return !have.IsValueType;
+
+            // primitive and value-type shapes must match exactly; everything else is a reference cast
+            if (want.IsPrimitive || wantType.IsValueType || have.IsValueType)
+                return false;
+
+            return true;
+        }
+
+        static void EmitDirectBinderConversion(CodeEmitter ilgen, Type have, RuntimeJavaType want)
+        {
+            if (want.IsUnloadable || have == want.TypeAsSignatureType)
+                return;
+
+            want.EmitCheckcast(ilgen);
+            if (want.IsGhost)
+                want.EmitConvStackTypeToSignatureType(ilgen, null);
+        }
+
+        static bool CanEmitDirectBinderReturn(RuntimeJavaType ret, Type want, RuntimeContext context)
+        {
+            if (ret == context.PrimitiveJavaTypeFactory.VOID)
+                return want == typeof(void);
+
+            var retType = ret.TypeAsSignatureType;
+            if (retType == want)
+                return true;
+
+            if (ret.IsGhost)
+                return !want.IsValueType;
+
+            if (ret.IsPrimitive || retType.IsValueType || want.IsValueType)
+                return false;
+
+            return true;
+        }
+
+        static void EmitDirectBinderReturn(CodeEmitter ilgen, RuntimeJavaType ret, Type want, RuntimeContext context)
+        {
+            if (ret == context.PrimitiveJavaTypeFactory.VOID || ret.TypeAsSignatureType == want)
+                return;
+
+            if (ret.IsGhost)
+                ret.EmitConvSignatureTypeToStackType(ilgen);
+
+            if (want != typeof(object) && !want.IsValueType)
+                ilgen.EmitCastclass(want);
+        }
+
+#endif
 
         [DebuggerStepThrough]
         public static Delegate DynamicCreateDelegate(object obj, Type delegateType, string name, string sig)
