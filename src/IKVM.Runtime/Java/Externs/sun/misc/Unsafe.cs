@@ -132,6 +132,24 @@ namespace IKVM.Java.Externs.sun.misc
 
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static long IntPtrToJLongAddress(IntPtr value)
+        {
+            if (IntPtr.Size == sizeof(long))
+                return value.ToInt64();
+
+            return unchecked((long)(uint)value.ToInt32());
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static IntPtr JLongAddressToIntPtr(long value)
+        {
+            if (IntPtr.Size == sizeof(long))
+                return (IntPtr)value;
+
+            return unchecked((IntPtr)(int)(uint)value);
+        }
+
         /// <summary>
         /// Implements the logic to get a field by offset.
         /// </summary>
@@ -265,7 +283,7 @@ namespace IKVM.Java.Externs.sun.misc
             {
                 return o switch
                 {
-                    null => Marshal.ReadByte((IntPtr)offset) != 0,
+                    null => getByte(self, offset) != 0,
                     RuntimeJavaType w => GetField<bool>(null, offset),
                     Array array => Buffer.GetByte(array, (int)offset) != 0,
                     _ => GetField<bool>(o, offset)
@@ -295,7 +313,7 @@ namespace IKVM.Java.Externs.sun.misc
                 switch (o)
                 {
                     case null:
-                        Marshal.WriteByte((IntPtr)offset, x ? (byte)1 : (byte)0);
+                        putByte(self, offset, x ? (byte)1 : (byte)0);
                         break;
                     case RuntimeJavaType w:
                         PutField(w, offset, x);
@@ -331,7 +349,7 @@ namespace IKVM.Java.Externs.sun.misc
             {
                 return o switch
                 {
-                    null => Marshal.ReadByte((IntPtr)offset),
+                    null => getByte(self, offset),
                     RuntimeJavaType w => GetField<byte>(null, offset),
                     Array array => Buffer.GetByte(array, (int)offset),
                     _ => GetField<byte>(o, offset)
@@ -361,7 +379,7 @@ namespace IKVM.Java.Externs.sun.misc
                 switch (o)
                 {
                     case null:
-                        Marshal.WriteByte((IntPtr)offset, x);
+                        putByte(self, offset, x);
                         break;
                     case RuntimeJavaType w:
                         PutField(w, offset, x);
@@ -397,7 +415,7 @@ namespace IKVM.Java.Externs.sun.misc
             {
                 return o switch
                 {
-                    null => Marshal.ReadInt16((IntPtr)offset),
+                    null => getShort(self, offset),
                     RuntimeJavaType w => GetField<short>(null, offset),
                     Array array => ReadInt16(array, offset),
                     _ => GetField<short>(o, offset)
@@ -427,7 +445,7 @@ namespace IKVM.Java.Externs.sun.misc
                 switch (o)
                 {
                     case null:
-                        Marshal.WriteInt16((IntPtr)offset, x);
+                        putShort(self, offset, x);
                         break;
                     case RuntimeJavaType w:
                         PutField(w, offset, x);
@@ -463,7 +481,7 @@ namespace IKVM.Java.Externs.sun.misc
             {
                 return o switch
                 {
-                    null => (char)Marshal.ReadInt16((IntPtr)offset),
+                    null => getChar(self, offset),
                     RuntimeJavaType w => GetField<char>(null, offset),
                     Array array => (char)ReadInt16(array, offset),
                     _ => GetField<char>(o, offset)
@@ -493,7 +511,7 @@ namespace IKVM.Java.Externs.sun.misc
                 switch (o)
                 {
                     case null:
-                        Marshal.WriteInt16((IntPtr)offset, (short)x);
+                        putChar(self, offset, x);
                         break;
                     case RuntimeJavaType w:
                         PutField(w, offset, x);
@@ -529,7 +547,7 @@ namespace IKVM.Java.Externs.sun.misc
             {
                 return o switch
                 {
-                    null => Marshal.ReadInt32((IntPtr)offset),
+                    null => getInt(self, offset),
                     RuntimeJavaType w => GetField<int>(null, offset),
                     Array array => ReadInt32(array, offset),
                     _ => GetField<int>(o, offset)
@@ -559,7 +577,7 @@ namespace IKVM.Java.Externs.sun.misc
                 switch (o)
                 {
                     case null:
-                        Marshal.WriteInt32((IntPtr)offset, x);
+                        putInt(self, offset, x);
                         break;
                     case RuntimeJavaType w:
                         PutField(w, offset, x);
@@ -595,7 +613,7 @@ namespace IKVM.Java.Externs.sun.misc
             {
                 return o switch
                 {
-                    null => Marshal.ReadInt64((IntPtr)offset),
+                    null => getLong(self, offset),
                     RuntimeJavaType w => GetField<long>(null, offset),
                     Array array => ReadInt64(array, offset),
                     _ => GetField<long>(o, offset)
@@ -625,7 +643,7 @@ namespace IKVM.Java.Externs.sun.misc
                 switch (o)
                 {
                     case null:
-                        Marshal.WriteInt64((IntPtr)offset, x);
+                        putLong(self, offset, x);
                         break;
                     case RuntimeJavaType w:
                         PutField(w, offset, x);
@@ -661,7 +679,7 @@ namespace IKVM.Java.Externs.sun.misc
             {
                 return o switch
                 {
-                    null => global::java.lang.Float.intBitsToFloat(Marshal.ReadInt32((IntPtr)offset)),
+                    null => getFloat(self, offset),
                     RuntimeJavaType w => GetField<float>(null, offset),
                     Array array => global::java.lang.Float.intBitsToFloat(ReadInt32(array, offset)),
                     _ => GetField<float>(o, offset)
@@ -691,7 +709,7 @@ namespace IKVM.Java.Externs.sun.misc
                 switch (o)
                 {
                     case null:
-                        Marshal.WriteInt32((IntPtr)offset, global::java.lang.Float.floatToRawIntBits(x));
+                        putFloat(self, offset, x);
                         break;
                     case RuntimeJavaType w:
                         PutField(w, offset, x);
@@ -727,7 +745,7 @@ namespace IKVM.Java.Externs.sun.misc
             {
                 return o switch
                 {
-                    null => global::java.lang.Double.longBitsToDouble(Marshal.ReadInt64((IntPtr)offset)),
+                    null => getDouble(self, offset),
                     RuntimeJavaType w => GetField<double>(null, offset),
                     Array array => global::java.lang.Double.longBitsToDouble(ReadInt64(array, offset)),
                     _ => GetField<double>(o, offset)
@@ -757,7 +775,7 @@ namespace IKVM.Java.Externs.sun.misc
                 switch (o)
                 {
                     case null:
-                        Marshal.WriteInt64((IntPtr)offset, global::java.lang.Double.doubleToRawLongBits(x));
+                        putDouble(self, offset, x);
                         break;
                     case RuntimeJavaType w:
                         PutField(w, offset, x);
@@ -790,7 +808,7 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
-                return Marshal.ReadByte((IntPtr)address);
+                return Marshal.ReadByte(JLongAddressToIntPtr(address));
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -812,7 +830,7 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
-                Marshal.WriteByte((IntPtr)address, x);
+                Marshal.WriteByte(JLongAddressToIntPtr(address), x);
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -834,7 +852,7 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
-                return Marshal.ReadInt16((IntPtr)address);
+                return Marshal.ReadInt16(JLongAddressToIntPtr(address));
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -856,7 +874,7 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
-                Marshal.WriteInt16((IntPtr)address, x);
+                Marshal.WriteInt16(JLongAddressToIntPtr(address), x);
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -878,7 +896,7 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
-                return (char)Marshal.ReadInt16((IntPtr)address);
+                return (char)Marshal.ReadInt16(JLongAddressToIntPtr(address));
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -900,7 +918,7 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
-                Marshal.WriteInt16((IntPtr)address, (short)x);
+                Marshal.WriteInt16(JLongAddressToIntPtr(address), (short)x);
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -922,7 +940,7 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
-                return Marshal.ReadInt32((IntPtr)address);
+                return Marshal.ReadInt32(JLongAddressToIntPtr(address));
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -944,7 +962,7 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
-                Marshal.WriteInt32((IntPtr)address, x);
+                Marshal.WriteInt32(JLongAddressToIntPtr(address), x);
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -966,7 +984,7 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
-                return Marshal.ReadInt64((IntPtr)address);
+                return Marshal.ReadInt64(JLongAddressToIntPtr(address));
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -988,7 +1006,7 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
-                Marshal.WriteInt64((IntPtr)address, x);
+                Marshal.WriteInt64(JLongAddressToIntPtr(address), x);
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -1084,7 +1102,7 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
-                return Marshal.ReadIntPtr((IntPtr)address).ToInt64();
+                return IntPtrToJLongAddress(Marshal.ReadIntPtr(JLongAddressToIntPtr(address)));
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -1106,7 +1124,7 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
-                Marshal.WriteIntPtr((IntPtr)address, (IntPtr)x);
+                Marshal.WriteIntPtr(JLongAddressToIntPtr(address), JLongAddressToIntPtr(x));
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -1136,7 +1154,7 @@ namespace IKVM.Java.Externs.sun.misc
                 var ptr = Marshal.AllocHGlobal(len);
                 Marshal.WriteIntPtr(ptr, len);
                 System.GC.AddMemoryPressure((long)len);
-                return (long)ptr + sizeof(IntPtr);
+                return IntPtrToJLongAddress(IntPtr.Add(ptr, IntPtr.Size));
             }
             catch (OutOfMemoryException e)
             {
@@ -1171,7 +1189,7 @@ namespace IKVM.Java.Externs.sun.misc
                 }
 
                 // remove memory pressure
-                var ptr = (IntPtr)address - sizeof(IntPtr);
+                var ptr = IntPtr.Subtract(JLongAddressToIntPtr(address), IntPtr.Size);
                 var len = Marshal.ReadIntPtr(ptr);
                 System.GC.RemoveMemoryPressure((long)len);
 
@@ -1180,7 +1198,7 @@ namespace IKVM.Java.Externs.sun.misc
                 ptr = Marshal.ReAllocHGlobal(ptr, len);
                 Marshal.WriteIntPtr(ptr, len);
                 System.GC.AddMemoryPressure((long)len);
-                return (long)ptr + sizeof(IntPtr);
+                return IntPtrToJLongAddress(IntPtr.Add(ptr, IntPtr.Size));
             }
             catch (OutOfMemoryException e)
             {
@@ -1210,7 +1228,7 @@ namespace IKVM.Java.Externs.sun.misc
             try
             {
                 if (o == null)
-                    new Span<byte>((void*)(IntPtr)offset, (int)bytes).Fill(value);
+                    new Span<byte>((void*)JLongAddressToIntPtr(offset), (int)bytes).Fill(value);
                 else if (o is byte[] array)
                     ((Span<byte>)array).Slice((int)offset, (int)bytes).Fill(value);
                 else if (o is Array array2)
@@ -1259,7 +1277,7 @@ namespace IKVM.Java.Externs.sun.misc
                 {
                     if (destBase is byte[] byteArray)
                     {
-                        Marshal.Copy((IntPtr)srcOffset, byteArray, (int)destOffset, (int)bytes);
+                        Marshal.Copy(JLongAddressToIntPtr(srcOffset), byteArray, (int)destOffset, (int)bytes);
                     }
                     else if (destBase is bool[])
                     {
@@ -1269,31 +1287,31 @@ namespace IKVM.Java.Externs.sun.misc
                     }
                     else if (destBase is short[] shortArray)
                     {
-                        Marshal.Copy((IntPtr)srcOffset, shortArray, (int)(destOffset >> 1), (int)(bytes >> 1));
+                        Marshal.Copy(JLongAddressToIntPtr(srcOffset), shortArray, (int)(destOffset >> 1), (int)(bytes >> 1));
                     }
                     else if (destBase is char[] charArray)
                     {
-                        Marshal.Copy((IntPtr)srcOffset, charArray, (int)(destOffset >> 1), (int)(bytes >> 1));
+                        Marshal.Copy(JLongAddressToIntPtr(srcOffset), charArray, (int)(destOffset >> 1), (int)(bytes >> 1));
                     }
                     else if (destBase is int[] intArray)
                     {
-                        Marshal.Copy((IntPtr)srcOffset, intArray, (int)(destOffset >> 2), (int)(bytes >> 2));
+                        Marshal.Copy(JLongAddressToIntPtr(srcOffset), intArray, (int)(destOffset >> 2), (int)(bytes >> 2));
                     }
                     else if (destBase is float[] floatArray)
                     {
-                        Marshal.Copy((IntPtr)srcOffset, floatArray, (int)(destOffset >> 2), (int)(bytes >> 2));
+                        Marshal.Copy(JLongAddressToIntPtr(srcOffset), floatArray, (int)(destOffset >> 2), (int)(bytes >> 2));
                     }
                     else if (destBase is long[] longArray)
                     {
-                        Marshal.Copy((IntPtr)srcOffset, longArray, (int)(destOffset >> 3), (int)(bytes >> 3));
+                        Marshal.Copy(JLongAddressToIntPtr(srcOffset), longArray, (int)(destOffset >> 3), (int)(bytes >> 3));
                     }
                     else if (destBase is double[] doubleArray)
                     {
-                        Marshal.Copy((IntPtr)srcOffset, doubleArray, (int)(destOffset >> 3), (int)(bytes >> 3));
+                        Marshal.Copy(JLongAddressToIntPtr(srcOffset), doubleArray, (int)(destOffset >> 3), (int)(bytes >> 3));
                     }
                     else if (destBase == null)
                     {
-                        Buffer.MemoryCopy((void*)(IntPtr)srcOffset, (void*)(IntPtr)destOffset, long.MaxValue, bytes);
+                        Buffer.MemoryCopy((void*)JLongAddressToIntPtr(srcOffset), (void*)JLongAddressToIntPtr(destOffset), long.MaxValue, bytes);
                     }
                     else
                     {
@@ -1308,7 +1326,7 @@ namespace IKVM.Java.Externs.sun.misc
                 {
                     if (srcBase is byte[] byteArray)
                     {
-                        Marshal.Copy(byteArray, (int)srcOffset, (IntPtr)destOffset, (int)bytes);
+                        Marshal.Copy(byteArray, (int)srcOffset, JLongAddressToIntPtr(destOffset), (int)bytes);
                     }
                     else if (srcBase is bool[])
                     {
@@ -1318,27 +1336,27 @@ namespace IKVM.Java.Externs.sun.misc
                     }
                     else if (srcBase is short[] shortArray)
                     {
-                        Marshal.Copy(shortArray, (int)(srcOffset >> 1), (IntPtr)(destOffset), (int)(bytes >> 1));
+                        Marshal.Copy(shortArray, (int)(srcOffset >> 1), JLongAddressToIntPtr(destOffset), (int)(bytes >> 1));
                     }
                     else if (srcBase is char[] charArray)
                     {
-                        Marshal.Copy(charArray, (int)(srcOffset >> 1), (IntPtr)(destOffset), (int)(bytes >> 1));
+                        Marshal.Copy(charArray, (int)(srcOffset >> 1), JLongAddressToIntPtr(destOffset), (int)(bytes >> 1));
                     }
                     else if (srcBase is int[] intArray)
                     {
-                        Marshal.Copy(intArray, (int)(srcOffset >> 2), (IntPtr)(destOffset), (int)(bytes >> 2));
+                        Marshal.Copy(intArray, (int)(srcOffset >> 2), JLongAddressToIntPtr(destOffset), (int)(bytes >> 2));
                     }
                     else if (srcBase is float[] floatArray)
                     {
-                        Marshal.Copy(floatArray, (int)(srcOffset >> 2), (IntPtr)(destOffset), (int)(bytes >> 2));
+                        Marshal.Copy(floatArray, (int)(srcOffset >> 2), JLongAddressToIntPtr(destOffset), (int)(bytes >> 2));
                     }
                     else if (srcBase is long[] longArray)
                     {
-                        Marshal.Copy(longArray, (int)(srcOffset >> 3), (IntPtr)(destOffset), (int)(bytes >> 3));
+                        Marshal.Copy(longArray, (int)(srcOffset >> 3), JLongAddressToIntPtr(destOffset), (int)(bytes >> 3));
                     }
                     else if (srcBase is double[] doubleArray)
                     {
-                        Marshal.Copy(doubleArray, (int)(srcOffset >> 3), (IntPtr)(destOffset), (int)(bytes >> 3));
+                        Marshal.Copy(doubleArray, (int)(srcOffset >> 3), JLongAddressToIntPtr(destOffset), (int)(bytes >> 3));
                     }
                     else
                     {
@@ -1360,11 +1378,11 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="address"></param>
         public static unsafe void freeMemory(object self, long address)
         {
-            var adr = (nint)address;
-            if (adr == 0)
+            var adr = JLongAddressToIntPtr(address);
+            if (adr == IntPtr.Zero)
                 return;
 
-            var ptr = adr - sizeof(nint);
+            var ptr = IntPtr.Subtract(adr, IntPtr.Size);
             var len = Marshal.ReadIntPtr(ptr);
             Marshal.FreeHGlobal(ptr);
             System.GC.RemoveMemoryPressure((long)len);
@@ -1905,7 +1923,7 @@ namespace IKVM.Java.Externs.sun.misc
             {
                 return o switch
                 {
-                    null => Volatile.Read(ref System.Runtime.CompilerServices.Unsafe.AsRef<int>((void*)(IntPtr)offset)),
+                    null => Volatile.Read(ref System.Runtime.CompilerServices.Unsafe.AsRef<int>((void*)JLongAddressToIntPtr(offset))),
                     RuntimeJavaType w => GetFieldVolatile<int>(null, offset),
                     Array array => ReadInt32Volatile(array, offset),
                     _ => GetFieldVolatile<int>(o, offset)
@@ -1935,7 +1953,7 @@ namespace IKVM.Java.Externs.sun.misc
                 switch (o)
                 {
                     case null:
-                        Volatile.Write(ref System.Runtime.CompilerServices.Unsafe.AsRef<int>((void*)(IntPtr)offset), x);
+                        Volatile.Write(ref System.Runtime.CompilerServices.Unsafe.AsRef<int>((void*)JLongAddressToIntPtr(offset)), x);
                         break;
                     case RuntimeJavaType w:
                         PutFieldVolatile(w, offset, x);
@@ -1971,7 +1989,7 @@ namespace IKVM.Java.Externs.sun.misc
             {
                 return o switch
                 {
-                    null => Volatile.Read(ref System.Runtime.CompilerServices.Unsafe.AsRef<byte>((void*)(IntPtr)offset)) != 0,
+                    null => Volatile.Read(ref System.Runtime.CompilerServices.Unsafe.AsRef<byte>((void*)JLongAddressToIntPtr(offset))) != 0,
                     RuntimeJavaType w => GetFieldVolatile<bool>(null, offset),
                     Array array => ReadByteVolatile(array, offset) != 0,
                     _ => GetFieldVolatile<bool>(o, offset)
@@ -2001,7 +2019,7 @@ namespace IKVM.Java.Externs.sun.misc
                 switch (o)
                 {
                     case null:
-                        Volatile.Write(ref System.Runtime.CompilerServices.Unsafe.AsRef<byte>((void*)(IntPtr)offset), x ? (byte)1 : (byte)0);
+                        Volatile.Write(ref System.Runtime.CompilerServices.Unsafe.AsRef<byte>((void*)JLongAddressToIntPtr(offset)), x ? (byte)1 : (byte)0);
                         break;
                     case RuntimeJavaType w:
                         PutFieldVolatile(w, offset, x);
@@ -2037,7 +2055,7 @@ namespace IKVM.Java.Externs.sun.misc
             {
                 return o switch
                 {
-                    null => Volatile.Read(ref System.Runtime.CompilerServices.Unsafe.AsRef<byte>((void*)(IntPtr)offset)),
+                    null => Volatile.Read(ref System.Runtime.CompilerServices.Unsafe.AsRef<byte>((void*)JLongAddressToIntPtr(offset))),
                     RuntimeJavaType w => GetFieldVolatile<byte>(null, offset),
                     Array array => ReadByteVolatile(array, offset),
                     _ => GetFieldVolatile<byte>(o, offset)
@@ -2067,7 +2085,7 @@ namespace IKVM.Java.Externs.sun.misc
                 switch (o)
                 {
                     case null:
-                        Volatile.Write(ref System.Runtime.CompilerServices.Unsafe.AsRef<byte>((void*)(IntPtr)offset), x);
+                        Volatile.Write(ref System.Runtime.CompilerServices.Unsafe.AsRef<byte>((void*)JLongAddressToIntPtr(offset)), x);
                         break;
                     case RuntimeJavaType w:
                         PutFieldVolatile(w, offset, x);
@@ -2131,7 +2149,7 @@ namespace IKVM.Java.Externs.sun.misc
                 switch (o)
                 {
                     case null:
-                        Volatile.Write(ref System.Runtime.CompilerServices.Unsafe.AsRef<short>((void*)(IntPtr)offset), x);
+                        Volatile.Write(ref System.Runtime.CompilerServices.Unsafe.AsRef<short>((void*)JLongAddressToIntPtr(offset)), x);
                         break;
                     case RuntimeJavaType w:
                         PutFieldVolatile(w, offset, x);
@@ -2195,7 +2213,7 @@ namespace IKVM.Java.Externs.sun.misc
                 switch (o)
                 {
                     case null:
-                        Volatile.Write(ref System.Runtime.CompilerServices.Unsafe.AsRef<short>((void*)(IntPtr)offset), (short)x);
+                        Volatile.Write(ref System.Runtime.CompilerServices.Unsafe.AsRef<short>((void*)JLongAddressToIntPtr(offset)), (short)x);
                         break;
                     case RuntimeJavaType w:
                         PutFieldVolatile(w, offset, x);
@@ -2259,7 +2277,7 @@ namespace IKVM.Java.Externs.sun.misc
                 switch (o)
                 {
                     case null:
-                        Volatile.Write(ref System.Runtime.CompilerServices.Unsafe.AsRef<long>((void*)(IntPtr)offset), x);
+                        Volatile.Write(ref System.Runtime.CompilerServices.Unsafe.AsRef<long>((void*)JLongAddressToIntPtr(offset)), x);
                         break;
                     case RuntimeJavaType w:
                         PutFieldVolatile(w, offset, x);
@@ -2324,7 +2342,7 @@ namespace IKVM.Java.Externs.sun.misc
                 switch (o)
                 {
                     case null:
-                        Volatile.Write(ref System.Runtime.CompilerServices.Unsafe.AsRef<float>((void*)(IntPtr)offset), x);
+                        Volatile.Write(ref System.Runtime.CompilerServices.Unsafe.AsRef<float>((void*)JLongAddressToIntPtr(offset)), x);
                         break;
                     case RuntimeJavaType w:
                         PutFieldVolatile(w, offset, x);
@@ -2389,7 +2407,7 @@ namespace IKVM.Java.Externs.sun.misc
                 switch (o)
                 {
                     case null:
-                        Volatile.Write(ref System.Runtime.CompilerServices.Unsafe.AsRef<double>((void*)(IntPtr)offset), x);
+                        Volatile.Write(ref System.Runtime.CompilerServices.Unsafe.AsRef<double>((void*)JLongAddressToIntPtr(offset)), x);
                         break;
                     case RuntimeJavaType w:
                         PutFieldVolatile(w, offset, x);

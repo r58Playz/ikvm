@@ -3218,6 +3218,23 @@ namespace IKVM.Runtime.JNI
             return JVM.GetPendingException() != null ? JNI_TRUE : JNI_FALSE;
         }
 
+        static long IntPtrToJLongAddress(IntPtr address)
+        {
+            if (IntPtr.Size == sizeof(long))
+                return address.ToInt64();
+
+            return unchecked((long)(uint)address.ToInt32());
+        }
+
+        static IntPtr JLongAddressToIntPtr(long address)
+        {
+            if (IntPtr.Size == sizeof(long))
+                return (IntPtr)address;
+
+            return unchecked((IntPtr)(int)(uint)address);
+        }
+
+        [MonoPInvokeCallback(typeof(JNINativeInterface.NewDirectByteBufferDelegateType))]
         internal static nint NewDirectByteBuffer(JNIEnv* pEnv, IntPtr address, jlong capacity)
         {
 #if FIRST_PASS
@@ -3231,7 +3248,7 @@ namespace IKVM.Runtime.JNI
                     return IntPtr.Zero;
                 }
 
-                return pEnv->MakeLocalRef(global::java.nio.DirectByteBuffer.__new(address.ToInt64(), (int)capacity));
+                return pEnv->MakeLocalRef(global::java.nio.DirectByteBuffer.__new(IntPtrToJLongAddress(address), (int)capacity));
             }
             catch (Exception x)
             {
@@ -3246,7 +3263,7 @@ namespace IKVM.Runtime.JNI
         {
             try
             {
-                return (void*)(IntPtr)((sun.nio.ch.DirectBuffer)pEnv->UnwrapRef(buf)).address();
+                return (void*)JLongAddressToIntPtr(((sun.nio.ch.DirectBuffer)pEnv->UnwrapRef(buf)).address());
             }
             catch (Exception x)
             {
