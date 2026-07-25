@@ -917,7 +917,7 @@ namespace IKVM.Runtime
                     object defVal = impl.GetMethodDefaultValue(i);
                     if (defVal != null)
                     {
-                        return JVM.NewAnnotationElementValue(mw.DeclaringType.ClassLoader.GetJavaClassLoader(), mw.ReturnType.ClassObject, defVal);
+                        return JVM.NewAnnotationElementValue(mw.DeclaringType.ClassLoader.GetJavaClassLoader(), mw.ReturnType.EnsureLoadable(mw.DeclaringType.ClassLoader).ClassObject, defVal);
                     }
                     return null;
                 }

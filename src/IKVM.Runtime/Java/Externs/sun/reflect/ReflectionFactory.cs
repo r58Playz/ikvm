@@ -573,7 +573,9 @@ namespace IKVM.Java.Externs.sun.reflect
                 try
                 {
                     mw.DeclaringType.Finish();
-                    var parameters = mw.GetParameters();
+                    // clone: GetParameters() returns the method's live linked signature state; replacing
+                    // unloadable wrappers in place would desync it from the erased CLR signature
+                    var parameters = (RuntimeJavaType[])mw.GetParameters().Clone();
 
                     for (int i = 0; i < parameters.Length; i++)
                     {
@@ -824,7 +826,9 @@ namespace IKVM.Java.Externs.sun.reflect
                     var mw = RuntimeJavaMethod.FromExecutable(constructor);
 
                     mw.DeclaringType.Finish();
-                    var parameters = mw.GetParameters();
+                    // clone: GetParameters() returns the method's live linked signature state; replacing
+                    // unloadable wrappers in place would desync it from the erased CLR signature
+                    var parameters = (RuntimeJavaType[])mw.GetParameters().Clone();
 
                     for (int i = 0; i < parameters.Length; i++)
                     {

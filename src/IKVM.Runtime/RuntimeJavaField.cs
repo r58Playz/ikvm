@@ -508,7 +508,8 @@ namespace IKVM.Runtime
         Delegate CreateUnsafeGetDelegate()
         {
             DeclaringType.Finish();
-            FieldTypeWrapper.Finish();
+            if (!FieldTypeWrapper.IsUnloadable)
+                FieldTypeWrapper.Finish();
             ResolveField();
 
             var ft = FieldTypeWrapper.IsPrimitive ? FieldTypeWrapper.TypeAsSignatureType : typeof(object);
@@ -555,7 +556,8 @@ namespace IKVM.Runtime
         Delegate CreateUnsafeSetDelegate()
         {
             DeclaringType.Finish();
-            FieldTypeWrapper.Finish();
+            if (!FieldTypeWrapper.IsUnloadable)
+                FieldTypeWrapper.Finish();
             ResolveField();
 
             var ft = FieldTypeWrapper.IsPrimitive ? FieldTypeWrapper.TypeAsSignatureType : typeof(object);

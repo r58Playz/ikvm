@@ -490,35 +490,93 @@ namespace IKVM.Runtime
                 // FIXME .NET 6
 
                 var parameters = GetParameters();
-                var typeLength = parameters.Length;
+
+                // Java instance methods compiled as static CLR methods (private interface
+                // instance methods) carry an explicit this parameter typed as the declaring type
+                var thisParam = mb.IsStatic && !IsStatic ? 1 : 0;
+
+                var typeLength = parameters.Length + thisParam;
                 if (HasCallerID)
                     typeLength++;
 
                 var types = new Type[typeLength];
+                if (thisParam != 0)
+                    types[0] = DeclaringType.TypeAsTBD;
                 for (int i = 0; i < parameters.Length; i++)
                 {
-                    parameters[i].Finish();
-                    types[i] = parameters[i].TypeAsSignatureType;
+                    // unloadable signature types are erased to object and cannot be finished
+                    if (!parameters[i].IsUnloadable)
+                        parameters[i].Finish();
+                    types[i + thisParam] = parameters[i].TypeAsSignatureType;
                 }
 
                 if (HasCallerID)
                     types[typeLength - 1] = DeclaringType.Context.JavaBase.TypeOfIkvmInternalCallerID.TypeAsSignatureType;
 
-                if (ReturnType != null)
+                if (ReturnType != null && !ReturnType.IsUnloadable)
                     ReturnType.Finish();
 
                 var flags = BindingFlags.DeclaredOnly;
                 flags |= mb.IsPublic ? BindingFlags.Public : BindingFlags.NonPublic;
                 flags |= mb.IsStatic ? BindingFlags.Static : BindingFlags.Instance;
-                method = DeclaringType.TypeAsTBD.GetMethods(flags).FirstOrDefault(i => i.Name == mb.Name && i.GetParameters().Select(j => j.ParameterType).SequenceEqual(types) && i.ReturnType.Equals(ReturnType.TypeAsSignatureType));
-                if (method == null)
-                    method = DeclaringType.TypeAsTBD.GetConstructor(flags, null, types, null);
+
+                // Java overloads may erase to identical CIL parameter types (e.g. unloadable
+                // signature types become object); IKVM disambiguates such signatures with optional
+                // custom modifiers, so when the plain type match is ambiguous the modifiers decide
+                var candidates = new System.Collections.Generic.List<MethodBase>();
+                foreach (var i in DeclaringType.TypeAsTBD.GetMethods(flags))
+                    if (i.Name == mb.Name && i.GetParameters().Select(j => j.ParameterType).SequenceEqual(types) && i.ReturnType.Equals(ReturnType.TypeAsSignatureType))
+                        candidates.Add(i);
+                if (candidates.Count == 0)
+                    foreach (var i in DeclaringType.TypeAsTBD.GetConstructors(flags))
+                        if (i.GetParameters().Select(j => j.ParameterType).SequenceEqual(types))
+                            candidates.Add(i);
+
+                if (candidates.Count == 1)
+                    method = candidates[0];
+                else if (candidates.Count > 1)
+                    method = candidates.FirstOrDefault(MatchesModOpt) ?? candidates[0];
+                else
+                    throw new InternalException($"Could not resolve method against runtime type: {DeclaringType.Name}.{Name}{Signature}");
+
                 if (method == null)
                     throw new InternalException("Could not resolve method against runtime type.");
 #endif
             }
 #endif
         }
+
+#if !FIRST_PASS && !NETFRAMEWORK
+
+        /// <summary>
+        /// Returns true if the candidate's parameter optional custom modifiers match the ones IKVM
+        /// would emit for this method's signature (used to disambiguate erased overloads).
+        /// </summary>
+        bool MatchesModOpt(MethodBase candidate)
+        {
+            var parameters = GetParameters();
+            var pi = candidate.GetParameters();
+            var factory = DeclaringType.ClassLoader.GetTypeWrapperFactory();
+
+            // skip the explicit this parameter of Java instance methods compiled as static CLR methods
+            var thisParam = candidate.IsStatic && !IsStatic ? 1 : 0;
+
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                var expected = RuntimeByteCodeJavaType.GetModOpt(factory, parameters[i], false);
+                var actual = pi[i + thisParam].GetOptionalCustomModifiers();
+                if (expected.Length != actual.Length)
+                    return false;
+
+                for (int j = 0; j < expected.Length; j++)
+                    if (Array.IndexOf(actual, expected[j]) < 0)
+                        return false;
+            }
+
+            return true;
+        }
+
+#endif
 
         [HideFromJava]
         internal virtual object InvokeNonvirtualRemapped(object obj, object[] args)

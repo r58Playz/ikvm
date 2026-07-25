@@ -129,13 +129,14 @@ namespace IKVM.Java.Externs.java.lang.invoke
             global::java.lang.Class[] parameters = new global::java.lang.Class[mw.GetParameters().Length + firstParam];
             for (int i = 0; i < mw.GetParameters().Length; i++)
             {
-                parameters[i + firstParam] = mw.GetParameters()[i].ClassObject;
+                parameters[i + firstParam] = mw.GetParameters()[i].EnsureLoadable(mw.DeclaringType.ClassLoader).ClassObject;
             }
             if (!mw.IsStatic)
             {
                 parameters[0] = mw.DeclaringType.ClassObject;
             }
-            self.vmtarget = CreateMemberNameDelegate(mw, mw.ReturnType.ClassObject, !wantSpecial, global::java.lang.invoke.MethodType.methodType(mw.ReturnType.ClassObject, parameters));
+            var returnClass = mw.ReturnType.EnsureLoadable(mw.DeclaringType.ClassLoader).ClassObject;
+            self.vmtarget = CreateMemberNameDelegate(mw, returnClass, !wantSpecial, global::java.lang.invoke.MethodType.methodType(returnClass, parameters));
 #endif
         }
 

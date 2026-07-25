@@ -527,7 +527,8 @@ namespace IKVM.Runtime
         {
             get
             {
-                return this != context.VerifierJavaTypeFactory.Null && !IsPrimitive && !IsGhost && TypeAsTBD.IsValueType;
+                // unloadable types are erased to object, never a value type (and TypeAsTBD throws)
+                return this != context.VerifierJavaTypeFactory.Null && !IsUnloadable && !IsPrimitive && !IsGhost && TypeAsTBD.IsValueType;
             }
         }
 
@@ -1535,7 +1536,7 @@ namespace IKVM.Runtime
                 object[] attr = mb.GetCustomAttributes(typeof(AnnotationDefaultAttribute), false);
                 if (attr.Length == 1)
                 {
-                    return JVM.NewAnnotationElementValue(mw.DeclaringType.ClassLoader.GetJavaClassLoader(), mw.ReturnType.ClassObject, ((AnnotationDefaultAttribute)attr[0]).Value);
+                    return JVM.NewAnnotationElementValue(mw.DeclaringType.ClassLoader.GetJavaClassLoader(), mw.ReturnType.EnsureLoadable(mw.DeclaringType.ClassLoader).ClassObject, ((AnnotationDefaultAttribute)attr[0]).Value);
                 }
             }
             return null;

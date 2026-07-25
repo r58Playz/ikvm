@@ -1481,9 +1481,10 @@ namespace IKVM.Java.Externs.sun.misc
                 return 4;
             else if (et == context.PrimitiveJavaTypeFactory.LONG || et == context.PrimitiveJavaTypeFactory.DOUBLE)
                 return 8;
-            else if (et.IsPrimitive == false && et.IsNonPrimitiveValueType)
+            // unloadable element types are reference elements (erased to object)
+            else if (et.IsPrimitive == false && et.IsUnloadable == false && et.IsNonPrimitiveValueType)
                 return Marshal.SizeOf(et.TypeAsTBD);
-            else if (et.IsPrimitive == false && et.IsNonPrimitiveValueType == false)
+            else if (et.IsPrimitive == false)
                 return IntPtr.Size;
             else
                 return 1;
