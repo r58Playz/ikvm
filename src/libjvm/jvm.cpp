@@ -1015,6 +1015,7 @@ void* os_dll_load(const char* filename, char* ebuf, int ebuflen)
 }
 #endif
 
+#ifndef __EMSCRIPTEN__
 void* JNICALL JVM_LoadLibrary(const char* name)
 {
     char ebuf[1024];
@@ -1029,6 +1030,7 @@ void* JNICALL JVM_LoadLibrary(const char* name)
 
     return load_result;
 }
+#endif /* !__EMSCRIPTEN__ */
 
 #ifdef WIN32
 inline char* os_native_path(char* path)
@@ -1376,10 +1378,12 @@ void* os_dll_lookup(void* handle, const char* name)
 }
 #endif
 
+#ifndef __EMSCRIPTEN__
 void* JNICALL JVM_FindLibraryEntry(void* handle, const char* name)
 {
     return os_dll_lookup(handle, name);
 }
+#endif /* !__EMSCRIPTEN__ */
 
 #ifdef WIN32
 void* JNICALL JVM_GetThreadInterruptEvent()
@@ -1439,6 +1443,7 @@ int jio_vsnprintf(char* str, size_t count, const char* fmt, va_list args)
     return result;
 }
 
+#ifndef __EMSCRIPTEN__
 int jio_snprintf(char* str, size_t count, const char* fmt, ...)
 {
     va_list args;
@@ -1458,12 +1463,14 @@ int jio_fprintf(FILE* f, const char* fmt, ...)
     va_end(args);
     return len;
 }
+#endif /* !__EMSCRIPTEN__ */
 
 int jio_vfprintf(FILE* f, const char* fmt, va_list args)
 {
     return vfprintf(f, fmt, args);
 }
 
+#ifndef __EMSCRIPTEN__
 int jio_printf(const char* fmt, ...)
 {
     int len;
@@ -1473,6 +1480,7 @@ int jio_printf(const char* fmt, ...)
     va_end(args);
     return len;
 }
+#endif /* !__EMSCRIPTEN__ */
 
 #ifdef __cplusplus
 }
