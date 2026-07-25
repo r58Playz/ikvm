@@ -366,7 +366,7 @@ namespace IKVM.Runtime.StubGen
                     attributes.MethodParameters(e =>
                     {
                         foreach (var i in mp)
-                            e.MethodParameter(builder.Constants.GetOrAddUtf8(i.name), i.accessFlags);
+                            e.MethodParameter(i.name != null ? builder.Constants.GetOrAddUtf8(i.name) : default, i.accessFlags);
                     });
                 }
             }
