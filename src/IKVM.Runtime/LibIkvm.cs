@@ -68,6 +68,20 @@ namespace IKVM.Runtime
             [DllImport("ikvm", SetLastError = false)]
             internal static unsafe extern int IKVM_sig_set_chld_action(void* sig);
 
+            /// <summary>
+            /// Invokes the native 'IKVM_get_heap_max' function.
+            /// </summary>
+            /// <returns></returns>
+            [DllImport("ikvm", SetLastError = false)]
+            internal static extern long IKVM_get_heap_max();
+
+            /// <summary>
+            /// Invokes the native 'IKVM_get_heap_size' function.
+            /// </summary>
+            /// <returns></returns>
+            [DllImport("ikvm", SetLastError = false)]
+            internal static extern long IKVM_get_heap_size();
+
         }
 
         /// <summary>
@@ -222,6 +236,20 @@ namespace IKVM.Runtime
         /// <param name="sig"></param>
         /// <returns></returns>
         public unsafe int sig_set_chld_action(void* sig) => Externs.IKVM_sig_set_chld_action(sig);
+
+        /// <summary>
+        /// Invokes the 'get_heap_max' function. On WASM this is the linear-memory ceiling
+        /// (MAXIMUM_MEMORY), in bytes; returns 0 on platforms where it does not apply.
+        /// </summary>
+        /// <returns></returns>
+        public long get_heap_max() => Externs.IKVM_get_heap_max();
+
+        /// <summary>
+        /// Invokes the 'get_heap_size' function. On WASM this is the current linear-memory
+        /// size, in bytes; returns 0 on platforms where it does not apply.
+        /// </summary>
+        /// <returns></returns>
+        public long get_heap_size() => Externs.IKVM_get_heap_size();
 
         /// <summary>
         /// Releases the instance.
