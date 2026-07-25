@@ -1643,6 +1643,10 @@ namespace IKVM.Runtime
                             var wrapper = classFile.GetConstantPoolClassType(instr.Arg1);
                             if (wrapper.IsUnloadable)
                             {
+#if !IMPORTER && !FIRST_PASS && !EXPORTER
+                                if (JVM.TraceLoadClass)
+                                    Console.Error.WriteLine($"[IKVM new-unloadable] {wrapper.Name} in {clazz.Name}.{m.Name}{m.Signature} @{i}");
+#endif
                                 Profiler.Count("EmitDynamicNewCheckOnly");
                                 // this is here to make sure we throw the exception in the right location (before
                                 // evaluating the constructor arguments)

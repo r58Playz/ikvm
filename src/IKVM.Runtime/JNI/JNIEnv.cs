@@ -428,12 +428,14 @@ namespace IKVM.Runtime.JNI
                     catch (Exception ex)
                     {
                         Debug.Assert(false, ex.ToString());
+						Console.WriteLine($"[IKVM internal] ExceptionDescribe printStackTrace failed {ex} {x}");
                     }
                 }
             }
             catch (Exception e)
             {
                 JVM.SetPendingException(e);
+				Console.WriteLine($"[IKVM internal] ExceptionDescribe failed {e}");
             }
         }
 

@@ -747,6 +747,9 @@ namespace IKVM.Runtime
 
             try
             {
+                if (JVM.TraceLoadClass)
+                    Console.Error.WriteLine($"[IKVM loadClass] {name} via {javaClassLoader?.GetType().FullName ?? "<boot>"}");
+
                 // invoke 'loadClass' on the associated Java class loader instance
                 // this can cause a call to defineClass
                 var c = (java.lang.Class)ClassLoaderAccessor.InvokeLoadClassInternal(GetJavaClassLoader(), name);

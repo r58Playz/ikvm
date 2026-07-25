@@ -54,7 +54,12 @@ namespace IKVM.Runtime
         internal RuntimeUnloadableJavaType(RuntimeContext context, string name) :
             base(context, TypeFlags.None, RuntimeJavaType.UnloadableModifiersHack, name)
         {
-
+#if !EXPORTER
+            // under lazy linking unloadable types are the expected mechanism for deferred
+            // resolution, not a sign of trouble, so don't spam the console
+            if (!JVM.LazyClassLoading)
+                Console.WriteLine($"[IKVM internal] Java type failed to load!! This may crash later {name}");
+#endif
         }
 
         /// <summary>

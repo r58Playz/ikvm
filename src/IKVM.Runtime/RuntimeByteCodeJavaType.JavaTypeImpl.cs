@@ -1184,6 +1184,8 @@ namespace IKVM.Runtime
                 var mode = (t_rc + 1) > 2 ? LoadMode.ReturnUnloadable
                     : lazy ? LoadMode.LinkLazy
                     : LoadMode.Link;
+				if (mode == LoadMode.ReturnUnloadable)
+					Console.WriteLine($"[IKVM internal] loadmode unloadable!!! uh oh {this} {wrapper.Name}");
                 try
                 {
                     classFile.Link(wrapper, mode);

@@ -312,11 +312,38 @@ namespace IKVM.Runtime
         }
 #endif
 
+        private static readonly bool s_fromClassTraceEnabled =
+            !string.IsNullOrEmpty(System.Environment.GetEnvironmentVariable("IKVM_FROMCLASS_TRACE"));
+
         internal static RuntimeJavaType FromClass(java.lang.Class clazz)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
+            if (s_fromClassTraceEnabled)
+            {
+                try
+                {
+                    if (clazz == null)
+                    {
+                        System.IO.File.WriteAllText("/dev/stderr", "[FromClass] clazz=<null>\n");
+                    }
+                    else
+                    {
+                        // Touch the .NET-level identity first, before any IKVM-level field access,
+                        // so we can tell whether the OOB happens reading clazz.typeWrapper or
+                        // somewhere later. Calling RuntimeHelpers.GetHashCode avoids virtual
+                        // dispatch on a possibly-corrupted vtable.
+                        int idHash = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(clazz);
+                        System.IO.File.WriteAllText("/dev/stderr",
+                            $"[FromClass] enter clazz_hash=0x{idHash:x8}\n");
+                    }
+                }
+                catch
+                {
+                }
+            }
+
             // MONOBUG redundant cast to workaround mcs bug
             var tw = (RuntimeJavaType)(object)clazz.typeWrapper;
             if (tw == null)
@@ -326,6 +353,18 @@ namespace IKVM.Runtime
                 {
                     ResolvePrimitiveTypeWrapperClasses(JVM.Context);
                     return FromClass(clazz);
+                }
+
+                if (s_fromClassTraceEnabled)
+                {
+                    try
+                    {
+                        System.IO.File.WriteAllText("/dev/stderr",
+                            $"[FromClass] resolving type={type.FullName ?? "<null>"}\n");
+                    }
+                    catch
+                    {
+                    }
                 }
 
                 if (type == typeof(void) || type.IsPrimitive || JVM.Context.ClassLoaderFactory.IsRemappedType(type))
