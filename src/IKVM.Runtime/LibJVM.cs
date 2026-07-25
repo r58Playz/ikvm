@@ -62,7 +62,7 @@ namespace IKVM.Runtime
         internal delegate int JNI_CreateJavaVMDelegate(JavaVM** p_vm, void** p_env, void* vm_args);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        delegate void JVM_ThrowExceptionDelegate([MarshalAs(UnmanagedType.LPUTF8Str)] string name, [MarshalAs(UnmanagedType.LPUTF8Str)] string message);
+        delegate void JVM_ThrowExceptionDelegate(IntPtr name, IntPtr message);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         delegate nint JVM_GetThreadInterruptEventDelegate();
@@ -175,8 +175,16 @@ namespace IKVM.Runtime
         /// <param name="name"></param>
         /// <param name="msg"></param>
         /// <returns></returns>
-        void JVM_ThrowException(string name, string msg)
+        [MonoPInvokeCallback(typeof(JVM_ThrowExceptionDelegate))]
+        static void JVM_ThrowException(IntPtr _name, IntPtr _msg)
         {
+#if NET7_0_OR_GREATER
+			string name = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_name);
+			string msg = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_msg);
+#else
+			string name = null;
+			string msg = null;
+#endif
             try
             {
                 if (name == null)
