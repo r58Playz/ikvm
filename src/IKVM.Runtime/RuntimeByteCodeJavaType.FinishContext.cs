@@ -1791,7 +1791,7 @@ namespace IKVM.Runtime
                         realRetType = retTypeWrapper.TypeAsSignatureType;
                     else
                         realRetType = context.Context.Types.IntPtr;
-                    ilGenerator.EmitCalli(OpCodes.Calli, System.Runtime.InteropServices.CallingConvention.StdCall, realRetType, modargs);
+                    ilGenerator.EmitCalli(OpCodes.Calli, System.Runtime.InteropServices.CallingConvention.Cdecl, realRetType, modargs);
 
                     CodeEmitterLocal retValue = null;
                     if (retTypeWrapper != context.Context.PrimitiveJavaTypeFactory.VOID)

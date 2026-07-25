@@ -30,7 +30,7 @@ namespace IKVM.Java.Externs.java.io
         static __jniDelegate__write __jniPtr__write;
         delegate void __jniDelegate__writeBytes(IntPtr jniEnv, IntPtr this_, IntPtr bytes, int off, int len, sbyte append);
         static __jniDelegate__writeBytes __jniPtr__writeBytes;
-        delegate int __jniDelegate__close0(IntPtr jniEnv, IntPtr this_);
+        delegate void __jniDelegate__close0(IntPtr jniEnv, IntPtr this_);
         static __jniDelegate__close0 __jniPtr__close0;
 
 #endif

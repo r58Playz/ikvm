@@ -36,7 +36,7 @@ namespace IKVM.Java.Externs.java.io
         static __jniDelegate__skip __jniPtr__skip0;
         delegate int __jniDelegate__available(IntPtr jniEnv, IntPtr self);
         static __jniDelegate__available __jniPtr__available0;
-        delegate int __jniDelegate__close0(IntPtr jniEnv, IntPtr self);
+        delegate void __jniDelegate__close0(IntPtr jniEnv, IntPtr self);
         static __jniDelegate__close0 __jniPtr__close0;
 
 #endif
