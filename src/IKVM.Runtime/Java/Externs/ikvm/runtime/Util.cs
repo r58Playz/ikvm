@@ -22,6 +22,7 @@
   
 */
 using System;
+using System.Collections.Concurrent;
 
 using IKVM.Attributes;
 using IKVM.Runtime;
@@ -31,6 +32,14 @@ namespace IKVM.Java.Externs.ikvm.runtime
 
     static class Util
     {
+
+        // concrete .NET Type -> resolved RuntimeJavaType (the result of the ghost-less resolution below).
+        // The mapping is invariant per concrete runtime type, so caching it removes the per-call
+        // IsRemappedType (Dictionary<Type,string>) lookup + the abstract-helper BaseType walk on this
+        // very hot path (getClass / instanceof / reflection bridging). Keyed by Type only, which is
+        // correct for a single RuntimeContext (the runtime case); hang it off the factory if multiple
+        // contexts are ever used concurrently.
+        static readonly ConcurrentDictionary<Type, RuntimeJavaType> wrapperByConcreteType = new ConcurrentDictionary<Type, RuntimeJavaType>();
 
         public static global::java.lang.Class getClassFromObject(object o)
         {
@@ -43,11 +52,22 @@ namespace IKVM.Java.Externs.ikvm.runtime
 
         internal static RuntimeJavaType GetTypeWrapperFromObject(RuntimeContext context, object o)
         {
+            // ghost tags are attached per-object (side table), so this must stay uncached and first
             var ghostType = GhostTag.GetTag(o);
             if (ghostType != null)
                 return ghostType;
 
             var t = o.GetType();
+            if (wrapperByConcreteType.TryGetValue(t, out var cached))
+                return cached;
+
+            var resolved = ResolveTypeWrapperFromType(context, t);
+            wrapperByConcreteType[t] = resolved;
+            return resolved;
+        }
+
+        static RuntimeJavaType ResolveTypeWrapperFromType(RuntimeContext context, Type t)
+        {
             if (t.IsPrimitive || context.ClassLoaderFactory.IsRemappedType(t) && !t.IsSealed)
                 return context.ManagedJavaTypeFactory.GetJavaTypeFromManagedType(t);
 
