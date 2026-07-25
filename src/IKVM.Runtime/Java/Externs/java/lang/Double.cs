@@ -28,17 +28,9 @@ namespace IKVM.Java.Externs.java.lang
     static class Double
     {
 
-        public static long doubleToRawLongBits(double value)
-        {
-            IKVM.Runtime.DoubleConverter converter = new IKVM.Runtime.DoubleConverter();
-            return IKVM.Runtime.DoubleConverter.ToLong(value, ref converter);
-        }
+        public static long doubleToRawLongBits(double value) => IKVM.Runtime.DoubleConverter.ToLong(value);
 
-        public static double longBitsToDouble(long bits)
-        {
-            IKVM.Runtime.DoubleConverter converter = new IKVM.Runtime.DoubleConverter();
-            return IKVM.Runtime.DoubleConverter.ToDouble(bits, ref converter);
-        }
+        public static double longBitsToDouble(long bits) => IKVM.Runtime.DoubleConverter.ToDouble(bits);
 
     }
 

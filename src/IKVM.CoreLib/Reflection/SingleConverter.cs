@@ -21,31 +21,29 @@
   jeroen@frijters.net
   
 */
+using System.Runtime.CompilerServices;
+
 namespace IKVM.Reflection
 {
 
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Explicit)]
-    struct SingleConverter
+    static class SingleConverter
     {
 
-        [System.Runtime.InteropServices.FieldOffset(0)]
-        int i;
-        [System.Runtime.InteropServices.FieldOffset(0)]
-        float f;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static int SingleToInt32Bits(float v) =>
+#if NET8_0_OR_GREATER
+            Unsafe.BitCast<float, int>(v);
+#else
+            Unsafe.As<float, int>(ref v);
+#endif
 
-        internal static int SingleToInt32Bits(float v)
-        {
-            var c = new SingleConverter();
-            c.f = v;
-            return c.i;
-        }
-
-        internal static float Int32BitsToSingle(int v)
-        {
-            var c = new SingleConverter();
-            c.i = v;
-            return c.f;
-        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static float Int32BitsToSingle(int v) =>
+#if NET8_0_OR_GREATER
+            Unsafe.BitCast<int, float>(v);
+#else
+            Unsafe.As<int, float>(ref v);
+#endif
 
     }
 

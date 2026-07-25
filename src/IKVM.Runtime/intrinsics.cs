@@ -252,8 +252,6 @@ namespace IKVM.Runtime
 
         static void EmitConversion(CodeEmitter ilgen, Type converterType, string method)
         {
-            var converter = ilgen.UnsafeAllocTempLocal(converterType);
-            ilgen.Emit(OpCodes.Ldloca, converter);
             ilgen.Emit(OpCodes.Call, converterType.GetMethod(method));
         }
 

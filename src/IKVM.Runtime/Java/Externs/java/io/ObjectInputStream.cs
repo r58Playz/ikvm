@@ -30,20 +30,18 @@ namespace IKVM.Java.Externs.java.io
 
         public static void bytesToFloats(byte[] src, int srcpos, float[] dst, int dstpos, int nfloats)
         {
-            IKVM.Runtime.FloatConverter converter = new IKVM.Runtime.FloatConverter();
             for (int i = 0; i < nfloats; i++)
             {
                 int v = src[srcpos++];
                 v = (v << 8) | src[srcpos++];
                 v = (v << 8) | src[srcpos++];
                 v = (v << 8) | src[srcpos++];
-                dst[dstpos++] = IKVM.Runtime.FloatConverter.ToFloat(v, ref converter);
+                dst[dstpos++] = IKVM.Runtime.FloatConverter.ToFloat(v);
             }
         }
 
         public static void bytesToDoubles(byte[] src, int srcpos, double[] dst, int dstpos, int ndoubles)
         {
-            IKVM.Runtime.DoubleConverter converter = new IKVM.Runtime.DoubleConverter();
             for (int i = 0; i < ndoubles; i++)
             {
                 long v = src[srcpos++];
@@ -54,7 +52,7 @@ namespace IKVM.Java.Externs.java.io
                 v = (v << 8) | src[srcpos++];
                 v = (v << 8) | src[srcpos++];
                 v = (v << 8) | src[srcpos++];
-                dst[dstpos++] = IKVM.Runtime.DoubleConverter.ToDouble(v, ref converter);
+                dst[dstpos++] = IKVM.Runtime.DoubleConverter.ToDouble(v);
             }
         }
 

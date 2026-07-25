@@ -1574,51 +1574,45 @@ namespace IKVM.Runtime
 
 #endif
 
-    [StructLayout(LayoutKind.Explicit)]
-    public struct DoubleConverter
+    public static class DoubleConverter
     {
 
-        [FieldOffset(0)]
-        double d;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static long ToLong(double value) =>
+#if NET8_0_OR_GREATER
+            Unsafe.BitCast<double, long>(value);
+#else
+            Unsafe.As<double, long>(ref value);
+#endif
 
-        [FieldOffset(0)]
-        long l;
-
-        public static long ToLong(double value, ref DoubleConverter converter)
-        {
-            converter.d = value;
-            return converter.l;
-        }
-
-        public static double ToDouble(long value, ref DoubleConverter converter)
-        {
-            converter.l = value;
-            return converter.d;
-        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static double ToDouble(long value) =>
+#if NET8_0_OR_GREATER
+            Unsafe.BitCast<long, double>(value);
+#else
+            Unsafe.As<long, double>(ref value);
+#endif
 
     }
 
-    [StructLayout(LayoutKind.Explicit)]
-    public struct FloatConverter
+    public static class FloatConverter
     {
 
-        [FieldOffset(0)]
-        float f;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int ToInt(float value) =>
+#if NET8_0_OR_GREATER
+            Unsafe.BitCast<float, int>(value);
+#else
+            Unsafe.As<float, int>(ref value);
+#endif
 
-        [FieldOffset(0)]
-        int i;
-
-        public static int ToInt(float value, ref FloatConverter converter)
-        {
-            converter.f = value;
-            return converter.i;
-        }
-
-        public static float ToFloat(int value, ref FloatConverter converter)
-        {
-            converter.i = value;
-            return converter.f;
-        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float ToFloat(int value) =>
+#if NET8_0_OR_GREATER
+            Unsafe.BitCast<int, float>(value);
+#else
+            Unsafe.As<int, float>(ref value);
+#endif
 
     }
 

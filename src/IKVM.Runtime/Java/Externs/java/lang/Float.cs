@@ -28,17 +28,9 @@ namespace IKVM.Java.Externs.java.lang
     static class Float
     {
 
-        public static int floatToRawIntBits(float value)
-        {
-            IKVM.Runtime.FloatConverter converter = new IKVM.Runtime.FloatConverter();
-            return IKVM.Runtime.FloatConverter.ToInt(value, ref converter);
-        }
+        public static int floatToRawIntBits(float value) => IKVM.Runtime.FloatConverter.ToInt(value);
 
-        public static float intBitsToFloat(int bits)
-        {
-            IKVM.Runtime.FloatConverter converter = new IKVM.Runtime.FloatConverter();
-            return IKVM.Runtime.FloatConverter.ToFloat(bits, ref converter);
-        }
+        public static float intBitsToFloat(int bits) => IKVM.Runtime.FloatConverter.ToFloat(bits);
 
     }
 
