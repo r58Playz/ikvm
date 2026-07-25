@@ -246,6 +246,12 @@ namespace IKVM.Runtime
                         (type == null
                         || typeof(MethodBase).IsAssignableFrom(type)
                         || type == typeof(RuntimeMethodHandle)
+                        // the DynamicMethods we generate for java.lang.invoke adapters (InvokeExact, VoidAdapter,
+                        // DirectMethodHandle.*, MemberName:*, ...) are owned by this type when their natural owner
+                        // can't host a DynamicMethod; like OpenJDK's @Hidden LambdaForm frames they shouldn't appear
+                        // in Java stack traces, and their .NET FullName ("IKVM.Runtime.MethodHandleUtil+DynamicMethodBuilder")
+                        // is not a loadable Java class name
+                        || type == typeof(MethodHandleUtil.DynamicMethodBuilder)
                         || (type == typeof(Throwable) && m.Name == "instancehelper_fillInStackTrace")
                         || (m.Name == "ToJava" && typeof(RetargetableJavaException).IsAssignableFrom(type))
                         || IsHideFromJava(m)
@@ -870,11 +876,7 @@ namespace IKVM.Runtime
             var r = MapException<Exception>(t.InnerException, true, false);
             if (r is not java.lang.Error)
             {
-                // Forwarding "r" as cause only doesn't make it available in the debugger details
-                // of current versions of VS, so at least provide a text representation instead.
-                // Not wrapping at all might be the even better approach, but it was introduced for
-                // some reason I guess.
-                r = new java.lang.ExceptionInInitializerError(r.ToString());
+                r = new java.lang.ExceptionInInitializerError(r);
                 wrapped = true;
             }
 
