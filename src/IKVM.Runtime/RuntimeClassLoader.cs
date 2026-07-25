@@ -380,7 +380,7 @@ namespace IKVM.Runtime
                 return (mode & LoadMode.MaskReturn) switch
                 {
                     LoadMode.ReturnNull => null,
-                    LoadMode.ReturnUnloadable => new RuntimeUnloadableJavaType(context, name),
+                    LoadMode.ReturnUnloadable => GetUnloadableJavaType(name),
                     LoadMode.ThrowClassNotFound => throw new ClassNotFoundException(name),
                     _ => throw new InvalidOperationException(),
                 };
@@ -389,6 +389,30 @@ namespace IKVM.Runtime
             {
                 Profiler.Leave("LoadClass");
             }
+        }
+
+        System.Collections.Concurrent.ConcurrentDictionary<string, RuntimeJavaType> unloadableTypes;
+
+        /// <summary>
+        /// Gets the canonical unloadable placeholder for the given name. Canonicalizing per loader
+        /// matters because the verifier compares constant pool class entries by reference (e.g. the
+        /// uninitialized type of a 'new' against the class of the matching invokespecial &lt;init&gt;),
+        /// and distinct constant pool entries naming the same unresolved class must agree.
+        /// </summary>
+        RuntimeJavaType GetUnloadableJavaType(string name)
+        {
+            var cache = unloadableTypes;
+            if (cache == null)
+            {
+                Interlocked.CompareExchange(ref unloadableTypes, new System.Collections.Concurrent.ConcurrentDictionary<string, RuntimeJavaType>(), null);
+                cache = unloadableTypes;
+            }
+
+            if (cache.TryGetValue(name, out var tw))
+                return tw;
+
+            tw = new RuntimeUnloadableJavaType(context, name);
+            return cache.GetOrAdd(name, tw);
         }
 
         RuntimeJavaType LoadRegisteredOrPendingClass(string name)
