@@ -344,8 +344,11 @@ namespace IKVM.Runtime
                 FinishTypes(type);
 
                 var tw = mw.DeclaringType;
-                var owner = tw.TypeAsBaseType;
-                var dm = new DynamicMethodBuilder(context, "MemberName:" + mw.DeclaringType.Name + "::" + mw.Name + mw.Signature, type, null, mw.HasCallerID ? DynamicCallerIDProvider.Instance : null, null, owner, true);
+                // NOTE do not own the DynamicMethod with the target type: on Mono, creating the
+                // delegate can run the owner's class initializer, but resolving a MethodHandle
+                // must not initialize the target class (JVMS §5.4.3.5) — initialization belongs
+                // at first invocation, which the emitted direct call already triggers
+                var dm = new DynamicMethodBuilder(context, "MemberName:" + mw.DeclaringType.Name + "::" + mw.Name + mw.Signature, type, null, mw.HasCallerID ? DynamicCallerIDProvider.Instance : null, null, null, true);
                 for (int i = 0, count = type.parameterCount(); i < count; i++)
                 {
                     if (i == 0 && !mw.IsStatic && (tw.IsGhost || tw.IsNonPrimitiveValueType || tw.IsRemapped) && (!mw.IsConstructor || tw != context.JavaBase.TypeOfJavaLangString))
