@@ -830,7 +830,13 @@ namespace IKVM.Runtime.StubGen
             // attribute is either a AnnotationAttributeBase or a DynamicAnnotationAttribute with a single object[] in our internal annotation format
             if (cad.ConstructorArguments.Count == 1 && cad.ConstructorArguments[0].ArgumentType == typeof(object[]) && (cad.Constructor.DeclaringType.BaseType == typeof(ikvm.@internal.AnnotationAttributeBase) || cad.Constructor.DeclaringType == typeof(DynamicAnnotationAttribute)))
             {
-                return UnpackArray((IList<CustomAttributeTypedArgument>)cad.ConstructorArguments[0].Value);
+                // .NET Framework/CoreCLR (and IKVM.Reflection in the exporter) represent an
+                // array-typed argument's Value as an IList<CustomAttributeTypedArgument>. Mono
+                // instead returns the raw object[] with unwrapped element values — which is already
+                // our internal annotation format (nested arrays are raw object[] all the way down),
+                // so use it as-is rather than casting (which throws InvalidCastException on Mono).
+                var value = cad.ConstructorArguments[0].Value;
+                return value as object[] ?? UnpackArray((IList<CustomAttributeTypedArgument>)value);
             }
 
             if (cad.Constructor.DeclaringType.BaseType == typeof(ikvm.@internal.AnnotationAttributeBase))
@@ -901,14 +907,32 @@ namespace IKVM.Runtime.StubGen
             // argument is directly an array, so we encode it a a TAG_ARRAY
             if (arg.ArgumentType.IsArray)
             {
-                var array = (IList<CustomAttributeTypedArgument>)arg.Value;
-                var arr = new object[array.Count + 1];
-                arr[0] = IKVM.Attributes.AnnotationDefaultAttribute.TAG_ARRAY;
-                for (int i = 0; i < array.Count; i++)
-                    arr[i + 1] = GetAnnotationValue(array[i]);
+                // .NET Framework/CoreCLR (and IKVM.Reflection) wrap each element as a
+                // CustomAttributeTypedArgument; Mono returns the raw CLR array with unwrapped
+                // element values, so wrap each element back up (by its runtime type, so nested
+                // arrays/enums are still detected) and reuse the same encoding path.
+                if (arg.Value is IList<CustomAttributeTypedArgument> array)
+                {
+                    var arr = new object[array.Count + 1];
+                    arr[0] = IKVM.Attributes.AnnotationDefaultAttribute.TAG_ARRAY;
+                    for (int i = 0; i < array.Count; i++)
+                        arr[i + 1] = GetAnnotationValue(array[i]);
 
-                return arr;
+                    return arr;
+                }
+#if !EXPORTER && !IMPORTER
+                var raw = (Array)arg.Value;
+                var elementType = arg.ArgumentType.GetElementType();
+                var rawArr = new object[raw.Length + 1];
+                rawArr[0] = IKVM.Attributes.AnnotationDefaultAttribute.TAG_ARRAY;
+                for (int i = 0; i < raw.Length; i++)
+                {
+                    var element = raw.GetValue(i);
+                    rawArr[i + 1] = GetAnnotationValue(new CustomAttributeTypedArgument(element?.GetType() ?? elementType, element));
+                }
 
+                return rawArr;
+#endif
             }
 
             return arg.Value;
