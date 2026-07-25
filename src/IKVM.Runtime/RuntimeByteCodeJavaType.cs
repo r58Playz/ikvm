@@ -387,12 +387,18 @@ namespace IKVM.Runtime
 
         static bool CheckRequireOverrideStub(RuntimeJavaMethod mw1, RuntimeJavaMethod mw2)
         {
+            if (mw1.HasCallerID != mw2.HasCallerID)
+                return true;
+
             // TODO this is too late to generate LinkageErrors so we need to figure this out earlier
             if (!TypesMatchForOverride(mw1.ReturnType, mw2.ReturnType))
                 return true;
 
             var args1 = mw1.GetParameters();
             var args2 = mw2.GetParameters();
+            if (args1.Length != args2.Length)
+                return true;
+
             for (int i = 0; i < args1.Length; i++)
                 if (!TypesMatchForOverride(args1[i], args2[i]))
                     return true;
