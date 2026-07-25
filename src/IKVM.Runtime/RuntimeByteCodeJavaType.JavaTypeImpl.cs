@@ -62,7 +62,18 @@ namespace IKVM.Runtime
             bool finishInProgress;
             MethodBuilder clinitMethod;
             MethodBuilder finalizeMethod;
-            int recursionCount;
+            // Per-thread recursion guard for Finish(). Was an instance int+
+            // Interlocked.Increment, which under threading (multiple workers
+            // calling Finish on different types concurrently inside their own
+            // graphs) would let one thread's increments push another thread
+            // over the "> 2" threshold, causing it to fall back to
+            // LoadMode.ReturnUnloadable and emit RuntimeUnloadableJavaType for
+            // perfectly-loadable referenced classes. Tracking per-thread keeps
+            // the original intent (detect a single thread recursing into
+            // Finish on this same type via a broken classloader callback) and
+            // is unaffected by concurrent unrelated Finish work on other
+            // threads.
+            [ThreadStatic] static System.Collections.Generic.Dictionary<JavaTypeImpl, int> t_recursionCounts;
 #if IMPORTER
             RuntimeByteCodeJavaType enclosingClassWrapper;
             AnnotationBuilder annotationBuilder;
@@ -1156,7 +1167,10 @@ namespace IKVM.Runtime
                 // are in the process of finishing, and this would be a problem.
                 // Prevent infinity recursion for broken class loaders by keeping a recursion count and falling
                 // back to late binding if we recurse more than twice.
-                var mode = System.Threading.Interlocked.Increment(ref recursionCount) > 2 || (JVM.DisableEagerClassLoading && wrapper.Name != "sun.reflect.misc.Trampoline")
+                t_recursionCounts ??= new System.Collections.Generic.Dictionary<JavaTypeImpl, int>();
+                t_recursionCounts.TryGetValue(this, out int t_rc);
+                t_recursionCounts[this] = t_rc + 1;
+                var mode = (t_rc + 1) > 2 || (JVM.DisableEagerClassLoading && wrapper.Name != "sun.reflect.misc.Trampoline")
                     ? LoadMode.ReturnUnloadable
                     : LoadMode.Link;
                 try
@@ -1171,7 +1185,11 @@ namespace IKVM.Runtime
                 }
                 finally
                 {
-                    System.Threading.Interlocked.Decrement(ref recursionCount);
+                    int t_rc_now = t_recursionCounts[this];
+                    if (t_rc_now <= 1)
+                        t_recursionCounts.Remove(this);
+                    else
+                        t_recursionCounts[this] = t_rc_now - 1;
                 }
 
                 // this is the correct lock, FinishCore doesn't call any user code and mutates global state,
