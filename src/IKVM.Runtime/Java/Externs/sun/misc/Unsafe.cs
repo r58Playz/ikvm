@@ -1,4 +1,7 @@
 using System;
+using System.Buffers.Binary;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -67,6 +70,433 @@ namespace IKVM.Java.Externs.sun.misc
         static readonly MethodInfo compareAndSwapArrayMethodInfo = typeof(Unsafe).GetMethods(BindingFlags.NonPublic | BindingFlags.Static)
             .Where(i => i.Name == nameof(CompareAndSwapArray) && i.IsGenericMethodDefinition && i.GetGenericArguments().Length == 1)
             .FirstOrDefault();
+
+        const int ObjectFieldOffsetTag = 0x40000000;
+        const int ObjectFieldOffsetTagMask = 0x40000000;
+        const int ObjectFieldOffsetTypeIdShift = 16;
+        const int ObjectFieldOffsetTypeIdMask = 0x3FFF;
+        const int ObjectFieldOffsetValueMask = 0xFFFF;
+        const int ObjectFieldOffsetMaxValue = ObjectFieldOffsetValueMask;
+        const int ObjectFieldOffsetMaxTypeId = ObjectFieldOffsetTypeIdMask;
+
+        sealed class ObjectFieldOffsetInfo
+        {
+
+            readonly Dictionary<RuntimeJavaField, int> fieldOffsets;
+            readonly Dictionary<int, RuntimeJavaField> offsetFields;
+            readonly int[] fieldStartOffsets;
+            readonly int[] fieldSizes;
+
+            /// <summary>
+            /// Initializes a new instance.
+            /// </summary>
+            /// <param name="typeId"></param>
+            /// <param name="fields"></param>
+            public ObjectFieldOffsetInfo(int typeId, RuntimeJavaField[] fields)
+            {
+                TypeId = typeId;
+                Fields = fields;
+
+                fieldOffsets = new Dictionary<RuntimeJavaField, int>(fields.Length);
+                offsetFields = new Dictionary<int, RuntimeJavaField>(fields.Length);
+
+                var offset = 0;
+                fieldStartOffsets = new int[fields.Length];
+                fieldSizes = new int[fields.Length];
+                for (var i = 0; i < fields.Length; i++)
+                {
+                    var field = fields[i];
+                    var size = GetObjectFieldStorageSize(field);
+                    if ((uint)offset > ObjectFieldOffsetMaxValue)
+                        throw new InvalidOperationException("Object field offset space exhausted.");
+
+                    fieldOffsets[field] = offset;
+                    offsetFields[offset] = field;
+                    fieldStartOffsets[i] = offset;
+                    fieldSizes[i] = size;
+                    offset = checked(offset + size);
+                }
+            }
+
+            /// <summary>
+            /// Gets the identifier for the declaring type.
+            /// </summary>
+            public int TypeId { get; }
+
+            /// <summary>
+            /// Gets the instance fields in offset order.
+            /// </summary>
+            public RuntimeJavaField[] Fields { get; }
+
+            /// <summary>
+            /// Tries to get the encoded byte offset for the specified field.
+            /// </summary>
+            /// <param name="field"></param>
+            /// <param name="offset"></param>
+            /// <returns></returns>
+            public bool TryGetOffset(RuntimeJavaField field, out int offset)
+            {
+                return fieldOffsets.TryGetValue(field, out offset);
+            }
+
+            /// <summary>
+            /// Tries to get the field for the specified encoded byte offset.
+            /// </summary>
+            /// <param name="offset"></param>
+            /// <param name="field"></param>
+            /// <returns></returns>
+            public bool TryGetField(int offset, out RuntimeJavaField field)
+            {
+                return offsetFields.TryGetValue(offset, out field);
+            }
+
+            public bool TryGetFieldSegment(int offset, out RuntimeJavaField field, out int fieldOffset, out int fieldSize)
+            {
+                var index = FindFieldSegmentIndex(offset);
+                if (index >= 0)
+                {
+                    field = Fields[index];
+                    fieldOffset = fieldStartOffsets[index];
+                    fieldSize = fieldSizes[index];
+                    return true;
+                }
+
+                field = null;
+                fieldOffset = 0;
+                fieldSize = 0;
+                return false;
+            }
+
+            int FindFieldSegmentIndex(int offset)
+            {
+                var lo = 0;
+                var hi = fieldStartOffsets.Length - 1;
+
+                while (lo <= hi)
+                {
+                    var mid = lo + ((hi - lo) >> 1);
+                    var start = fieldStartOffsets[mid];
+                    var end = start + fieldSizes[mid];
+
+                    if (offset < start)
+                    {
+                        hi = mid - 1;
+                    }
+                    else if (offset >= end)
+                    {
+                        lo = mid + 1;
+                    }
+                    else
+                    {
+                        return mid;
+                    }
+                }
+
+                return -1;
+            }
+
+        }
+
+        static int nextObjectFieldTypeId;
+        static readonly object objectFieldOffsetSync = new object();
+        static readonly ConditionalWeakTable<RuntimeJavaType, ObjectFieldOffsetInfo> objectFieldOffsetsByType = new ConditionalWeakTable<RuntimeJavaType, ObjectFieldOffsetInfo>();
+        // typeId -> info, indexed directly. typeIds are dense and monotonic (Interlocked.Increment) and
+        // capped at ObjectFieldOffsetMaxTypeId (0x3FFF), so one fixed array (<=16K refs, ~128KB) covers
+        // every possible id. A plain array load replaces the per-field-access ConcurrentDictionary<int,_>
+        // probe, which the trace showed was ~10% of CPU under the wasm interpreter (the probe machinery
+        // dominated, not the stored value). Written once per type under objectFieldOffsetSync (whose
+        // release, plus the safe publication of the encoded offset through Java fields, makes the slot
+        // visible to lock-free readers); read as a bare bounds-checked index on the hot path.
+        static readonly ObjectFieldOffsetInfo[] objectFieldOffsetsByTypeId = new ObjectFieldOffsetInfo[ObjectFieldOffsetMaxTypeId + 1];
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static bool IsEncodedObjectFieldOffset(long offset)
+        {
+            if (offset < 0 || offset > int.MaxValue)
+                return false;
+
+            return (((int)offset) & ObjectFieldOffsetTagMask) == ObjectFieldOffsetTag;
+        }
+
+        static ObjectFieldOffsetInfo GetObjectFieldOffsetInfo(RuntimeJavaType type)
+        {
+            if (objectFieldOffsetsByType.TryGetValue(type, out var info))
+                return info;
+
+            lock (objectFieldOffsetSync)
+            {
+                if (objectFieldOffsetsByType.TryGetValue(type, out info))
+                    return info;
+
+                var typeId = checked(Interlocked.Increment(ref nextObjectFieldTypeId));
+                if (typeId > ObjectFieldOffsetMaxTypeId)
+                    throw new InvalidOperationException("Object field offset type id space exhausted.");
+
+                var fields = type.GetFields().Where(i => i.IsStatic == false).ToArray();
+                info = new ObjectFieldOffsetInfo(typeId, fields);
+
+                objectFieldOffsetsByType.Add(type, info);
+                objectFieldOffsetsByTypeId[typeId] = info;
+
+                return info;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static long EncodeObjectFieldOffset(int typeId, int offset)
+        {
+            return ObjectFieldOffsetTag | (typeId << ObjectFieldOffsetTypeIdShift) | offset;
+        }
+
+        static int GetObjectFieldStorageSize(RuntimeJavaField field)
+        {
+            field.Link();
+
+            var ft = field.FieldTypeWrapper;
+            var p = field.DeclaringType.Context.PrimitiveJavaTypeFactory;
+
+            if (ft == p.BYTE || ft == p.BOOLEAN)
+                return 1;
+            if (ft == p.CHAR || ft == p.SHORT)
+                return 2;
+            if (ft == p.INT || ft == p.FLOAT)
+                return 4;
+            if (ft == p.LONG || ft == p.DOUBLE)
+                return 8;
+            // unloadable field types are reference fields (erased to object)
+            if (ft.IsPrimitive == false && ft.IsUnloadable == false && ft.IsNonPrimitiveValueType)
+                return Marshal.SizeOf(ft.TypeAsTBD);
+
+            return IntPtr.Size;
+        }
+
+        static RuntimeJavaField GetFieldByOffset(object target, long offset)
+        {
+            if (IsEncodedObjectFieldOffset(offset))
+            {
+                if (target == null)
+                    return RuntimeJavaField.FromCookie((IntPtr)offset);
+
+                var value = (int)offset;
+                var typeId = (value >> ObjectFieldOffsetTypeIdShift) & ObjectFieldOffsetTypeIdMask;
+                var fieldOffset = value & ObjectFieldOffsetValueMask;
+
+                var info = objectFieldOffsetsByTypeId[typeId];
+                if (info != null && info.TryGetField(fieldOffset, out var field))
+                    return field;
+
+                throw new global::java.lang.IllegalArgumentException();
+            }
+
+            return RuntimeJavaField.FromCookie((IntPtr)offset);
+        }
+
+#if !FIRST_PASS
+        static bool TryGetEncodedObjectFieldOffsetInfo(object target, long offset, out ObjectFieldOffsetInfo info, out int fieldOffset)
+        {
+            info = null;
+            fieldOffset = 0;
+
+            if (target == null || IsEncodedObjectFieldOffset(offset) == false)
+                return false;
+
+            var value = (int)offset;
+            var typeId = (value >> ObjectFieldOffsetTypeIdShift) & ObjectFieldOffsetTypeIdMask;
+            fieldOffset = value & ObjectFieldOffsetValueMask;
+
+            info = objectFieldOffsetsByTypeId[typeId];
+            if (info != null)
+                return true;
+
+            throw new global::java.lang.IllegalArgumentException();
+        }
+
+        static bool IsPrimitiveField(RuntimeJavaField field)
+        {
+            field.Link();
+            return field.FieldTypeWrapper.IsPrimitive;
+        }
+
+        static void GetPrimitiveFieldBytes(RuntimeJavaField field, object target, Span<byte> bytes)
+        {
+            field.Link();
+            var ft = field.FieldTypeWrapper;
+            var p = field.DeclaringType.Context.PrimitiveJavaTypeFactory;
+
+            if (ft == p.BOOLEAN)
+                bytes[0] = field.UnsafeGetValue<bool>(target) ? (byte)1 : (byte)0;
+            else if (ft == p.BYTE)
+                bytes[0] = field.UnsafeGetValue<byte>(target);
+            else if (ft == p.CHAR)
+            {
+                var v = field.UnsafeGetValue<char>(target);
+                if (BitConverter.IsLittleEndian)
+                    BinaryPrimitives.WriteUInt16LittleEndian(bytes, v);
+                else
+                    BinaryPrimitives.WriteUInt16BigEndian(bytes, v);
+            }
+            else if (ft == p.SHORT)
+            {
+                var v = field.UnsafeGetValue<short>(target);
+                if (BitConverter.IsLittleEndian)
+                    BinaryPrimitives.WriteInt16LittleEndian(bytes, v);
+                else
+                    BinaryPrimitives.WriteInt16BigEndian(bytes, v);
+            }
+            else if (ft == p.INT)
+            {
+                var v = field.UnsafeGetValue<int>(target);
+                if (BitConverter.IsLittleEndian)
+                    BinaryPrimitives.WriteInt32LittleEndian(bytes, v);
+                else
+                    BinaryPrimitives.WriteInt32BigEndian(bytes, v);
+            }
+            else if (ft == p.FLOAT)
+            {
+                var v = global::java.lang.Float.floatToRawIntBits(field.UnsafeGetValue<float>(target));
+                if (BitConverter.IsLittleEndian)
+                    BinaryPrimitives.WriteInt32LittleEndian(bytes, v);
+                else
+                    BinaryPrimitives.WriteInt32BigEndian(bytes, v);
+            }
+            else if (ft == p.LONG)
+            {
+                var v = field.UnsafeGetValue<long>(target);
+                if (BitConverter.IsLittleEndian)
+                    BinaryPrimitives.WriteInt64LittleEndian(bytes, v);
+                else
+                    BinaryPrimitives.WriteInt64BigEndian(bytes, v);
+            }
+            else if (ft == p.DOUBLE)
+            {
+                var v = global::java.lang.Double.doubleToRawLongBits(field.UnsafeGetValue<double>(target));
+                if (BitConverter.IsLittleEndian)
+                    BinaryPrimitives.WriteInt64LittleEndian(bytes, v);
+                else
+                    BinaryPrimitives.WriteInt64BigEndian(bytes, v);
+            }
+            else
+            {
+                throw new global::java.lang.IllegalArgumentException();
+            }
+        }
+
+        static void SetPrimitiveFieldBytes(RuntimeJavaField field, object target, ReadOnlySpan<byte> bytes)
+        {
+            field.Link();
+            var ft = field.FieldTypeWrapper;
+            var p = field.DeclaringType.Context.PrimitiveJavaTypeFactory;
+
+            if (ft == p.BOOLEAN)
+            {
+                field.UnsafeSetValue(target, bytes[0] != 0);
+            }
+            else if (ft == p.BYTE)
+            {
+                field.UnsafeSetValue(target, bytes[0]);
+            }
+            else if (ft == p.CHAR)
+            {
+                var v = BitConverter.IsLittleEndian ? BinaryPrimitives.ReadUInt16LittleEndian(bytes) : BinaryPrimitives.ReadUInt16BigEndian(bytes);
+                field.UnsafeSetValue(target, (char)v);
+            }
+            else if (ft == p.SHORT)
+            {
+                var v = BitConverter.IsLittleEndian ? BinaryPrimitives.ReadInt16LittleEndian(bytes) : BinaryPrimitives.ReadInt16BigEndian(bytes);
+                field.UnsafeSetValue(target, v);
+            }
+            else if (ft == p.INT)
+            {
+                var v = BitConverter.IsLittleEndian ? BinaryPrimitives.ReadInt32LittleEndian(bytes) : BinaryPrimitives.ReadInt32BigEndian(bytes);
+                field.UnsafeSetValue(target, v);
+            }
+            else if (ft == p.FLOAT)
+            {
+                var v = BitConverter.IsLittleEndian ? BinaryPrimitives.ReadInt32LittleEndian(bytes) : BinaryPrimitives.ReadInt32BigEndian(bytes);
+                field.UnsafeSetValue(target, global::java.lang.Float.intBitsToFloat(v));
+            }
+            else if (ft == p.LONG)
+            {
+                var v = BitConverter.IsLittleEndian ? BinaryPrimitives.ReadInt64LittleEndian(bytes) : BinaryPrimitives.ReadInt64BigEndian(bytes);
+                field.UnsafeSetValue(target, v);
+            }
+            else if (ft == p.DOUBLE)
+            {
+                var v = BitConverter.IsLittleEndian ? BinaryPrimitives.ReadInt64LittleEndian(bytes) : BinaryPrimitives.ReadInt64BigEndian(bytes);
+                field.UnsafeSetValue(target, global::java.lang.Double.longBitsToDouble(v));
+            }
+            else
+            {
+                throw new global::java.lang.IllegalArgumentException();
+            }
+        }
+
+        static bool TryReadEncodedObjectPrimitive(object target, long offset, Span<byte> destination)
+        {
+            if (TryGetEncodedObjectFieldOffsetInfo(target, offset, out var info, out var readOffset) == false)
+                return false;
+
+            var remaining = destination.Length;
+            var destinationOffset = 0;
+            Span<byte> fieldBytes = stackalloc byte[8];
+
+            while (remaining > 0)
+            {
+                if (info.TryGetFieldSegment(readOffset, out var field, out var fieldStartOffset, out var fieldSize) == false || IsPrimitiveField(field) == false)
+                    throw new global::java.lang.IllegalArgumentException();
+
+                var withinFieldOffset = readOffset - fieldStartOffset;
+                var bytesToCopy = Math.Min(fieldSize - withinFieldOffset, remaining);
+
+                GetPrimitiveFieldBytes(field, target, fieldBytes.Slice(0, fieldSize));
+                fieldBytes.Slice(withinFieldOffset, bytesToCopy).CopyTo(destination.Slice(destinationOffset, bytesToCopy));
+
+                readOffset += bytesToCopy;
+                destinationOffset += bytesToCopy;
+                remaining -= bytesToCopy;
+            }
+
+            return true;
+        }
+
+        static bool TryWriteEncodedObjectPrimitive(object target, long offset, ReadOnlySpan<byte> source)
+        {
+            if (TryGetEncodedObjectFieldOffsetInfo(target, offset, out var info, out var writeOffset) == false)
+                return false;
+
+            var remaining = source.Length;
+            var sourceOffset = 0;
+            Span<byte> fieldBytes = stackalloc byte[8];
+
+            while (remaining > 0)
+            {
+                if (info.TryGetFieldSegment(writeOffset, out var field, out var fieldStartOffset, out var fieldSize) == false || IsPrimitiveField(field) == false)
+                    throw new global::java.lang.IllegalArgumentException();
+
+                var withinFieldOffset = writeOffset - fieldStartOffset;
+                var bytesToCopy = Math.Min(fieldSize - withinFieldOffset, remaining);
+
+                GetPrimitiveFieldBytes(field, target, fieldBytes.Slice(0, fieldSize));
+                source.Slice(sourceOffset, bytesToCopy).CopyTo(fieldBytes.Slice(withinFieldOffset, bytesToCopy));
+                SetPrimitiveFieldBytes(field, target, fieldBytes.Slice(0, fieldSize));
+
+                writeOffset += bytesToCopy;
+                sourceOffset += bytesToCopy;
+                remaining -= bytesToCopy;
+            }
+
+            return true;
+        }
+#endif
+
+        internal static long GetObjectFieldOffset(RuntimeJavaField field)
+        {
+            var info = GetObjectFieldOffsetInfo(field.DeclaringType);
+            if (info.TryGetOffset(field, out var offset))
+                return EncodeObjectFieldOffset(info.TypeId, offset);
+
+            throw new global::java.lang.IllegalArgumentException();
+        }
 
         /// <summary>
         /// Emits the appropriate ldind opcode for the given type.
@@ -163,7 +593,7 @@ namespace IKVM.Java.Externs.sun.misc
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            var f = RuntimeJavaField.FromCookie((IntPtr)offset);
+            var f = GetFieldByOffset(o, offset);
             if (o is RuntimeJavaType w)
             {
                 if (w != f.DeclaringType)
@@ -189,7 +619,7 @@ namespace IKVM.Java.Externs.sun.misc
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            var f = RuntimeJavaField.FromCookie((IntPtr)offset);
+            var f = GetFieldByOffset(o, offset);
             if (o is RuntimeJavaType w)
             {
                 if (w != f.DeclaringType)
@@ -413,6 +843,13 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
+                if (o != null)
+                {
+                    Span<byte> raw = stackalloc byte[sizeof(short)];
+                    if (TryReadEncodedObjectPrimitive(o, offset, raw))
+                        return BitConverter.IsLittleEndian ? BinaryPrimitives.ReadInt16LittleEndian(raw) : BinaryPrimitives.ReadInt16BigEndian(raw);
+                }
+
                 return o switch
                 {
                     null => getShort(self, offset),
@@ -442,6 +879,18 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
+                if (o != null)
+                {
+                    Span<byte> raw = stackalloc byte[sizeof(short)];
+                    if (BitConverter.IsLittleEndian)
+                        BinaryPrimitives.WriteInt16LittleEndian(raw, x);
+                    else
+                        BinaryPrimitives.WriteInt16BigEndian(raw, x);
+
+                    if (TryWriteEncodedObjectPrimitive(o, offset, raw))
+                        return;
+                }
+
                 switch (o)
                 {
                     case null:
@@ -479,6 +928,16 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
+                if (o != null)
+                {
+                    Span<byte> raw = stackalloc byte[sizeof(char)];
+                    if (TryReadEncodedObjectPrimitive(o, offset, raw))
+                    {
+                        var v = BitConverter.IsLittleEndian ? BinaryPrimitives.ReadUInt16LittleEndian(raw) : BinaryPrimitives.ReadUInt16BigEndian(raw);
+                        return (char)v;
+                    }
+                }
+
                 return o switch
                 {
                     null => getChar(self, offset),
@@ -508,6 +967,18 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
+                if (o != null)
+                {
+                    Span<byte> raw = stackalloc byte[sizeof(char)];
+                    if (BitConverter.IsLittleEndian)
+                        BinaryPrimitives.WriteUInt16LittleEndian(raw, x);
+                    else
+                        BinaryPrimitives.WriteUInt16BigEndian(raw, x);
+
+                    if (TryWriteEncodedObjectPrimitive(o, offset, raw))
+                        return;
+                }
+
                 switch (o)
                 {
                     case null:
@@ -545,6 +1016,13 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
+                if (o != null)
+                {
+                    Span<byte> raw = stackalloc byte[sizeof(int)];
+                    if (TryReadEncodedObjectPrimitive(o, offset, raw))
+                        return BitConverter.IsLittleEndian ? BinaryPrimitives.ReadInt32LittleEndian(raw) : BinaryPrimitives.ReadInt32BigEndian(raw);
+                }
+
                 return o switch
                 {
                     null => getInt(self, offset),
@@ -574,6 +1052,18 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
+                if (o != null)
+                {
+                    Span<byte> raw = stackalloc byte[sizeof(int)];
+                    if (BitConverter.IsLittleEndian)
+                        BinaryPrimitives.WriteInt32LittleEndian(raw, x);
+                    else
+                        BinaryPrimitives.WriteInt32BigEndian(raw, x);
+
+                    if (TryWriteEncodedObjectPrimitive(o, offset, raw))
+                        return;
+                }
+
                 switch (o)
                 {
                     case null:
@@ -611,6 +1101,13 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
+                if (o != null)
+                {
+                    Span<byte> raw = stackalloc byte[sizeof(long)];
+                    if (TryReadEncodedObjectPrimitive(o, offset, raw))
+                        return BitConverter.IsLittleEndian ? BinaryPrimitives.ReadInt64LittleEndian(raw) : BinaryPrimitives.ReadInt64BigEndian(raw);
+                }
+
                 return o switch
                 {
                     null => getLong(self, offset),
@@ -640,6 +1137,18 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
+                if (o != null)
+                {
+                    Span<byte> raw = stackalloc byte[sizeof(long)];
+                    if (BitConverter.IsLittleEndian)
+                        BinaryPrimitives.WriteInt64LittleEndian(raw, x);
+                    else
+                        BinaryPrimitives.WriteInt64BigEndian(raw, x);
+
+                    if (TryWriteEncodedObjectPrimitive(o, offset, raw))
+                        return;
+                }
+
                 switch (o)
                 {
                     case null:
@@ -677,6 +1186,16 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
+                if (o != null)
+                {
+                    Span<byte> raw = stackalloc byte[sizeof(int)];
+                    if (TryReadEncodedObjectPrimitive(o, offset, raw))
+                    {
+                        var bits = BitConverter.IsLittleEndian ? BinaryPrimitives.ReadInt32LittleEndian(raw) : BinaryPrimitives.ReadInt32BigEndian(raw);
+                        return global::java.lang.Float.intBitsToFloat(bits);
+                    }
+                }
+
                 return o switch
                 {
                     null => getFloat(self, offset),
@@ -706,6 +1225,19 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
+                if (o != null)
+                {
+                    Span<byte> raw = stackalloc byte[sizeof(int)];
+                    var bits = global::java.lang.Float.floatToRawIntBits(x);
+                    if (BitConverter.IsLittleEndian)
+                        BinaryPrimitives.WriteInt32LittleEndian(raw, bits);
+                    else
+                        BinaryPrimitives.WriteInt32BigEndian(raw, bits);
+
+                    if (TryWriteEncodedObjectPrimitive(o, offset, raw))
+                        return;
+                }
+
                 switch (o)
                 {
                     case null:
@@ -743,6 +1275,16 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
+                if (o != null)
+                {
+                    Span<byte> raw = stackalloc byte[sizeof(long)];
+                    if (TryReadEncodedObjectPrimitive(o, offset, raw))
+                    {
+                        var bits = BitConverter.IsLittleEndian ? BinaryPrimitives.ReadInt64LittleEndian(raw) : BinaryPrimitives.ReadInt64BigEndian(raw);
+                        return global::java.lang.Double.longBitsToDouble(bits);
+                    }
+                }
+
                 return o switch
                 {
                     null => getDouble(self, offset),
@@ -772,6 +1314,19 @@ namespace IKVM.Java.Externs.sun.misc
 #else
             try
             {
+                if (o != null)
+                {
+                    Span<byte> raw = stackalloc byte[sizeof(long)];
+                    var bits = global::java.lang.Double.doubleToRawLongBits(x);
+                    if (BitConverter.IsLittleEndian)
+                        BinaryPrimitives.WriteInt64LittleEndian(raw, bits);
+                    else
+                        BinaryPrimitives.WriteInt64BigEndian(raw, bits);
+
+                    if (TryWriteEncodedObjectPrimitive(o, offset, raw))
+                        return;
+                }
+
                 switch (o)
                 {
                     case null:
@@ -1430,7 +1985,7 @@ namespace IKVM.Java.Externs.sun.misc
             if (w.IsStatic)
                 throw new global::java.lang.IllegalArgumentException();
 
-            return (long)w.Cookie;
+            return GetObjectFieldOffset(w);
         }
 
         /// <summary>
@@ -1694,7 +2249,7 @@ namespace IKVM.Java.Externs.sun.misc
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            var f = RuntimeJavaField.FromCookie((IntPtr)offset);
+            var f = GetFieldByOffset(o, offset);
             if (o is RuntimeJavaType w)
             {
                 if (w != f.DeclaringType)
@@ -1720,7 +2275,7 @@ namespace IKVM.Java.Externs.sun.misc
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            var f = RuntimeJavaField.FromCookie((IntPtr)offset);
+            var f = GetFieldByOffset(o, offset);
             if (o is RuntimeJavaType w)
             {
                 if (w != f.DeclaringType)
@@ -2457,7 +3012,7 @@ namespace IKVM.Java.Externs.sun.misc
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            return RuntimeJavaField.FromCookie((IntPtr)offset).UnsafeCompareAndSwap(o, expected, value);
+            return GetFieldByOffset(o, offset).UnsafeCompareAndSwap(o, expected, value);
 #endif
         }
 

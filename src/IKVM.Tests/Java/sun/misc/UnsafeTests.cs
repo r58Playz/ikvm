@@ -44,6 +44,156 @@ namespace IKVM.Tests.Java.sun.misc
 
         }
 
+        class ObjectFieldOffsetSpacingTestObject
+        {
+
+            public byte b;
+            public short s;
+            public int i;
+            public long l;
+            public object o1;
+            public object o2;
+
+        }
+
+        class Matrix4fLike
+        {
+
+            public float m00, m01, m02, m03;
+            public float m10, m11, m12, m13;
+            public float m20, m21, m22, m23;
+            public float m30, m31, m32, m33;
+
+        }
+
+        class Matrix4dLike
+        {
+
+            public double m00, m01, m02, m03;
+            public double m10, m11, m12, m13;
+            public double m20, m21, m22, m23;
+            public double m30, m31, m32, m33;
+
+        }
+
+        class Matrix4x3fLike
+        {
+
+            public float m00, m01, m02;
+            public float m10, m11, m12;
+            public float m20, m21, m22;
+            public float m30, m31, m32;
+
+        }
+
+        [TestMethod]
+        public void ObjectFieldOffsetsIncreaseByFieldTypeSize()
+        {
+            var t = (Class)typeof(ObjectFieldOffsetSpacingTestObject);
+            var b = u.objectFieldOffset(t.getField("b"));
+            var s = u.objectFieldOffset(t.getField("s"));
+            var i = u.objectFieldOffset(t.getField("i"));
+            var l = u.objectFieldOffset(t.getField("l"));
+            var o1 = u.objectFieldOffset(t.getField("o1"));
+            var o2 = u.objectFieldOffset(t.getField("o2"));
+
+            (s - b).Should().Be(sizeof(byte));
+            (i - s).Should().Be(sizeof(short));
+            (l - i).Should().Be(sizeof(int));
+            (o1 - l).Should().Be(sizeof(long));
+            (o2 - o1).Should().Be(IntPtr.Size);
+        }
+
+        [TestMethod]
+        public void Matrix4fLikeOffsetsFollowFloatStride()
+        {
+            var t = (Class)typeof(Matrix4fLike);
+            var b = u.objectFieldOffset(t.getField("m00"));
+            var names = new[]
+            {
+                "m00", "m01", "m02", "m03",
+                "m10", "m11", "m12", "m13",
+                "m20", "m21", "m22", "m23",
+                "m30", "m31", "m32", "m33",
+            };
+
+            for (var i = 0; i < names.Length; i++)
+                u.objectFieldOffset(t.getField(names[i])).Should().Be(b + (i << 2));
+        }
+
+        [TestMethod]
+        public void Matrix4dLikeOffsetsFollowDoubleStride()
+        {
+            var t = (Class)typeof(Matrix4dLike);
+            var b = u.objectFieldOffset(t.getField("m00"));
+            var names = new[]
+            {
+                "m00", "m01", "m02", "m03",
+                "m10", "m11", "m12", "m13",
+                "m20", "m21", "m22", "m23",
+                "m30", "m31", "m32", "m33",
+            };
+
+            for (var i = 0; i < names.Length; i++)
+                u.objectFieldOffset(t.getField(names[i])).Should().Be(b + (i << 3));
+        }
+
+        [TestMethod]
+        public void Matrix4x3fLikeOffsetsFollowFloatStride()
+        {
+            var t = (Class)typeof(Matrix4x3fLike);
+            var b = u.objectFieldOffset(t.getField("m00"));
+            var names = new[]
+            {
+                "m00", "m01", "m02",
+                "m10", "m11", "m12",
+                "m20", "m21", "m22",
+                "m30", "m31", "m32",
+            };
+
+            for (var i = 0; i < names.Length; i++)
+                u.objectFieldOffset(t.getField(names[i])).Should().Be(b + (i << 2));
+        }
+
+        [TestMethod]
+        public void Matrix4fLikeCanCopyWithLongChunks()
+        {
+            var src = new Matrix4fLike
+            {
+                m00 = 1f, m01 = 2f, m02 = 3f, m03 = 4f,
+                m10 = 5f, m11 = 6f, m12 = 7f, m13 = 8f,
+                m20 = 9f, m21 = 10f, m22 = 11f, m23 = 12f,
+                m30 = 13f, m31 = 14f, m32 = 15f, m33 = 16f,
+            };
+
+            var dst = new Matrix4fLike();
+            var t = (Class)typeof(Matrix4fLike);
+            var m00 = u.objectFieldOffset(t.getField("m00"));
+
+            for (var i = 0; i < 8; i++)
+            {
+                var v = u.getLong(src, m00 + (i << 3));
+                u.putLong(dst, m00 + (i << 3), v);
+            }
+
+            dst.m00.Should().Be(src.m00);
+            dst.m01.Should().Be(src.m01);
+            dst.m02.Should().Be(src.m02);
+            dst.m03.Should().Be(src.m03);
+            dst.m10.Should().Be(src.m10);
+            dst.m11.Should().Be(src.m11);
+            dst.m12.Should().Be(src.m12);
+            dst.m13.Should().Be(src.m13);
+            dst.m20.Should().Be(src.m20);
+            dst.m21.Should().Be(src.m21);
+            dst.m22.Should().Be(src.m22);
+            dst.m23.Should().Be(src.m23);
+            dst.m30.Should().Be(src.m30);
+            dst.m31.Should().Be(src.m31);
+            dst.m32.Should().Be(src.m32);
+            dst.m33.Should().Be(src.m33);
+        }
+
         [TestMethod]
         public void CanSetObjectField()
         {

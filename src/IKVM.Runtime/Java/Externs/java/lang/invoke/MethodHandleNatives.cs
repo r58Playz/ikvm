@@ -420,7 +420,7 @@ namespace IKVM.Java.Externs.java.lang.invoke
             if (fw.IsStatic)
                 throw new global::java.lang.IllegalArgumentException();
 
-            return (long)fw.Cookie;
+            return IKVM.Java.Externs.sun.misc.Unsafe.GetObjectFieldOffset(fw);
 #endif
         }
 
