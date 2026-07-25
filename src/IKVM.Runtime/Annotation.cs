@@ -100,7 +100,9 @@ namespace IKVM.Runtime
 
             if (ClassFile.IsValidFieldDescriptor(annotationClass))
             {
-                var tw = owner.ClassLoader.RetTypeWrapperFromSig(annotationClass.Replace('/', '.'), LoadMode.Link);
+                // under lazy linking we may not eagerly invoke a user class loader for the annotation type
+                var mode = JVM.LazyClassLoading && owner.ClassLoader.InvokesUserLoadClass ? LoadMode.LinkLazy : LoadMode.Link;
+                var tw = owner.ClassLoader.RetTypeWrapperFromSig(annotationClass.Replace('/', '.'), mode);
                 // Java allows inaccessible annotations to be used, so when the annotation isn't visible
                 // we fall back to using the DynamicAnnotationAttribute.
                 if (!tw.IsUnloadable && tw.IsAccessibleFrom(owner))

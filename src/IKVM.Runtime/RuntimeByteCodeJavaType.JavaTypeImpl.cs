@@ -1176,8 +1176,13 @@ namespace IKVM.Runtime
                 t_recursionCounts ??= new System.Collections.Generic.Dictionary<JavaTypeImpl, int>();
                 t_recursionCounts.TryGetValue(this, out int t_rc);
                 t_recursionCounts[this] = t_rc + 1;
-                var mode = (t_rc + 1) > 2 || (JVM.DisableEagerClassLoading && wrapper.Name != "sun.reflect.misc.Trampoline")
-                    ? LoadMode.ReturnUnloadable
+                // OpenJDK-aligned lazy linking applies only to classes defined by loaders that run
+                // user loadClass code (Fabric Knot, LaunchWrapper, app loader, ...); boot and
+                // assembly-backed classes keep the eager direct binding.
+                var lazy = (JVM.LazyClassLoading && wrapper.ClassLoader.InvokesUserLoadClass)
+                    || (JVM.DisableEagerClassLoading && wrapper.Name != "sun.reflect.misc.Trampoline");
+                var mode = (t_rc + 1) > 2 ? LoadMode.ReturnUnloadable
+                    : lazy ? LoadMode.LinkLazy
                     : LoadMode.Link;
                 try
                 {
