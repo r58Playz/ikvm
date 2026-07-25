@@ -309,12 +309,8 @@ namespace IKVM.Runtime
 
             lock (this)
             {
-                try
-                {
                     // critical code in the finally block to avoid Thread.Abort interrupting the thread
-                }
-                finally
-                {
+					// removed for mono aot
                     if (parameterTypeWrappers == null)
                     {
                         Debug.Assert(returnTypeWrapper == null || returnTypeWrapper == DeclaringType.Context.PrimitiveJavaTypeFactory.VOID);
@@ -338,7 +334,6 @@ namespace IKVM.Runtime
                             }
                         }
                     }
-                }
             }
         }
 

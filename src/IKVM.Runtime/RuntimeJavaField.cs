@@ -381,12 +381,8 @@ namespace IKVM.Runtime
 
             lock (this)
             {
-                try
-                {
                     // critical code in the finally block to avoid Thread.Abort interrupting the thread
-                }
-                finally
-                {
+					// removed for mono aot
                     if (fieldType == null)
                     {
                         fieldType = fld;
@@ -404,7 +400,6 @@ namespace IKVM.Runtime
                             throw;
                         }
                     }
-                }
             }
         }
 
