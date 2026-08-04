@@ -1558,12 +1558,27 @@ namespace IKVM.Runtime
                         typeBuilder.DefineMethodOverride(mb, (MethodInfo)ifmethod.GetMethod());
                         wrapper.SetHasIncompleteInterfaceImplementation();
                     }
-                    else if (mce.GetMethod() == null || mce.RealName != ifmethod.RealName || mce.IsInternal || !ReflectUtil.IsSameAssembly(mce.DeclaringType.TypeAsTBD, typeBuilder) || CheckRequireOverrideStub(mce, ifmethod))
+                    else if (mce.GetMethod() == null || mce.IsInternal || !ReflectUtil.IsSameAssembly(mce.DeclaringType.TypeAsTBD, typeBuilder) || CheckRequireOverrideStub(mce, ifmethod))
                     {
                         // NOTE methods inherited from base classes in a different assembly do *not* automatically implement
                         // interface methods, so we have to generate a stub here that doesn't do anything but call the base
                         // implementation
                         wrapper.GenerateOverrideStub(typeBuilder, ifmethod, null, mce);
+                    }
+                    else if (mce.RealName != ifmethod.RealName)
+                    {
+                        // The CLR name of our implementation differs from the CLR name of the interface method, so the CLR
+                        // won't match them up implicitly. This is very common: java.lang.Comparable is mapped onto
+                        // System.IComparable, so every class that implements Comparable has a "compareTo" implementing a
+                        // "CompareTo" declaration. When the body lives on this very type and the signatures already line up,
+                        // a MethodImpl points the interface slot straight at it, which avoids a forwarding stub on what is
+                        // often a hot path (Comparable.compareTo, CharSequence.charAt, ...).
+                        if (CanBeMethodImplBody(mce))
+                            typeBuilder.DefineMethodOverride((MethodInfo)mce.GetMethod(), (MethodInfo)ifmethod.GetMethod());
+                        else if (InheritsInterfaceMapping(mce, ifmethod, baseClassInterface))
+                            ; // the base class already mapped this interface method onto the very method we would forward to
+                        else
+                            wrapper.GenerateOverrideStub(typeBuilder, ifmethod, null, mce);
                     }
                     else if (baseClassInterface && mce.DeclaringType == wrapper)
                     {
@@ -1591,6 +1606,70 @@ namespace IKVM.Runtime
             MethodBuilder DefineInterfaceStubMethod(string name, RuntimeJavaMethod mw)
             {
                 return mw.GetDefineMethodHelper().DefineMethod(wrapper, typeBuilder, name, MethodAttributes.HideBySig | MethodAttributes.NewSlot | MethodAttributes.Private | MethodAttributes.Virtual | MethodAttributes.Final);
+            }
+
+            /// <summary>
+            /// Returns whether the interface mapping for <paramref name="ifmethod"/> is already established by the base
+            /// class that declares <paramref name="mce"/>, so that we inherit it and need to emit nothing at all.
+            /// </summary>
+            bool InheritsInterfaceMapping(RuntimeJavaMethod mce, RuntimeJavaMethod ifmethod, bool baseClassInterface)
+            {
+                // if we declare the implementation ourselves we have to map it ourselves
+                if (mce.DeclaringType == wrapper)
+                    return false;
+
+                // we only get here for a base class interface when the base implementation was incomplete (it is guarded by
+                // HasIncompleteInterfaceImplementation), so its mapping is a throwing stub we must not lean on
+                if (baseClassInterface)
+                    return false;
+
+                // the declaring type has to implement the interface itself, otherwise it never ran this method for
+                // ifmethod and so never mapped the slot (e.g. a base class that happens to have a matching close(),
+                // with the interface only being added by us)
+                if (mce.DeclaringType.IsSubTypeOf(ifmethod.DeclaringType) == false)
+                    return false;
+
+                // and it has to be a type we generated the same way, so that we know the mapping is there. Callers have
+                // already established that it lives in the assembly we are building, so this normally holds.
+                if (mce.DeclaringType is not RuntimeByteCodeJavaType)
+                    return false;
+
+                return true;
+            }
+
+            /// <summary>
+            /// Returns whether <paramref name="mw"/> can serve as the body of a MethodImpl on the type we are building,
+            /// instead of having to route the interface slot through a forwarding stub.
+            /// </summary>
+            bool CanBeMethodImplBody(RuntimeJavaMethod mw)
+            {
+                // a MethodImpl body has to be declared by the type that carries the MethodImpl
+                if (mw.DeclaringType != wrapper)
+                    return false;
+
+                // Only for types nothing can extend. A MethodImpl whose body is a public virtual method makes the
+                // interface slot *alias* that method's vtable slot. If a subclass then re-implements the same interface
+                // method (which it does whenever it re-declares the interface and does not declare the method itself, so
+                // it falls into the stub path), the CLR re-points that shared slot at the subclass's stub -- and the stub
+                // callvirt's the very method whose slot it just took over, so it recurses forever.
+                // java.nio.channels.FileChannel over AbstractInterruptibleChannel.close/IDisposable::Dispose is exactly
+                // this shape. A private newslot stub does not alias, which is why the stub is safe in general.
+                if (wrapper.IsFinal == false)
+                    return false;
+
+                // miranda methods and other synthesized members may not have a body we control
+                if (mw.IsMirandaMethod)
+                    return false;
+
+                if (mw.GetMethod() is not MethodInfo mb)
+                    return false;
+
+                // the body has to be a concrete virtual slot on this type; abstract bodies keep the stub, because the stub
+                // is what carries the AbstractMethodError for the non-abstract-class case
+                if (mb.IsStatic || mb.IsAbstract || mb.IsVirtual == false)
+                    return false;
+
+                return true;
             }
 
 #if FIRST_PASS == false && IMPORTER == false

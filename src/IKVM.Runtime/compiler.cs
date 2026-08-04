@@ -1070,7 +1070,7 @@ namespace IKVM.Runtime
                             RuntimeJavaField field = cpi.GetField();
                             if (ma.GetStackTypeWrapper(i, 0).IsUnloadable)
                             {
-                                if (field.IsProtected)
+                                if (field.IsProtected && RequiresProtectedReceiverDowncast(field.DeclaringType))
                                 {
                                     // downcast receiver to our type
                                     clazz.EmitCheckcast(ilGenerator);
@@ -1113,7 +1113,7 @@ namespace IKVM.Runtime
                             {
                                 CodeEmitterLocal temp = ilGenerator.UnsafeAllocTempLocal(tw.TypeAsLocalOrStackType);
                                 ilGenerator.Emit(OpCodes.Stloc, temp);
-                                if (field.IsProtected)
+                                if (field.IsProtected && RequiresProtectedReceiverDowncast(field.DeclaringType))
                                 {
                                     // downcast receiver to our type
                                     clazz.EmitCheckcast(ilGenerator);
@@ -3802,12 +3802,38 @@ namespace IKVM.Runtime
             }
             else if (invoke == NormalizedByteCode.__invokevirtual && method.IsProtected && type.IsUnloadable)
             {
-                return clazz;
+                // same rule as the protected __getfield/__putfield receiver downcast, and the same trap:
+                // narrowing to clazz is only legal when the member is actually inherited from another
+                // runtime package. Otherwise the receiver is some unrelated same-package type and casting
+                // it to clazz throws. Fall back to the declaring type, which the receiver must satisfy.
+                return RequiresProtectedReceiverDowncast(method.DeclaringType) ? clazz : method.DeclaringType;
             }
             else
             {
                 return type;
             }
+        }
+
+        /// <summary>
+        /// Answers whether a <c>protected</c> member access has to narrow its receiver to the class being
+        /// compiled, which is only true for ONE of the two kinds of protected access Java permits.
+        /// </summary>
+        /// <remarks>
+        /// JVMS 5.4.4: when a protected member is inherited from a superclass in a DIFFERENT runtime
+        /// package, it may only be accessed through a reference assignable to the accessing class -- that
+        /// is the rule the receiver downcast implements, and it matches the CLR's family-access rule.
+        /// Java ALSO permits a class to touch protected members of any class in its OWN runtime package,
+        /// where the declaring type need not be in the accessing class's hierarchy at all. Narrowing the
+        /// receiver to clazz there is simply wrong: it casts a perfectly valid object to an unrelated type.
+        ///
+        /// This only ever fires when the receiver's verifier type is unloadable, which is why it stayed
+        /// hidden -- statically compiled code resolves the receiver and takes the untouched path.
+        /// </remarks>
+        bool RequiresProtectedReceiverDowncast(RuntimeJavaType declaringType)
+        {
+            return !declaringType.IsUnloadable
+                && clazz.IsSubTypeOf(declaringType)
+                && !declaringType.IsPackageAccessibleFrom(clazz);
         }
 
         private LocalVar LoadLocal(int instructionIndex)

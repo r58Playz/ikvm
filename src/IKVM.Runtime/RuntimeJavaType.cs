@@ -28,6 +28,7 @@ using System.Diagnostics;
 using IKVM.Attributes;
 using IKVM.CoreLib.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Threading;
 
 
 #if IMPORTER || EXPORTER
@@ -66,6 +67,24 @@ namespace IKVM.Runtime
         RuntimeJavaField[] fields;
 #if !IMPORTER && !EXPORTER
         java.lang.Class classObject;
+
+        /// <summary>
+        /// Marks a type whose <see cref="IsInstance"/> cannot be answered by a direct CLR type check.
+        /// </summary>
+        static readonly object SlowInstanceCheck = new object();
+
+        /// <summary>
+        /// The runtime's own <see cref="Type"/> implementation; anything else (a <see cref="System.Reflection.Emit.TypeBuilder"/>
+        /// and friends) cannot answer <see cref="Type.IsInstanceOfType"/>.
+        /// </summary>
+        static readonly Type RuntimeTypeType = typeof(object).GetType();
+
+        /// <summary>
+        /// Memoized dispatch for <see cref="IsInstance"/>: null until classified, then either the <see cref="Type"/> to
+        /// test against directly or <see cref="SlowInstanceCheck"/>. A single reference field keeps publication atomic,
+        /// so no partially written state is observable from another thread.
+        /// </summary>
+        object instanceCheckCache;
 #endif
 
         /// <summary>
@@ -1191,7 +1210,9 @@ namespace IKVM.Runtime
             {
                 return false;
             }
-            if (this == context.VerifierJavaTypeFactory.Null)
+            // only a verifier type can be the null type, and testing that is a plain field compare, so this avoids
+            // touching the factory at all for the ordinary types that dominate this path
+            if (IsVerifierType && this == context.VerifierJavaTypeFactory.Null)
             {
                 return true;
             }
@@ -1226,13 +1247,47 @@ namespace IKVM.Runtime
 #if !IMPORTER && !EXPORTER
         internal bool IsInstance(object obj)
         {
-            if (obj != null)
+            if (obj == null)
+                return false;
+
+            // For every type EmitInstanceOf compiles down to a bare 'isinst TypeAsTBD', the CLR check is by
+            // construction equivalent to the Java one, so we can skip resolving the object's RuntimeJavaType and
+            // walking the type graph. This is the hot path behind Class.isInstance, which java.lang.invoke calls on
+            // every interface MethodHandle invocation.
+            var cache = Volatile.Read(ref instanceCheckCache) ?? ClassifyInstanceCheck();
+            if (cache is Type type)
+                return type.IsInstanceOfType(obj);
+
+            return IKVM.Java.Externs.ikvm.runtime.Util.GetTypeWrapperFromObject(Context, obj).IsAssignableTo(this);
+        }
+
+        /// <summary>
+        /// Determines whether <see cref="IsInstance"/> can be answered by a direct CLR type check, memoizing the answer
+        /// once it is known to be stable.
+        /// </summary>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        object ClassifyInstanceCheck()
+        {
+            // ghost, ghost array, remapped and unloadable types all get custom handling in EmitInstanceOf, so the
+            // plain CLR check would not agree with Java semantics for them
+            if (!IsUnloadable && !IsVerifierType && !IsPrimitive && !IsGhost && !IsGhostArray && !IsRemapped)
             {
-                RuntimeJavaType thisWrapper = this;
-                RuntimeJavaType objWrapper = IKVM.Java.Externs.ikvm.runtime.Util.GetTypeWrapperFromObject(Context, obj);
-                return objWrapper.IsAssignableTo(thisWrapper);
+                var type = TypeAsTBD;
+
+                // a dynamic type that has not been finished yet still reports a TypeBuilder here, which cannot answer
+                // IsInstanceOfType; take the slow path without memoizing so the type upgrades once it is finished
+                if (type != null && type.GetType() == RuntimeTypeType)
+                {
+                    Volatile.Write(ref instanceCheckCache, type);
+                    return type;
+                }
+
+                return SlowInstanceCheck;
             }
-            return false;
+
+            Volatile.Write(ref instanceCheckCache, SlowInstanceCheck);
+            return SlowInstanceCheck;
         }
 #endif
 

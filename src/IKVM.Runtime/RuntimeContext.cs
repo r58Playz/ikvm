@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
+using System.Threading;
 
 using IKVM.CoreLib.Diagnostics;
 using IKVM.CoreLib.Symbols;
@@ -121,13 +123,40 @@ namespace IKVM.Runtime
         /// <param name="value"></param>
         /// <param name="create"></param>
         /// <returns></returns>
-        T GetOrCreateSingleton<T>(ref T value, Func<T> create)
+        /// <remarks>
+        /// <paramref name="create"/> takes the context as an argument rather than closing over it, so callers can pass
+        /// a non-capturing (static) lambda. Roslyn caches those in a static field, which makes the initialized path
+        /// allocation free. A closure would otherwise be allocated on every read of every one of these properties,
+        /// including the overwhelmingly common case where the singleton already exists and <paramref name="create"/>
+        /// is never invoked. These properties sit under hot paths such as <see cref="RuntimeJavaType.IsAssignableTo"/>.
+        /// </remarks>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        T GetOrCreateSingleton<T>(ref T value, Func<RuntimeContext, T> create)
+            where T : class
         {
-            if (value == null)
-                lock (this)
-                    value ??= create();
+            return Volatile.Read(ref value) ?? CreateSingleton(ref value, create);
+        }
 
-            return value;
+        /// <summary>
+        /// Cold path of <see cref="GetOrCreateSingleton{T}(ref T, Func{RuntimeContext, T})"/>, kept out of line so the
+        /// initialized path stays small enough to inline.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="value"></param>
+        /// <param name="create"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        T CreateSingleton<T>(ref T value, Func<RuntimeContext, T> create)
+            where T : class
+        {
+            lock (this)
+            {
+                var v = Volatile.Read(ref value);
+                if (v is null)
+                    Volatile.Write(ref value, v = create(this));
+
+                return v;
+            }
         }
 
         /// <summary>
@@ -156,34 +185,34 @@ namespace IKVM.Runtime
         /// <summary>
         /// Gets the <see cref="Types"/> associated with this instance of the runtime.
         /// </summary>
-        public Types Types => GetOrCreateSingleton(ref types, () => new Types(this));
+        public Types Types => GetOrCreateSingleton(ref types, static self => new Types(self));
 
         /// <summary>
         /// Gets the <see cref="CoreClasses"/> associated with this instance of the runtime.
         /// </summary>
-        public CoreClasses JavaBase => GetOrCreateSingleton(ref javaBase, () => new CoreClasses(this));
+        public CoreClasses JavaBase => GetOrCreateSingleton(ref javaBase, static self => new CoreClasses(self));
 
         /// <summary>
         /// Gets the <see cref="AttributeHelper"/> associated with this instance of the runtime.
         /// </summary>
-        public AttributeHelper AttributeHelper => GetOrCreateSingleton(ref attributeHelper, () => new AttributeHelper(this));
+        public AttributeHelper AttributeHelper => GetOrCreateSingleton(ref attributeHelper, static self => new AttributeHelper(self));
 
         /// <summary>
         /// Gets the <see cref="RuntimePrimitiveJavaTypeFactory"/> associated with this instance of the runtime.
         /// </summary>
-        public RuntimePrimitiveJavaTypeFactory PrimitiveJavaTypeFactory => GetOrCreateSingleton(ref primitiveJavaTypeFactory, () => new RuntimePrimitiveJavaTypeFactory(this));
+        public RuntimePrimitiveJavaTypeFactory PrimitiveJavaTypeFactory => GetOrCreateSingleton(ref primitiveJavaTypeFactory, static self => new RuntimePrimitiveJavaTypeFactory(self));
 
         /// <summary>
         /// Gets the <see cref="RuntimeVerifierJavaTypeFactory"/> associated with this instance of the runtime.
         /// </summary>
-        public RuntimeVerifierJavaTypeFactory VerifierJavaTypeFactory => GetOrCreateSingleton(ref verifierJavaTypeFactory, () => new RuntimeVerifierJavaTypeFactory(this));
+        public RuntimeVerifierJavaTypeFactory VerifierJavaTypeFactory => GetOrCreateSingleton(ref verifierJavaTypeFactory, static self => new RuntimeVerifierJavaTypeFactory(self));
 
 #if IMPORTER == false || EXPORTER == false
 
         /// <summary>
         /// Gets the <see cref="StubGenerator"/> associated with this instance of the runtime.
         /// </summary>
-        public StubGenerator StubGenerator => GetOrCreateSingleton(ref stubGenerator, () => new StubGenerator(this));
+        public StubGenerator StubGenerator => GetOrCreateSingleton(ref stubGenerator, static self => new StubGenerator(self));
 
 #endif
 
@@ -192,48 +221,48 @@ namespace IKVM.Runtime
         /// <summary>
         /// Gets the <see cref="CodeEmitterFactory"/> associated with this instance of the runtime.
         /// </summary>
-        public CodeEmitterFactory CodeEmitterFactory => GetOrCreateSingleton(ref codeEmitterFactory, () => new CodeEmitterFactory(this));
+        public CodeEmitterFactory CodeEmitterFactory => GetOrCreateSingleton(ref codeEmitterFactory, static self => new CodeEmitterFactory(self));
 
         /// <summary>
         /// Gets the <see cref="DynamicClassLoaderFactory"/> associated with this instance of the runtime.
         /// </summary>
-        public DynamicClassLoaderFactory DynamicClassLoaderFactory => GetOrCreateSingleton(ref dynamicClassLoaderFactory, () => new DynamicClassLoaderFactory(this));
+        public DynamicClassLoaderFactory DynamicClassLoaderFactory => GetOrCreateSingleton(ref dynamicClassLoaderFactory, static self => new DynamicClassLoaderFactory(self));
 
         /// <summary>
         /// Gets the <see cref="ByteCodeHelperMethods"/> associated with this instance of the runtime.
         /// </summary>
-        public ByteCodeHelperMethods ByteCodeHelperMethods => GetOrCreateSingleton(ref byteCodeHelperMethods, () => new ByteCodeHelperMethods(this));
+        public ByteCodeHelperMethods ByteCodeHelperMethods => GetOrCreateSingleton(ref byteCodeHelperMethods, static self => new ByteCodeHelperMethods(self));
 
         /// <summary>
         /// Gets the <see cref="Serialization"/> associated with this instance of the runtime.
         /// </summary>
-        public Serialization Serialization => GetOrCreateSingleton(ref serialization, () => new Serialization(this));
+        public Serialization Serialization => GetOrCreateSingleton(ref serialization, static self => new Serialization(self));
 
         /// <summary>
         /// Gets the <see cref="CompilerFactory"/> associated with this instance of the runtime.
         /// </summary>
         /// 
-        public CompilerFactory CompilerFactory => GetOrCreateSingleton(ref compilerFactory, () => new CompilerFactory(this, bootstrap));
+        public CompilerFactory CompilerFactory => GetOrCreateSingleton(ref compilerFactory, static self => new CompilerFactory(self, self.bootstrap));
 
         /// <summary>
         /// Gets the <see cref="InterlockedMethods"/> associated with this instance of the runtime.
         /// </summary>
-        public InterlockedMethods InterlockedMethods => GetOrCreateSingleton(ref interlockedMethods, () => new InterlockedMethods(this));
+        public InterlockedMethods InterlockedMethods => GetOrCreateSingleton(ref interlockedMethods, static self => new InterlockedMethods(self));
 
         /// <summary>
         /// Gets the <see cref="MethodAnalyzerFactory"/> associated with this instance of the runtime.
         /// </summary>
-        public MethodAnalyzerFactory MethodAnalyzerFactory => GetOrCreateSingleton(ref methodAnalyzerFactory, () => new MethodAnalyzerFactory(this));
+        public MethodAnalyzerFactory MethodAnalyzerFactory => GetOrCreateSingleton(ref methodAnalyzerFactory, static self => new MethodAnalyzerFactory(self));
 
         /// <summary>
         /// Gets the <see cref="MethodHandleUtil"/> associated with this instance of the runtime.
         /// </summary>
-        public MethodHandleUtil MethodHandleUtil => GetOrCreateSingleton(ref methodHandleUtil, () => new MethodHandleUtil(this));
+        public MethodHandleUtil MethodHandleUtil => GetOrCreateSingleton(ref methodHandleUtil, static self => new MethodHandleUtil(self));
 
         /// <summary>
         /// Gets the <see cref="Boxer"/> associated with this instance of the runtime.
         /// </summary>
-        public Boxer Boxer => GetOrCreateSingleton(ref boxer, () => new Boxer(this));
+        public Boxer Boxer => GetOrCreateSingleton(ref boxer, static self => new Boxer(self));
 
 #endif
 
@@ -242,29 +271,29 @@ namespace IKVM.Runtime
         /// <summary>
         /// Gets the <see cref="ExceptionHelper"/> associated with this instance of the runtime.
         /// </summary>
-        public ExceptionHelper ExceptionHelper => GetOrCreateSingleton(ref exceptionHelper, () => new ExceptionHelper(this));
+        public ExceptionHelper ExceptionHelper => GetOrCreateSingleton(ref exceptionHelper, static self => new ExceptionHelper(self));
 
 #endif
 
         /// <summary>
         /// Gets the <see cref="RuntimeClassLoaderFactory"/> associated with this instance of the runtime.
         /// </summary>
-        public RuntimeClassLoaderFactory ClassLoaderFactory => GetOrCreateSingleton(ref classLoaderFactory, () => new RuntimeClassLoaderFactory(this));
+        public RuntimeClassLoaderFactory ClassLoaderFactory => GetOrCreateSingleton(ref classLoaderFactory, static self => new RuntimeClassLoaderFactory(self));
 
         /// <summary>
         /// Gets the <see cref="RuntimeAssemblyClassLoaderFactory"/> associated with this instance of the runtime.
         /// </summary>
-        public RuntimeAssemblyClassLoaderFactory AssemblyClassLoaderFactory => GetOrCreateSingleton(ref assemblyClassLoaderFactory, () => new RuntimeAssemblyClassLoaderFactory(this));
+        public RuntimeAssemblyClassLoaderFactory AssemblyClassLoaderFactory => GetOrCreateSingleton(ref assemblyClassLoaderFactory, static self => new RuntimeAssemblyClassLoaderFactory(self));
 
         /// <summary>
         /// Gets the <see cref="RuntimeManagedJavaTypeFactory"/> associated with this instance of the runtime.
         /// </summary>
-        public RuntimeManagedJavaTypeFactory ManagedJavaTypeFactory => GetOrCreateSingleton(ref managedJavaTypeFactory, () => new RuntimeManagedJavaTypeFactory(this));
+        public RuntimeManagedJavaTypeFactory ManagedJavaTypeFactory => GetOrCreateSingleton(ref managedJavaTypeFactory, static self => new RuntimeManagedJavaTypeFactory(self));
 
         /// <summary>
         /// Gets the <see cref="RuntimeManagedJavaTypeFactory"/> associated with this instance of the runtime.
         /// </summary>
-        public RuntimeManagedByteCodeJavaTypeFactory ManagedByteCodeJavaTypeFactory => GetOrCreateSingleton(ref managedByteCodeJavaTypeFactory, () => new RuntimeManagedByteCodeJavaTypeFactory(this));
+        public RuntimeManagedByteCodeJavaTypeFactory ManagedByteCodeJavaTypeFactory => GetOrCreateSingleton(ref managedByteCodeJavaTypeFactory, static self => new RuntimeManagedByteCodeJavaTypeFactory(self));
 
 #if IMPORTER || EXPORTER
 
@@ -276,7 +305,7 @@ namespace IKVM.Runtime
         /// <summary>
         /// Gets the <see cref="FakeTypes"/> associated with this instance of the runtime.
         /// </summary>
-        public FakeTypes FakeTypes => GetOrCreateSingleton(ref fakeTypes, () => new FakeTypes(this));
+        public FakeTypes FakeTypes => GetOrCreateSingleton(ref fakeTypes, static self => new FakeTypes(self));
 
 #endif
 
@@ -285,7 +314,7 @@ namespace IKVM.Runtime
         /// <summary>
         /// Gets the <see cref="ProxyGenerator"/> associated with this instance of the runtime.
         /// </summary>
-        public ProxyGenerator ProxyGenerator => GetOrCreateSingleton(ref proxyGenerator, () => new ProxyGenerator(this));
+        public ProxyGenerator ProxyGenerator => GetOrCreateSingleton(ref proxyGenerator, static self => new ProxyGenerator(self));
 
 #endif
 
