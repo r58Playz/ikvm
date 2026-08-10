@@ -74,6 +74,60 @@ namespace IKVM.Runtime
         static readonly object SlowInstanceCheck = new object();
 
         /// <summary>
+        /// Answers 'is this object an instance of some fixed type' without going through reflection.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="Type.IsInstanceOfType"/> is a reflection entry point, and on Mono it bottoms out in an internal
+        /// call: a managed call into corlib, a raw-to-handle icall wrapper that pushes a handle frame, and only then the
+        /// actual check. That is a lot of machinery for what the CLR expresses as a single isinst, and it is on the hot
+        /// path behind Class.isInstance, which java.lang.invoke reaches on every interface MethodHandle invocation and
+        /// every reference conversion an asType adapter performs.
+        ///
+        /// A closed generic subclass turns the check back into a real isinst against its type argument. Dispatch to it
+        /// is an ordinary virtual call through this non-generic base, so the caller needs to know nothing about the type
+        /// being tested, and the body is shared reference-generic code the AOT compiler has already produced - no
+        /// runtime code generation, and nothing that falls back to the interpreter.
+        /// </remarks>
+        internal abstract class InstanceCheck
+        {
+
+            /// <summary>
+            /// Creates the check for the given type, which must be a reference type the runtime can instantiate a
+            /// generic over.
+            /// </summary>
+            /// <param name="type"></param>
+            /// <returns></returns>
+            internal static InstanceCheck For(Type type)
+            {
+                return (InstanceCheck)Activator.CreateInstance(typeof(InstanceCheckOf<>).MakeGenericType(type));
+            }
+
+            /// <summary>
+            /// The type being tested against. Retained because callers cache the check in place of the type and still
+            /// need to be able to name it.
+            /// </summary>
+            internal abstract Type Type { get; }
+
+            /// <summary>
+            /// Whether <paramref name="obj"/> is an instance of <see cref="Type"/>.
+            /// </summary>
+            /// <param name="obj"></param>
+            /// <returns></returns>
+            internal abstract bool IsInstanceOf(object obj);
+
+        }
+
+        sealed class InstanceCheckOf<T> : InstanceCheck
+            where T : class
+        {
+
+            internal override Type Type => typeof(T);
+
+            internal override bool IsInstanceOf(object obj) => obj is T;
+
+        }
+
+        /// <summary>
         /// The runtime's own <see cref="Type"/> implementation; anything else (a <see cref="System.Reflection.Emit.TypeBuilder"/>
         /// and friends) cannot answer <see cref="Type.IsInstanceOfType"/>.
         /// </summary>
@@ -85,6 +139,13 @@ namespace IKVM.Runtime
         /// so no partially written state is observable from another thread.
         /// </summary>
         object instanceCheckCache;
+
+        /// <summary>
+        /// Memoized dispatch for <see cref="DynamicIsInstance"/>, in the same encoding as <see cref="instanceCheckCache"/>.
+        /// Kept separate because a dynamic instanceof additionally lets the .NET-isms of a remapped type show through,
+        /// exactly as the bytecode would, so it can answer with a direct type test where <see cref="IsInstance"/> cannot.
+        /// </summary>
+        object dynamicInstanceCheckCache;
 #endif
 
         /// <summary>
@@ -334,69 +395,115 @@ namespace IKVM.Runtime
         private static readonly bool s_fromClassTraceEnabled =
             !string.IsNullOrEmpty(System.Environment.GetEnvironmentVariable("IKVM_FROMCLASS_TRACE"));
 
+        /// <summary>
+        /// Resolves the <see cref="RuntimeJavaType"/> a <see cref="java.lang.Class"/> stands for.
+        /// </summary>
+        /// <remarks>
+        /// This is one of the most called methods in the runtime, so the already-resolved case is kept down to a field
+        /// load and a null test that the AOT compiler can inline into the caller. Everything else lives out of line:
+        /// Mono refuses to inline any method containing an exception clause at all, so the try/catch the tracing needs
+        /// would otherwise force every one of the hundreds of call sites through a real call.
+        /// </remarks>
+        /// <param name="clazz"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static RuntimeJavaType FromClass(java.lang.Class clazz)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
             if (s_fromClassTraceEnabled)
+                return FromClassTraced(clazz);
+
+            // MONOBUG redundant cast to workaround mcs bug
+            var tw = (RuntimeJavaType)(object)clazz.typeWrapper;
+            return tw ?? FromClassResolve(clazz);
+#endif
+        }
+
+#if !FIRST_PASS
+
+        /// <summary>
+        /// <see cref="FromClass"/> with the entry tracing IKVM_FROMCLASS_TRACE asks for. Split out so the untraced path
+        /// carries neither the exception clause nor the code size.
+        /// </summary>
+        /// <param name="clazz"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static RuntimeJavaType FromClassTraced(java.lang.Class clazz)
+        {
+            try
             {
-                try
+                if (clazz == null)
                 {
-                    if (clazz == null)
-                    {
-                        System.IO.File.WriteAllText("/dev/stderr", "[FromClass] clazz=<null>\n");
-                    }
-                    else
-                    {
-                        // Touch the .NET-level identity first, before any IKVM-level field access,
-                        // so we can tell whether the OOB happens reading clazz.typeWrapper or
-                        // somewhere later. Calling RuntimeHelpers.GetHashCode avoids virtual
-                        // dispatch on a possibly-corrupted vtable.
-                        int idHash = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(clazz);
-                        System.IO.File.WriteAllText("/dev/stderr",
-                            $"[FromClass] enter clazz_hash=0x{idHash:x8}\n");
-                    }
+                    System.IO.File.WriteAllText("/dev/stderr", "[FromClass] clazz=<null>\n");
                 }
-                catch
+                else
                 {
+                    // Touch the .NET-level identity first, before any IKVM-level field access,
+                    // so we can tell whether the OOB happens reading clazz.typeWrapper or
+                    // somewhere later. Calling RuntimeHelpers.GetHashCode avoids virtual
+                    // dispatch on a possibly-corrupted vtable.
+                    int idHash = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(clazz);
+                    System.IO.File.WriteAllText("/dev/stderr",
+                        $"[FromClass] enter clazz_hash=0x{idHash:x8}\n");
                 }
+            }
+            catch
+            {
             }
 
             // MONOBUG redundant cast to workaround mcs bug
             var tw = (RuntimeJavaType)(object)clazz.typeWrapper;
-            if (tw == null)
+            return tw ?? FromClassResolve(clazz);
+        }
+
+        /// <summary>
+        /// Resolves and associates the <see cref="RuntimeJavaType"/> for a <see cref="java.lang.Class"/> that does not
+        /// have one yet. Runs at most once per class, so it stays out of line.
+        /// </summary>
+        /// <param name="clazz"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static RuntimeJavaType FromClassResolve(java.lang.Class clazz)
+        {
+            var type = clazz.type;
+            if (type == null)
             {
-                var type = clazz.type;
-                if (type == null)
-                {
-                    ResolvePrimitiveTypeWrapperClasses(JVM.Context);
-                    return FromClass(clazz);
-                }
-
-                if (s_fromClassTraceEnabled)
-                {
-                    try
-                    {
-                        System.IO.File.WriteAllText("/dev/stderr",
-                            $"[FromClass] resolving type={type.FullName ?? "<null>"}\n");
-                    }
-                    catch
-                    {
-                    }
-                }
-
-                if (type == typeof(void) || type.IsPrimitive || JVM.Context.ClassLoaderFactory.IsRemappedType(type))
-                    tw = JVM.Context.ManagedJavaTypeFactory.GetJavaTypeFromManagedType(type);
-                else
-                    tw = JVM.Context.ClassLoaderFactory.GetJavaTypeFromType(type);
-
-                clazz.typeWrapper = tw;
+                ResolvePrimitiveTypeWrapperClasses(JVM.Context);
+                return FromClass(clazz);
             }
 
+            if (s_fromClassTraceEnabled)
+                TraceFromClassResolve(type);
+
+            RuntimeJavaType tw;
+            if (type == typeof(void) || type.IsPrimitive || JVM.Context.ClassLoaderFactory.IsRemappedType(type))
+                tw = JVM.Context.ManagedJavaTypeFactory.GetJavaTypeFromManagedType(type);
+            else
+                tw = JVM.Context.ClassLoaderFactory.GetJavaTypeFromType(type);
+
+            clazz.typeWrapper = tw;
             return tw;
-#endif
         }
+
+        /// <summary>
+        /// Reports the type <see cref="FromClassResolve"/> is about to resolve.
+        /// </summary>
+        /// <param name="type"></param>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void TraceFromClassResolve(Type type)
+        {
+            try
+            {
+                System.IO.File.WriteAllText("/dev/stderr", $"[FromClass] resolving type={type.FullName ?? "<null>"}\n");
+            }
+            catch
+            {
+            }
+        }
+
+#endif
 
 #endif // !IMPORTER && !EXPORTER
 
@@ -1255,8 +1362,8 @@ namespace IKVM.Runtime
             // walking the type graph. This is the hot path behind Class.isInstance, which java.lang.invoke calls on
             // every interface MethodHandle invocation.
             var cache = Volatile.Read(ref instanceCheckCache) ?? ClassifyInstanceCheck();
-            if (cache is Type type)
-                return type.IsInstanceOfType(obj);
+            if (cache is InstanceCheck check)
+                return check.IsInstanceOf(obj);
 
             return IKVM.Java.Externs.ikvm.runtime.Util.GetTypeWrapperFromObject(Context, obj).IsAssignableTo(this);
         }
@@ -1276,17 +1383,109 @@ namespace IKVM.Runtime
                 var type = TypeAsTBD;
 
                 // a dynamic type that has not been finished yet still reports a TypeBuilder here, which cannot answer
-                // IsInstanceOfType; take the slow path without memoizing so the type upgrades once it is finished
+                // the check; take the slow path without memoizing so the type upgrades once it is finished
                 if (type != null && type.GetType() == RuntimeTypeType)
                 {
-                    Volatile.Write(ref instanceCheckCache, type);
-                    return type;
+                    var check = MakeInstanceCheck(type);
+                    if (check != null)
+                    {
+                        Volatile.Write(ref instanceCheckCache, check);
+                        return check;
+                    }
                 }
 
                 return SlowInstanceCheck;
             }
 
             Volatile.Write(ref instanceCheckCache, SlowInstanceCheck);
+            return SlowInstanceCheck;
+        }
+
+        /// <summary>
+        /// Builds the <see cref="InstanceCheck"/> for a type, or null when the runtime cannot make one and the caller
+        /// has to fall back to walking the Java type graph.
+        /// </summary>
+        /// <param name="type"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static InstanceCheck MakeInstanceCheck(Type type)
+        {
+            // the generic the check closes over is constrained to a reference type
+            if (type.IsValueType || type.IsPointer || type.IsByRef || type.ContainsGenericParameters)
+                return null;
+
+            try
+            {
+                return InstanceCheck.For(type);
+            }
+            catch
+            {
+                // the check is only ever an optimization, so any type the runtime declines to instantiate the generic
+                // over just keeps the slow path
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Answers an instanceof against a type that was unloadable when the referencing method was compiled. Mirrors
+        /// what the compiler would have emitted inline had the type been loadable, including the .NET-isms a remapped
+        /// type lets show through.
+        /// </summary>
+        /// <param name="obj"></param>
+        /// <returns></returns>
+        internal bool DynamicIsInstance(object obj)
+        {
+            var cache = Volatile.Read(ref dynamicInstanceCheckCache) ?? ClassifyDynamicInstanceCheck();
+            if (cache is InstanceCheck check)
+                return check.IsInstanceOf(obj);
+
+            return IsInstance(obj);
+        }
+
+        /// <summary>
+        /// The single <see cref="Type"/> a dynamic instanceof or cast against this type can be answered by, or null when
+        /// the check needs the full Java type graph walk. Never changes once non-null, so a call site may cache it and
+        /// test against it directly from then on.
+        /// </summary>
+        internal Type DynamicInstanceCheckType => ((Volatile.Read(ref dynamicInstanceCheckCache) ?? ClassifyDynamicInstanceCheck()) as InstanceCheck)?.Type;
+
+        /// <summary>
+        /// Classifies the dynamic instanceof check for this type, memoizing the answer once it is known to be stable.
+        /// </summary>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        object ClassifyDynamicInstanceCheck()
+        {
+            // a dynamic instanceof has to mimick the bytecode behaviour, which allows these .NET-isms of a remapped type
+            // to show through; each is exactly what Type.IsInstanceOfType answers for the type in question, so they fold
+            // into the same cached-type dispatch as the ordinary case. None of these is a type we can ever emit, so a
+            // TypeBuilder never matches and the answer is stable as soon as one does.
+            var baseType = TypeAsBaseType;
+            if (baseType == typeof(Array) || baseType == typeof(string) || baseType == typeof(IComparable))
+            {
+                var baseCheck = MakeInstanceCheck(baseType);
+                if (baseCheck != null)
+                {
+                    Volatile.Write(ref dynamicInstanceCheckCache, baseCheck);
+                    return baseCheck;
+                }
+
+                return SlowInstanceCheck;
+            }
+
+            // no .NET-ism applies, so the answer is whatever the ordinary instance check resolves to
+            var inner = Volatile.Read(ref instanceCheckCache) ?? ClassifyInstanceCheck();
+            if (inner is InstanceCheck check)
+            {
+                Volatile.Write(ref dynamicInstanceCheckCache, check);
+                return check;
+            }
+
+            // ClassifyInstanceCheck memoizes a slow answer that is stable and leaves the field null for a type that has
+            // not been finished yet; only memoize the former, so an unfinished type still upgrades once it finishes
+            if (Volatile.Read(ref instanceCheckCache) != null)
+                Volatile.Write(ref dynamicInstanceCheckCache, SlowInstanceCheck);
+
             return SlowInstanceCheck;
         }
 #endif

@@ -50,6 +50,7 @@ namespace IKVM.Runtime
         MethodInfo suppressFillInStackTraceMethod;
         MethodInfo getTypeFromHandleMethod;
         MethodInfo getTypeMethod;
+        MethodInfo isInstanceOfTypeMethod;
         MethodInfo keepAliveMethod;
         RuntimeJavaMethod getClassFromTypeHandle;
         RuntimeJavaMethod getClassFromTypeHandle2;
@@ -83,6 +84,8 @@ namespace IKVM.Runtime
         public MethodInfo GetTypeFromHandleMethod => getTypeFromHandleMethod ??= context.Types.Type.GetMethod("GetTypeFromHandle", BindingFlags.Static | BindingFlags.Public, null, [context.Types.RuntimeTypeHandle], null);
 
         public MethodInfo GetTypeMethod => getTypeMethod ??= context.Types.Object.GetMethod("GetType", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+
+        public MethodInfo IsInstanceOfTypeMethod => isInstanceOfTypeMethod ??= context.Types.Type.GetMethod("IsInstanceOfType", BindingFlags.Public | BindingFlags.Instance, null, [context.Types.Object], null);
 
         public MethodInfo KeepAliveMethod => keepAliveMethod ??= context.Resolver.ResolveCoreType(typeof(GC).FullName).AsReflection().GetMethod("KeepAlive", BindingFlags.Static | BindingFlags.Public, null, [context.Types.Object], null);
 

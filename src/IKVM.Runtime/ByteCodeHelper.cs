@@ -207,6 +207,29 @@ namespace IKVM.Runtime
 #endif
         }
 
+        /// <summary>
+        /// Performs the checks a 'new' of a type that was unloadable when the enclosing method was compiled has to make,
+        /// and records on the call site that they have been made.
+        /// </summary>
+        /// <remarks>
+        /// Both answers are stable once reached: a type does not stop being abstract, and a class initializer runs once.
+        /// Under lazy class loading a great many allocation sites resolve dynamically, and without this each of them
+        /// would re-enter <see cref="RuntimeHelpers.RunClassConstructor"/> on every allocation. The flag is only set
+        /// after the checks pass, so a class initializer that failed is retried and rethrows, as the spec requires.
+        /// </remarks>
+        /// <param name="clazz"></param>
+        /// <param name="cache"></param>
+        [DebuggerStepThrough]
+        public static void DynamicNewCheckOnlyResolve(global::java.lang.Class clazz, ref bool cache)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            DynamicNewCheckOnly(clazz);
+            Volatile.Write(ref cache, true);
+#endif
+        }
+
         static RuntimeJavaType LoadTypeWrapper(string clazz, ikvm.@internal.CallerID callerId)
         {
 #if FIRST_PASS
@@ -257,7 +280,7 @@ namespace IKVM.Runtime
             Debug.Assert(obj != null);
             Profiler.Count("DynamicCast");
             if (!DynamicInstanceOf(obj, clazz))
-                throw new global::java.lang.ClassCastException(IKVM.Java.Externs.ikvm.runtime.Util.GetTypeWrapperFromObject(JVM.Context, obj).Name + " cannot be cast to " + clazz.getName());
+                return DynamicCastFailed(obj, clazz);
 
             return obj;
 #endif
@@ -272,18 +295,80 @@ namespace IKVM.Runtime
             Debug.Assert(obj != null);
             Profiler.Count("DynamicInstanceOf");
 
+            return RuntimeJavaType.FromClass(clazz).DynamicIsInstance(obj);
+#endif
+        }
+
+        /// <summary>
+        /// Slow path behind a dynamic instanceof call site. Resolves the check and, when it reduces to a single CLR type
+        /// test, publishes that type into the call site's cache so later executions test against it directly and never
+        /// reach this method again.
+        /// </summary>
+        /// <param name="obj"></param>
+        /// <param name="clazz"></param>
+        /// <param name="cache"></param>
+        /// <returns></returns>
+        [DebuggerStepThrough]
+        public static bool DynamicInstanceOfResolve(object obj, global::java.lang.Class clazz, ref Type cache)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            Debug.Assert(obj != null);
+            Profiler.Count("DynamicInstanceOfResolve");
+
             var tw = RuntimeJavaType.FromClass(clazz);
-            // we have to mimick the bytecode behavior, which allows these .NET-isms to show through
-            if (tw.TypeAsBaseType == typeof(Array))
-                return obj is Array;
+            var type = tw.DynamicInstanceCheckType;
+            if (type == null)
+                return tw.DynamicIsInstance(obj);
 
-            if (tw.TypeAsBaseType == typeof(string))
-                return obj is string;
+            Volatile.Write(ref cache, type);
+            return type.IsInstanceOfType(obj);
+#endif
+        }
 
-            if (tw.TypeAsBaseType == typeof(IComparable))
-                return obj is IComparable;
+        /// <summary>
+        /// Slow path behind a dynamic cast call site, the counterpart to <see cref="DynamicInstanceOfResolve"/>.
+        /// </summary>
+        /// <param name="obj"></param>
+        /// <param name="clazz"></param>
+        /// <param name="cache"></param>
+        /// <returns></returns>
+        [DebuggerStepThrough]
+        public static object DynamicCastResolve(object obj, global::java.lang.Class clazz, ref Type cache)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            Debug.Assert(obj != null);
+            Profiler.Count("DynamicCastResolve");
 
-            return tw.IsInstance(obj);
+            var tw = RuntimeJavaType.FromClass(clazz);
+            var type = tw.DynamicInstanceCheckType;
+            if (type == null)
+                return tw.DynamicIsInstance(obj) ? obj : DynamicCastFailed(obj, clazz);
+
+            Volatile.Write(ref cache, type);
+            return type.IsInstanceOfType(obj) ? obj : DynamicCastFailed(obj, clazz);
+#endif
+        }
+
+        /// <summary>
+        /// Throws the <see cref="global::java.lang.ClassCastException"/> for a dynamic cast that failed. Kept out of line
+        /// so a cast call site stays a type test and a branch.
+        /// </summary>
+        /// <param name="obj"></param>
+        /// <param name="clazz"></param>
+        /// <returns></returns>
+        /// <exception cref="global::java.lang.ClassCastException"></exception>
+        [DebuggerStepThrough]
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static object DynamicCastFailed(object obj, global::java.lang.Class clazz)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            throw new global::java.lang.ClassCastException(IKVM.Java.Externs.ikvm.runtime.Util.GetTypeWrapperFromObject(JVM.Context, obj).Name + " cannot be cast to " + clazz.getName());
 #endif
         }
 
@@ -1606,6 +1691,49 @@ namespace IKVM.Runtime
 #endif
         }
 
+        /// <summary>
+        /// Returns the delegate an invokeExact call site dispatches to, without checking that it matches the call
+        /// site's signature.
+        /// </summary>
+        /// <remarks>
+        /// Untyped for the same reason as <see cref="GetTargetForInvokeBasic"/>: the call site knows its own delegate
+        /// type concretely and can test it with an inline isinst, where a generic helper would need a shared-generic
+        /// one. The call site is responsible for making a mismatch reach <see cref="WrongMethodType{T}"/>, which is
+        /// what gives invokeExact its exact-match semantics.
+        /// </remarks>
+        /// <param name="methodHandle"></param>
+        /// <returns></returns>
+        public static object GetTargetForInvokeExact(object methodHandle)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            var methodHandle_ = (global::java.lang.invoke.MethodHandle)methodHandle;
+            return methodHandle_._invokeExactDelegate ?? JVM.Context.MethodHandleUtil.GetTargetForInvokeExact(methodHandle_);
+#endif
+        }
+
+        /// <summary>
+        /// Throws the <see cref="global::java.lang.invoke.WrongMethodTypeException"/> for an invokeExact whose target
+        /// does not have the call site's exact signature. Only reached when the call fails, so this is the one place
+        /// the call site's type has to be materialized generically. Declared to return <typeparamref name="T"/> so the
+        /// call site's two paths agree on what they leave on the stack; it never returns.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="methodHandle"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static T ThrowWrongMethodType<T>(object methodHandle)
+            where T : class, Delegate
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            var methodHandle_ = (global::java.lang.invoke.MethodHandle)methodHandle;
+            throw global::java.lang.invoke.Invokers.newWrongMethodTypeException(LoadMethodType<T>(), methodHandle_.type());
+#endif
+        }
+
         public static T GetDelegateForInvoke<T>(object methodHandle, object realType, ref InvokeCache<T> cache)
             where T : class, Delegate
         {
@@ -1645,6 +1773,10 @@ namespace IKVM.Runtime
 #endif
         }
 
+        /// <remarks>
+        /// Emitted call sites do not use this: they call <see cref="GetTargetForInvokeBasic"/> or
+        /// <see cref="GetVoidTargetForInvokeBasic"/> and cast the result themselves. See those for why.
+        /// </remarks>
         public static T GetDelegateForInvokeBasic<T>(global::java.lang.invoke.MethodHandle h)
             where T : class, Delegate
         {
@@ -1654,6 +1786,46 @@ namespace IKVM.Runtime
             var del = h.form.vmentry.vmtarget as T;
             del ??= MethodHandleUtil.GetVoidAdapter(h.form.vmentry) as T;
             return del;
+#endif
+        }
+
+        /// <summary>
+        /// Returns the delegate a MethodHandle's LambdaForm dispatches to, for an invokeBasic call site that keeps the
+        /// return value.
+        /// </summary>
+        /// <remarks>
+        /// Every invokeBasic in every compiled LambdaForm runs this, so it is deliberately untyped. The call site's
+        /// delegate type is a concrete type there, so it can cast with a plain castclass; a generic helper returning T
+        /// would instead compile to a shared-generic isinst, which costs a runtime generic context lookup and an
+        /// out-of-line type check on every single dispatch.
+        /// </remarks>
+        /// <param name="h"></param>
+        /// <returns></returns>
+        public static object GetTargetForInvokeBasic(global::java.lang.invoke.MethodHandle h)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            return h.form.vmentry.vmtarget;
+#endif
+        }
+
+        /// <summary>
+        /// The counterpart of <see cref="GetTargetForInvokeBasic"/> for a call site that discards the return value. The
+        /// LambdaForm may still produce one, in which case dispatch goes through an adapter that pops it.
+        /// </summary>
+        /// <remarks>
+        /// Which of the two a call site needs is decided by its own return type, so the emitter picks between them and
+        /// no dispatch has to discover it by way of a failed cast.
+        /// </remarks>
+        /// <param name="h"></param>
+        /// <returns></returns>
+        public static object GetVoidTargetForInvokeBasic(global::java.lang.invoke.MethodHandle h)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            return MethodHandleUtil.GetVoidAdapter(h.form.vmentry);
 #endif
         }
 

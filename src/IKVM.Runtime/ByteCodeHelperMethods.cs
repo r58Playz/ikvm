@@ -59,6 +59,8 @@ namespace IKVM.Runtime
         internal readonly MethodInfo arraycopy_primitive_1;
         internal readonly MethodInfo arraycopy;
         internal readonly MethodInfo DynamicCast;
+        internal readonly MethodInfo DynamicCastResolve;
+        internal readonly MethodInfo DynamicCastFailed;
         internal readonly MethodInfo DynamicAaload;
         internal readonly MethodInfo DynamicAastore;
         internal readonly MethodInfo DynamicClassLiteral;
@@ -77,6 +79,7 @@ namespace IKVM.Runtime
         internal readonly MethodInfo SkipFinalizer;
         internal readonly MethodInfo SkipFinalizerOf;
         internal readonly MethodInfo DynamicInstanceOf;
+        internal readonly MethodInfo DynamicInstanceOfResolve;
         internal readonly MethodInfo VolatileReadBoolean;
         internal readonly MethodInfo VolatileReadByte;
         internal readonly MethodInfo VolatileReadChar;
@@ -101,6 +104,11 @@ namespace IKVM.Runtime
         internal readonly MethodInfo GetDelegateForInvokeExact;
         internal readonly MethodInfo GetDelegateForInvoke;
         internal readonly MethodInfo GetDelegateForInvokeBasic;
+        internal readonly MethodInfo DynamicNewCheckOnlyResolve;
+        internal readonly MethodInfo GetTargetForInvokeBasic;
+        internal readonly MethodInfo GetVoidTargetForInvokeBasic;
+        internal readonly MethodInfo GetTargetForInvokeExact;
+        internal readonly MethodInfo ThrowWrongMethodType;
         internal readonly MethodInfo LoadMethodType;
         internal readonly MethodInfo LinkIndyCallSite;
 
@@ -129,6 +137,8 @@ namespace IKVM.Runtime
             arraycopy_primitive_1 = GetHelper(typeofByteCodeHelper, "arraycopy_primitive_1");
             arraycopy = GetHelper(typeofByteCodeHelper, "arraycopy");
             DynamicCast = GetHelper(typeofByteCodeHelper, "DynamicCast");
+            DynamicCastResolve = GetHelper(typeofByteCodeHelper, "DynamicCastResolve");
+            DynamicCastFailed = GetHelper(typeofByteCodeHelper, "DynamicCastFailed");
             DynamicAaload = GetHelper(typeofByteCodeHelper, "DynamicAaload");
             DynamicAastore = GetHelper(typeofByteCodeHelper, "DynamicAastore");
             DynamicClassLiteral = GetHelper(typeofByteCodeHelper, "DynamicClassLiteral");
@@ -147,6 +157,7 @@ namespace IKVM.Runtime
             SkipFinalizer = GetHelper(typeofByteCodeHelper, "SkipFinalizer", new Type[] { });
             SkipFinalizerOf = GetHelper(typeofByteCodeHelper, "SkipFinalizer", new Type[] { context.Types.Object });
             DynamicInstanceOf = GetHelper(typeofByteCodeHelper, "DynamicInstanceOf");
+            DynamicInstanceOfResolve = GetHelper(typeofByteCodeHelper, "DynamicInstanceOfResolve");
             VolatileReadBoolean = GetHelper(typeofByteCodeHelper, "VolatileRead", new Type[] { context.Types.Boolean.MakeByRefType() });
             VolatileReadByte = GetHelper(typeofByteCodeHelper, "VolatileRead", new Type[] { context.Types.Byte.MakeByRefType() });
             VolatileReadChar = GetHelper(typeofByteCodeHelper, "VolatileRead", new Type[] { context.Types.Char.MakeByRefType() });
@@ -171,6 +182,11 @@ namespace IKVM.Runtime
             GetDelegateForInvokeExact = GetHelper(typeofByteCodeHelper, "GetDelegateForInvokeExact");
             GetDelegateForInvoke = GetHelper(typeofByteCodeHelper, "GetDelegateForInvoke");
             GetDelegateForInvokeBasic = GetHelper(typeofByteCodeHelper, "GetDelegateForInvokeBasic");
+            DynamicNewCheckOnlyResolve = GetHelper(typeofByteCodeHelper, "DynamicNewCheckOnlyResolve");
+            GetTargetForInvokeBasic = GetHelper(typeofByteCodeHelper, "GetTargetForInvokeBasic");
+            GetVoidTargetForInvokeBasic = GetHelper(typeofByteCodeHelper, "GetVoidTargetForInvokeBasic");
+            GetTargetForInvokeExact = GetHelper(typeofByteCodeHelper, "GetTargetForInvokeExact");
+            ThrowWrongMethodType = GetHelper(typeofByteCodeHelper, "ThrowWrongMethodType");
             LoadMethodType = GetHelper(typeofByteCodeHelper, "LoadMethodType");
             LinkIndyCallSite = GetHelper(typeofByteCodeHelper, "LinkIndyCallSite");
         }

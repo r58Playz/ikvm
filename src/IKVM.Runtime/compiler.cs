@@ -1650,8 +1650,17 @@ namespace IKVM.Runtime
                                 Profiler.Count("EmitDynamicNewCheckOnly");
                                 // this is here to make sure we throw the exception in the right location (before
                                 // evaluating the constructor arguments)
+
+                                // the checks are stable once they pass, and under lazy class loading a lot of ordinary
+                                // allocation sites end up here, so record that they have been made and skip them after
+                                var cache = finish.DefineDynamicNewCheckCacheField();
+                                var checkedAlready = ilGenerator.DefineLabel();
+                                ilGenerator.Emit(OpCodes.Ldsfld, cache);
+                                ilGenerator.EmitBrtrue(checkedAlready);
                                 EmitDynamicClassLiteral(wrapper);
-                                ilGenerator.Emit(OpCodes.Call, finish.Context.ByteCodeHelperMethods.DynamicNewCheckOnly);
+                                ilGenerator.Emit(OpCodes.Ldsflda, cache);
+                                ilGenerator.Emit(OpCodes.Call, finish.Context.ByteCodeHelperMethods.DynamicNewCheckOnlyResolve);
+                                ilGenerator.MarkLabel(checkedAlready);
                             }
                             else if (wrapper != clazz && RequiresExplicitClassInit(wrapper, i + 1, flags))
                             {
@@ -2589,8 +2598,35 @@ namespace IKVM.Runtime
             var ok = ilGenerator.DefineLabel();
             ilGenerator.Emit(OpCodes.Dup);
             ilGenerator.EmitBrfalse(ok);
+
+            var cache = finish.DefineDynamicInstanceCheckCacheField();
+            var fast = ilGenerator.DefineLabel();
+            var cast = ilGenerator.DefineLabel();
+            var obj = ilGenerator.AllocTempLocal(finish.Context.Types.Object);
+            ilGenerator.Emit(OpCodes.Stloc, obj);
+            ilGenerator.Emit(OpCodes.Ldsfld, cache);
+            ilGenerator.EmitBrtrue(fast);
+
+            // first execution: resolve the check, which fills the cache unless this type needs the full type graph walk
+            ilGenerator.Emit(OpCodes.Ldloc, obj);
             EmitDynamicClassLiteral(tw);
-            ilGenerator.Emit(OpCodes.Call, finish.Context.ByteCodeHelperMethods.DynamicCast);
+            ilGenerator.Emit(OpCodes.Ldsflda, cache);
+            ilGenerator.Emit(OpCodes.Call, finish.Context.ByteCodeHelperMethods.DynamicCastResolve);
+            ilGenerator.EmitBr(ok);
+
+            ilGenerator.MarkLabel(fast);
+            ilGenerator.Emit(OpCodes.Ldsfld, cache);
+            ilGenerator.Emit(OpCodes.Ldloc, obj);
+            ilGenerator.Emit(OpCodes.Callvirt, finish.Context.CompilerFactory.IsInstanceOfTypeMethod);
+            ilGenerator.EmitBrtrue(cast);
+            ilGenerator.Emit(OpCodes.Ldloc, obj);
+            EmitDynamicClassLiteral(tw);
+            ilGenerator.Emit(OpCodes.Call, finish.Context.ByteCodeHelperMethods.DynamicCastFailed);
+            ilGenerator.EmitBr(ok);
+
+            ilGenerator.MarkLabel(cast);
+            ilGenerator.Emit(OpCodes.Ldloc, obj);
+            ilGenerator.ReleaseTempLocal(obj);
             ilGenerator.MarkLabel(ok);
         }
 
@@ -2605,8 +2641,26 @@ namespace IKVM.Runtime
             ilGenerator.EmitLdc_I4(0);
             ilGenerator.EmitBr(end);
             ilGenerator.MarkLabel(notnull);
+
+            // for all but a handful of types the check reduces to a test against a single type, and which type that is
+            // cannot change once resolved, so resolve it on first execution and test against it directly from then on
+            var cache = finish.DefineDynamicInstanceCheckCacheField();
+            var fast = ilGenerator.DefineLabel();
+            var obj = ilGenerator.AllocTempLocal(finish.Context.Types.Object);
+            ilGenerator.Emit(OpCodes.Stloc, obj);
+            ilGenerator.Emit(OpCodes.Ldsfld, cache);
+            ilGenerator.EmitBrtrue(fast);
+            ilGenerator.Emit(OpCodes.Ldloc, obj);
             EmitDynamicClassLiteral(tw);
-            ilGenerator.Emit(OpCodes.Call, finish.Context.ByteCodeHelperMethods.DynamicInstanceOf);
+            ilGenerator.Emit(OpCodes.Ldsflda, cache);
+            ilGenerator.Emit(OpCodes.Call, finish.Context.ByteCodeHelperMethods.DynamicInstanceOfResolve);
+            ilGenerator.EmitBr(end);
+
+            ilGenerator.MarkLabel(fast);
+            ilGenerator.Emit(OpCodes.Ldsfld, cache);
+            ilGenerator.Emit(OpCodes.Ldloc, obj);
+            ilGenerator.Emit(OpCodes.Callvirt, finish.Context.CompilerFactory.IsInstanceOfTypeMethod);
+            ilGenerator.ReleaseTempLocal(obj);
             ilGenerator.MarkLabel(end);
         }
 
@@ -3406,12 +3460,41 @@ namespace IKVM.Runtime
                     ilgen.Emit(OpCodes.Call, ilgen.Context.ByteCodeHelperMethods.DynamicEraseInvokeExact);
                 }
 
-                var mi = ilgen.Context.ByteCodeHelperMethods.GetDelegateForInvokeExact.MakeGenericMethod(delegateType);
-                ilgen.Emit(OpCodes.Call, mi);
+                EmitGetTargetForInvokeExact(ilgen, delegateType);
                 for (int i = 0; i < args.Length; i++)
                     ilgen.Emit(OpCodes.Ldloc, temps[i]);
 
                 ilgen.Context.MethodHandleUtil.EmitCallDelegateInvokeMethod(ilgen, delegateType);
+            }
+
+            /// <summary>
+            /// Emits the fetch of the delegate an invokeExact call site dispatches to, together with the exact-signature
+            /// test that gives invokeExact its semantics. Consumes the MethodHandle from the stack and leaves the
+            /// delegate in its place.
+            /// </summary>
+            /// <remarks>
+            /// The delegate type is concrete here, so the match is an inline isinst. Only the mismatch needs to name the
+            /// call site's type, and that is the one thing a generic helper is needed for, so it sits off the dispatch
+            /// path where its cost never shows up.
+            /// </remarks>
+            /// <param name="ilgen"></param>
+            /// <param name="delegateType"></param>
+            static void EmitGetTargetForInvokeExact(CodeEmitter ilgen, Type delegateType)
+            {
+                var mh = ilgen.AllocTempLocal(ilgen.Context.JavaBase.TypeOfJavaLangInvokeMethodHandle.TypeAsSignatureType);
+                ilgen.Emit(OpCodes.Stloc, mh);
+                ilgen.Emit(OpCodes.Ldloc, mh);
+                ilgen.Emit(OpCodes.Call, ilgen.Context.ByteCodeHelperMethods.GetTargetForInvokeExact);
+                ilgen.Emit(OpCodes.Isinst, delegateType);
+                ilgen.Emit(OpCodes.Dup);
+
+                var ok = ilgen.DefineLabel();
+                ilgen.EmitBrtrue(ok);
+                ilgen.Emit(OpCodes.Pop);
+                ilgen.Emit(OpCodes.Ldloc, mh);
+                ilgen.Emit(OpCodes.Call, ilgen.Context.ByteCodeHelperMethods.ThrowWrongMethodType.MakeGenericMethod(delegateType));
+                ilgen.MarkLabel(ok);
+                ilgen.ReleaseTempLocal(mh);
             }
 
             private void EmitInvokeMaxArity(CodeEmitter ilgen)
@@ -3426,8 +3509,7 @@ namespace IKVM.Runtime
                 Type delegateType = compiler.finish.Context.MethodHandleUtil.CreateMethodHandleDelegateType(args, cpi.GetRetType());
                 ilgen.Emit(OpCodes.Call, compiler.finish.Context.ByteCodeHelperMethods.LoadMethodType.MakeGenericMethod(delegateType));
                 compiler.finish.Context.JavaBase.TypeOfJavaLangInvokeMethodHandle.GetMethod("asType", "(Ljava.lang.invoke.MethodType;)Ljava.lang.invoke.MethodHandle;", false).EmitCallvirt(ilgen);
-                MethodInfo mi = compiler.finish.Context.ByteCodeHelperMethods.GetDelegateForInvokeExact.MakeGenericMethod(delegateType);
-                ilgen.Emit(OpCodes.Call, mi);
+                EmitGetTargetForInvokeExact(ilgen, delegateType);
                 for (int i = 0; i < args.Length; i++)
                 {
                     ilgen.Emit(OpCodes.Ldloc, temps[i]);
@@ -3499,9 +3581,17 @@ namespace IKVM.Runtime
                 temps[0] = ilgen.DeclareLocal(args[0].TypeAsSignatureType);
                 ilgen.Emit(OpCodes.Stloc, temps[0]);
                 Type delegateType = context.MethodHandleUtil.CreateMemberWrapperDelegateType(args, retType);
-                MethodInfo mi = context.ByteCodeHelperMethods.GetDelegateForInvokeBasic.MakeGenericMethod(delegateType);
                 ilgen.Emit(OpCodes.Ldloc, temps[0]);
-                ilgen.Emit(OpCodes.Call, mi);
+
+                // whether the LambdaForm's return value is kept or dropped is a property of this call site, so pick the
+                // entry point here rather than have every dispatch discover it from a failed cast. Fetching the target
+                // untyped and casting it here keeps the check a castclass against a concrete type; a generic helper
+                // returning the delegate type would make it a shared-generic isinst on every dispatch instead.
+                ilgen.Emit(OpCodes.Call, retType == context.PrimitiveJavaTypeFactory.VOID
+                    ? context.ByteCodeHelperMethods.GetVoidTargetForInvokeBasic
+                    : context.ByteCodeHelperMethods.GetTargetForInvokeBasic);
+                ilgen.Emit(OpCodes.Castclass, delegateType);
+
                 for (int i = 0; i < args.Length; i++)
                 {
                     ilgen.Emit(OpCodes.Ldloc, temps[i]);

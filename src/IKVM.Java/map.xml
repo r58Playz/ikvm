@@ -2619,6 +2619,10 @@
             <field name="vmtarget" sig="Ljava.lang.Object;" modifiers="">
                 <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
             </field>
+            <!-- memoizes the entry point a void-returning invokeBasic against this member dispatches to -->
+            <field name="voidAdapter" sig="Ljava.lang.Object;" modifiers="">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+            </field>
             <constructor sig="(Ljava.lang.reflect.Method;Z)V">
                 <replace-method-call class="java.lang.invoke.MethodHandleNatives" name="init" sig="(Ljava.lang.invoke.MemberName;Ljava.lang.Object;)V">
                     <code>

@@ -294,14 +294,36 @@ namespace IKVM.Runtime
                 switch (mn.getName())
                 {
                     case "invokeExact":
-                        dm.Call(context.ByteCodeHelperMethods.GetDelegateForInvokeExact.MakeGenericMethod(targetDelegateType));
+                        {
+                            // the delegate type is concrete here, so the exact-signature test invokeExact requires is an
+                            // inline isinst; only a mismatch has to name the call site's type generically, and that path
+                            // never runs on a successful dispatch
+                            var mh = dm.ilgen.AllocTempLocal(context.JavaBase.TypeOfJavaLangInvokeMethodHandle.TypeAsSignatureType);
+                            dm.ilgen.Emit(OpCodes.Stloc, mh);
+                            dm.ilgen.Emit(OpCodes.Ldloc, mh);
+                            dm.Call(context.ByteCodeHelperMethods.GetTargetForInvokeExact);
+                            dm.ilgen.Emit(OpCodes.Isinst, targetDelegateType);
+                            dm.ilgen.Emit(OpCodes.Dup);
+
+                            var ok = dm.ilgen.DefineLabel();
+                            dm.ilgen.EmitBrtrue(ok);
+                            dm.ilgen.Emit(OpCodes.Pop);
+                            dm.ilgen.Emit(OpCodes.Ldloc, mh);
+                            dm.Call(context.ByteCodeHelperMethods.ThrowWrongMethodType.MakeGenericMethod(targetDelegateType));
+                            dm.ilgen.MarkLabel(ok);
+                            dm.ilgen.ReleaseTempLocal(mh);
+                        }
                         break;
                     case "invoke":
                         dm.LoadValueAddress();
                         dm.Call(context.ByteCodeHelperMethods.GetDelegateForInvoke.MakeGenericMethod(targetDelegateType));
                         break;
                     case "invokeBasic":
-                        dm.Call(context.ByteCodeHelperMethods.GetDelegateForInvokeBasic.MakeGenericMethod(targetDelegateType));
+                        // whether the return value is kept is fixed for this member, so pick the entry point now
+                        dm.Call(type.returnType() == global::java.lang.Void.TYPE
+                            ? context.ByteCodeHelperMethods.GetVoidTargetForInvokeBasic
+                            : context.ByteCodeHelperMethods.GetTargetForInvokeBasic);
+                        dm.EmitCastclass(targetDelegateType);
                         break;
                     default:
                         throw new InvalidOperationException();
@@ -349,6 +371,7 @@ namespace IKVM.Runtime
                 // must not initialize the target class (JVMS §5.4.3.5) — initialization belongs
                 // at first invocation, which the emitted direct call already triggers
                 var dm = new DynamicMethodBuilder(context, "MemberName:" + mw.DeclaringType.Name + "::" + mw.Name + mw.Signature, type, null, mw.HasCallerID ? DynamicCallerIDProvider.Instance : null, null, null, true);
+
                 for (int i = 0, count = type.parameterCount(); i < count; i++)
                 {
                     if (i == 0 && !mw.IsStatic && (tw.IsGhost || tw.IsNonPrimitiveValueType || tw.IsRemapped) && (!mw.IsConstructor || tw != context.JavaBase.TypeOfJavaLangString))
@@ -581,6 +604,7 @@ namespace IKVM.Runtime
                 tw.EmitCheckcast(ilgen);
             }
 
+
             internal void EmitCastclass(Type type)
             {
                 ilgen.EmitCastclass(type);
@@ -653,22 +677,47 @@ namespace IKVM.Runtime
         }
 
         /// <summary>
+        /// Creates and associates the invokeExact entry point for a MethodHandle that does not have one yet.
+        /// </summary>
+        /// <remarks>
+        /// Unlike <see cref="GetDelegateForInvokeExact{T}"/> this does not check the result against the call site's
+        /// signature; the call site does that itself, and reports a mismatch through
+        /// <see cref="ByteCodeHelper.WrongMethodType{T}"/>. Runs once per handle, so it stays out of line.
+        /// </remarks>
+        /// <param name="mh"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal object GetTargetForInvokeExact(global::java.lang.invoke.MethodHandle mh)
+        {
+            var type = mh.type();
+            type._invokeExactDynamicMethod ??= DynamicMethodBuilder.CreateInvokeExact(context, type);
+            return mh._invokeExactDelegate = type._invokeExactDynamicMethod.CreateDelegate(GetDelegateTypeForInvokeExact(type), mh);
+        }
+
+        /// <summary>
         /// Called from the InvokeExact DynamicMethod and BytecodeHelper.GetDelegateForInvokeBasic.
         /// </summary>
         /// <param name="mn"></param>
         /// <returns></returns>
         internal static object GetVoidAdapter(java.lang.invoke.MemberName mn)
         {
+            // a void-returning invokeBasic call site runs this on every dispatch, and the entry point a given
+            // LambdaForm entry resolves to never changes, so memoize it on the MemberName rather than rediscovering
+            // it through getMethodType() each time
+            var adapter = mn.voidAdapter;
+            if (adapter != null)
+                return adapter;
+
             var type = mn.getMethodType();
             if (type.voidAdapter == null)
             {
                 if (type.returnType() == global::java.lang.Void.TYPE)
-                    return mn.vmtarget;
+                    return mn.voidAdapter = mn.vmtarget;
 
                 type.voidAdapter = DynamicMethodBuilder.CreateVoidAdapter(JVM.Context, type);
             }
 
-            return type.voidAdapter;
+            return mn.voidAdapter = type.voidAdapter;
         }
 
         internal void LoadPackedArg(CodeEmitter ilgen, int index, int firstArg, int packedArgPos, Type packedArgType)

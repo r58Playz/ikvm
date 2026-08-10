@@ -2375,6 +2375,26 @@ namespace IKVM.Runtime
                 return typeBuilder.DefineField("__<>invokeCache" + helperNameCounter++, fieldType, FieldAttributes.Static | FieldAttributes.PrivateScope);
             }
 
+            /// <summary>
+            /// Defines the per-call-site cache holding the resolved <see cref="Type"/> a dynamic instanceof or cast
+            /// tests against, so the check only has to be resolved on first execution.
+            /// </summary>
+            /// <returns></returns>
+            internal FieldBuilder DefineDynamicInstanceCheckCacheField()
+            {
+                return typeBuilder.DefineField("__<>dynamicInstanceCheckCache" + helperNameCounter++, context.Types.Type, FieldAttributes.Static | FieldAttributes.PrivateScope);
+            }
+
+            /// <summary>
+            /// Defines the per-call-site flag recording that the one-time checks a 'new' of a type that was unloadable
+            /// at compile time has to make have already been made.
+            /// </summary>
+            /// <returns></returns>
+            internal FieldBuilder DefineDynamicNewCheckCacheField()
+            {
+                return typeBuilder.DefineField("__<>dynamicNewCheckCache" + helperNameCounter++, context.Types.Boolean, FieldAttributes.Static | FieldAttributes.PrivateScope);
+            }
+
             internal FieldBuilder DefineDynamicMethodHandleCacheField()
             {
                 return typeBuilder.DefineField("__<>dynamicMethodHandleCache" + helperNameCounter++, context.JavaBase.TypeOfJavaLangInvokeMethodHandle.TypeAsSignatureType, FieldAttributes.Static | FieldAttributes.PrivateScope);
