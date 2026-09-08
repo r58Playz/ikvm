@@ -102,13 +102,35 @@ namespace IKVM.Runtime
             replacedMethodWrappers = clazz.GetReplacedMethodsFor(mw);
 #endif
 
+            // Verify every unloadable parameter on entry. `args` comes from mw, which is the FIRST
+            // generation's RuntimeJavaMethod -- its parameter types stay IsUnloadable for the life of the
+            // method, because the erased CLR signature is baked metadata and cannot be revised.
+            //
+            // That is fine for generation 1. For a generation-2 body it is both wrong and fatal:
+            //   * fatal, because EmitDynamicCast defines a per-site cache field on typeBuilder, which by then
+            //     is baked -- InvalidOperation_TypeHasBeenCreated, and the whole recompile is declined. Every
+            //     newly-admitted IKVM_LAZY_SIG candidate has an unloadable parameter by definition, so every
+            //     one of them hit this: fellBack 28 -> 489 on a boot (2026-09-07).
+            //   * wasteful, because the type IS resolved by then. The dynamic chain is a cache field, a
+            //     DynamicCastResolve, an InstanceCheckIsInstanceOf and a failure branch; a resolved type needs
+            //     one checkcast. That chain measured 94.22% of the type-check pool = 2.355% of the client
+            //     render thread, and 2.54% of it was already coming from generation-2 bodies re-emitting it.
+            //
+            // So on a recompile, re-resolve the name and emit the cheap form. Resolution is safe HERE and not
+            // at class-finish time: this runs at first execution, where TryRecompileLazyBody has already
+            // relinked the whole constant pool with LoadMode.Link. Anything that still fails to resolve keeps
+            // the dynamic form, which is exactly the old behaviour.
             var args = mw.GetParameters();
             for (int i = 0; i < args.Length; i++)
             {
                 if (args[i].IsUnloadable)
                 {
+                    var resolved = finish.IsLazyRecompile ? TryResolveForEntryCheck(clazz, args[i]) : null;
                     ilGenerator.EmitLdarg(i + (m.IsStatic ? 0 : 1));
-                    EmitDynamicCast(args[i]);
+                    if (resolved != null)
+                        resolved.EmitCheckcast(ilGenerator);
+                    else
+                        EmitDynamicCast(args[i]);
                     ilGenerator.Emit(OpCodes.Pop);
                 }
             }
@@ -477,6 +499,179 @@ namespace IKVM.Runtime
                         throw new InvalidOperationException();
                 }
             }
+        }
+
+        /// <summary>
+        /// True if <paramref name="m"/> contains an invokedynamic or a MethodHandle call site, AFTER the
+        /// analyzer has run.
+        /// </summary>
+        /// <remarks>
+        /// Reads the analyzer-assigned opcodes (__methodhandle_invoke/__methodhandle_link), so it is only
+        /// meaningful once the method has been compiled once. The recompile path is such a caller; the
+        /// candidacy gate in FinishContext is NOT, which is why MayHaveDynamicReferences exists separately.
+        ///
+        /// Such a body must not be recompiled while IKVM_LAZY_MH is off. A second FinishContext pass would
+        /// Define* fresh call sites, caches and CallerID nested types rather than referencing the ones already
+        /// baked into the type, and the resulting body reads different storage than the first generation wrote.
+        /// The failure is silent data corruption, not an exception.
+        /// </remarks>
+        internal static bool HasIndyOrMethodHandleSite(ClassFile.Method m)
+        {
+            var instructions = m.Instructions;
+            if (instructions == null)
+                return false;
+
+            for (int i = 0; i < instructions.Length; i++)
+            {
+                switch (instructions[i].NormalizedOpCode)
+                {
+                    case NormalizedByteCode.__invokedynamic:
+                    case NormalizedByteCode.__methodhandle_invoke:
+                    case NormalizedByteCode.__methodhandle_link:
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// True if <paramref name="m"/> may still contain references that resolve dynamically at first
+        /// execution, decided from the CONSTANT POOL rather than from analyzer output.
+        /// </summary>
+        /// <param name="methodHandleSite">Set when the method contains an invokedynamic or MethodHandle call
+        /// site, so the caller can decline it separately from declining "nothing dynamic here".</param>
+        /// <remarks>
+        /// This is the pre-analysis counterpart of <see cref="HasDynamicReferences"/>, and the distinction is
+        /// the whole reason it exists. The __dynamic_* opcodes it would be natural to test for are assigned by
+        /// MethodAnalyzer, which runs inside the Compiler constructor -- i.e. AFTER FinishContext has already
+        /// decided where to put the body. A gate that consulted them from there saw the pre-analysis opcodes,
+        /// found no dynamic references anywhere, and rejected every method while reporting no error at all.
+        ///
+        /// So resolve the same question from data that is available early: a field or method reference whose
+        /// declaring type is missing or unloadable is exactly what becomes a __dynamic_* opcode later.
+        /// Deliberately conservative -- a false positive costs one wasted trampoline, a false negative costs a
+        /// method that keeps its dynamic stubs forever.
+        /// </remarks>
+        internal static bool MayHaveDynamicReferences(ClassFile classFile, ClassFile.Method m, RuntimeByteCodeJavaType clazz, out bool methodHandleSite)
+        {
+            methodHandleSite = false;
+
+            var instructions = m.Instructions;
+            if (instructions == null)
+                return false;
+
+            // With dynamic binding disabled there is no __dynamic_* path to begin with, so nothing to gain.
+            if (clazz.ClassLoader.DisableDynamicBinding)
+                return false;
+
+            var result = false;
+            for (int i = 0; i < instructions.Length; i++)
+            {
+                switch (instructions[i].NormalizedOpCode)
+                {
+                    case NormalizedByteCode.__invokedynamic:
+                        methodHandleSite = true;
+                        return true;
+
+                    case NormalizedByteCode.__getstatic:
+                    case NormalizedByteCode.__putstatic:
+                    case NormalizedByteCode.__getfield:
+                    case NormalizedByteCode.__putfield:
+                        {
+                            var ft = classFile.GetFieldref(instructions[i].Arg1)?.GetClassType();
+                            if (ft == null || ft.IsUnloadable)
+                                result = true;
+                            break;
+                        }
+
+                    case NormalizedByteCode.__invokevirtual:
+                    case NormalizedByteCode.__invokespecial:
+                    case NormalizedByteCode.__invokestatic:
+                    case NormalizedByteCode.__invokeinterface:
+                        {
+                            // SafeGet: an unresolvable methodref is itself a reason to expect a dynamic site,
+                            // and must not throw out of a candidacy test.
+                            var mi = classFile.SafeGetMethodref(instructions[i].Arg1);
+                            if (mi == null)
+                            {
+                                result = true;
+                                break;
+                            }
+
+                            // The polymorphic signature methods become __methodhandle_* rather than
+                            // __dynamic_*, and are matched by name because that is what the analyzer does.
+                            if (mi.Class == "java.lang.invoke.MethodHandle" &&
+                                (instructions[i].NormalizedOpCode == NormalizedByteCode.__invokevirtual
+                                    ? mi.Name is "invoke" or "invokeExact" or "invokeBasic"
+                                    : instructions[i].NormalizedOpCode == NormalizedByteCode.__invokestatic &&
+                                      mi.Name is "linkToVirtual" or "linkToStatic" or "linkToSpecial" or "linkToInterface"))
+                            {
+                                methodHandleSite = true;
+                                return true;
+                            }
+
+                            var ct = mi.GetClassType();
+                            if (ct == null || ct.IsUnloadable)
+                                result = true;
+                            break;
+                        }
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Resolves a once-unloadable parameter type for a generation-2 entry check, or null to keep the
+        /// dynamic form.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately total: any failure to resolve, finish, or even an unexpected exception returns null,
+        /// and the caller then emits exactly what generation 1 emitted. A wrong answer here would be a
+        /// miscompiled entry check rather than a slow one, so this declines rather than guesses -- and the
+        /// Finish() is required because EmitCheckcast needs a created type, which is the same reason
+        /// ByteCodeHelper.LoadTypeWrapper finishes before it binds.
+        /// </remarks>
+        private static RuntimeJavaType TryResolveForEntryCheck(RuntimeByteCodeJavaType clazz, RuntimeJavaType unloadable)
+        {
+            try
+            {
+                var name = unloadable.Name;
+                if (string.IsNullOrEmpty(name))
+                    return null;
+
+                var tw = clazz.ClassLoader.TryLoadClassByName(name);
+                if (tw == null || tw.IsUnloadable || tw.IsGhost || tw.IsGhostArray || tw.IsNonPrimitiveValueType || tw.IsRemapped)
+                    return null;
+
+                tw.Finish();
+                return tw;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// True if <paramref name="m"/> still contains __dynamic_* opcodes, i.e. references that were left to
+        /// resolve at first execution. Only meaningful after the analyzer has run.
+        /// </summary>
+        internal static bool HasDynamicReferences(ClassFile.Method m)
+        {
+            var instructions = m.Instructions;
+            if (instructions == null)
+                return false;
+
+            for (int i = 0; i < instructions.Length; i++)
+            {
+                var op = instructions[i].NormalizedOpCode;
+                if (op >= NormalizedByteCode.__dynamic_getstatic && op <= NormalizedByteCode.__dynamic_invokespecial)
+                    return true;
+            }
+
+            return false;
         }
 
         internal static void Compile(RuntimeByteCodeJavaType.FinishContext finish, RuntimeJavaType host, RuntimeByteCodeJavaType clazz, RuntimeJavaMethod mw, ClassFile classFile, ClassFile.Method m, CodeEmitter ilGenerator, ref bool nonleaf)

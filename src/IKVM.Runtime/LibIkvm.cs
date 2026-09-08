@@ -82,6 +82,116 @@ namespace IKVM.Runtime
             [DllImport("ikvm", SetLastError = false)]
             internal static extern long IKVM_get_heap_size();
 
+            /// <summary>
+            /// Invokes the native 'IKVM_lazy_replace_body' function: installs <paramref name="source"/>'s IL
+            /// as <paramref name="target"/>'s body and forces the interpreter to re-transform it.
+            /// </summary>
+            /// <remarks>
+            /// Both arguments are MonoMethod*, taken from MethodInfo.MethodHandle.Value. Returns 1 replaced,
+            /// 0 declined (already tiered up or already wasm-JITted), -1 an incompatible shape, -2 a runtime
+            /// without the swap (CoreCLR) -- and -2 is not an error, the caller keeps generation 1.
+            /// </remarks>
+            [DllImport("ikvm", SetLastError = false)]
+            internal static extern int IKVM_lazy_replace_body(nint target, nint source);
+
+            /// <summary>
+            /// Invokes the native 'IKVM_lazy_replace_supported' function.
+            /// </summary>
+            [DllImport("ikvm", SetLastError = false)]
+            internal static extern int IKVM_lazy_replace_supported();
+
+            /// <summary>
+            /// Invokes the native 'IKVM_lazy_mark_pending' function.
+            /// </summary>
+            [DllImport("ikvm", SetLastError = false)]
+            internal static extern void IKVM_lazy_mark_pending(nint method, int pending);
+
+            /// <summary>
+            /// Invokes the native 'IKVM_lazy_relink_stat' function: 0=replaced 1=late 2=untouched 3=rejected.
+            /// </summary>
+            [DllImport("ikvm", SetLastError = false)]
+            internal static extern int IKVM_lazy_relink_stat(int which);
+
+        }
+
+        /// <summary>
+        /// Installs <paramref name="source"/>'s IL body on <paramref name="target"/>, in place, so callers
+        /// reach the recompiled body with no indirection at all.
+        /// </summary>
+        /// <remarks>
+        /// This is the whole point of the in-place path. Reaching a second-generation body through a cached
+        /// delegate costs a static load, a branch, a Delegate::Invoke and a non-inlinable frame on EVERY
+        /// call, forever -- measured at 3x what removing the dynamic stubs saved (+14.2% per frame in-game,
+        /// R226). Swapping the body pays none of it.
+        ///
+        /// Never throws: every refusal is a return code, because a failed swap must degrade to the body
+        /// that was already running rather than fail a method that worked.
+        /// </remarks>
+        internal static int ReplaceMethodBody(nint target, nint source)
+        {
+            try
+            {
+                return Externs.IKVM_lazy_replace_body(target, source);
+            }
+            catch
+            {
+                return -2;
+            }
+        }
+
+        /// <summary>
+        /// Whether the runtime under us can swap a method body at all, so the caller can decline once
+        /// instead of once per method.
+        /// </summary>
+        /// <summary>
+        /// Marks <paramref name="method"/> as awaiting an in-place body replacement, so the wasm JIT does
+        /// not compile it from the first-generation body meanwhile. Pass false to clear.
+        /// </summary>
+        /// <remarks>
+        /// EVERY mark must be cleared, on every outcome including refusal: a method left marked is a method
+        /// the wasm JIT will never compile, which trades a bounded loss (it keeps generation 1) for an
+        /// unbounded one (it never reaches the JIT tier at all).
+        /// </remarks>
+        internal static void MarkRelinkPending(nint method, bool pending)
+        {
+            try
+            {
+                Externs.IKVM_lazy_mark_pending(method, pending ? 1 : 0);
+            }
+            catch
+            {
+                // A runtime without the entry point simply does not have the race to avoid.
+            }
+        }
+
+        internal static bool CanReplaceMethodBody
+        {
+            get
+            {
+                try
+                {
+                    return Externs.IKVM_lazy_replace_supported() == 1;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Reads one of the runtime-side swap counters: 0=replaced 1=late 2=untouched 3=rejected.
+        /// </summary>
+        internal static int RelinkStat(int which)
+        {
+            try
+            {
+                return Externs.IKVM_lazy_relink_stat(which);
+            }
+            catch
+            {
+                return -1;
+            }
         }
 
         /// <summary>

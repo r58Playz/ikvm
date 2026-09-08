@@ -37,6 +37,7 @@ using IKVM.Tools.Importer;
 
 using Type = IKVM.Reflection.Type;
 #else
+using System.Collections.Generic;
 using System.Reflection;
 using System.Reflection.Emit;
 #endif
@@ -480,6 +481,664 @@ namespace IKVM.Runtime
             }
 #endif
         }
+
+#if FIRST_PASS == false && IMPORTER == false && EXPORTER == false
+
+        static long lazyRecompiled;
+        static long lazyFellBack;
+
+        /// <summary>
+        /// Prints the generational-body totals: how many method bodies were successfully recompiled versus how
+        /// many kept their first generation.
+        /// </summary>
+        public static void ReportLazyBodies()
+        {
+            Console.WriteLine($"[IKVM lazybody] TOTALS recompiled={Interlocked.Read(ref lazyRecompiled)} fellBack={Interlocked.Read(ref lazyFellBack)}");
+        }
+
+#endif
+
+        /// <summary>
+        /// Called once per in-place generational method, from the hook at the top of its first-generation
+        /// body, to recompile the body now that the once-unloadable types are resolved and INSTALL IT AS THE
+        /// METHOD'S OWN IL.
+        /// </summary>
+        /// <remarks>
+        /// The difference from BuildLazyBody is the whole feature. That one returns a delegate the method
+        /// tails into forever; this one replaces the method's body and returns nothing, so a relinked method
+        /// costs a normal call. R226 measured the delegate at 3x what the recompile saves.
+        ///
+        /// Never throws, and every refusal is counted. The body that is already executing is a correct
+        /// first generation, so the only cost of declining is that it stays -- which is precisely the
+        /// behaviour with the feature off. Declared unconditionally with only the body compiled out, for the
+        /// same reason BuildLazyBody is: ikvmc binds it by name against the FIRST_PASS reference assembly.
+        /// </remarks>
+        public static void RelinkBody(int id)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            if (JVM.LazyRecompile == false)
+                return;
+
+            // Ask the runtime once, not once per method: on CoreCLR there is no body swap at all.
+            if (LibIkvm.CanReplaceMethodBody == false)
+            {
+                Interlocked.Increment(ref LazyBodyStats.InPlaceUnsupported);
+                return;
+            }
+
+            // ENQUEUE, do not relink here. Generation 1 is a correct body, so deferral is free -- and it is
+            // what makes the scratch type affordable.
+            //
+            // The scratch type is not optional. Two independent failures proved it: generation 2 emitted as a
+            // DynamicMethod carries tokens private to that DynamicMethod's own reference table, so once its
+            // header is transplanted the interpreter resolves them against the IMAGE and dies with
+            // "Could not find required dynamic token 0x00000001" out of interp_transform_call; and pointing
+            // the FinishContext at the real, already-baked TypeBuilder instead makes every cache field
+            // generation 2 wants throw InvalidOperation_TypeHasBeenCreated. A MethodBuilder on a fresh type in
+            // the right module fixes both -- real module tokens, and somewhere to Define.
+            //
+            // But it cost ~160 ms per method against the delegate path's ~10 ms (1,267 relinks never finished
+            // a boot that the delegate path completed with 1,550), essentially all of it DefineType +
+            // CreateType, whose metadata finalization also degrades as the module grows. So pay CreateType
+            // once per BATCH instead of once per method.
+            // Tell the runtime this method is awaiting a replacement, BEFORE queuing it. Batching means a
+            // real window between the hook and the swap, and a hot method crosses MONO_WASM_JIT_THRESHOLD
+            // inside it -- 736 of 3,538 candidates were lost that way, and the swap can only refuse them
+            // because an f-slot other modules may have baked cannot be invalidated after the fact.
+            //
+            // Resolving the target here is not extra work: the flush needs the same resolution, and
+            // ResolveMethod caches it. It is only wasted for a method that is never flushed.
+            try
+            {
+                var e0 = LazyBodyRegistry.Get(id);
+                if (e0 != null)
+                {
+                    e0.Method.DeclaringType.Finish();
+                    e0.Method.ResolveMethod();
+                    var t0 = e0.Method.GetMethod();
+                    if (t0 != null)
+                        LibIkvm.MarkRelinkPending(t0.MethodHandle.Value, true);
+                }
+            }
+            catch
+            {
+                // Not fatal: without the mark the method simply keeps its chance of losing the race.
+            }
+
+            List<int> batch = null;
+            lock (relinkPendingLock)
+            {
+                relinkPending.Add(id);
+                Interlocked.Increment(ref LazyBodyStats.InPlaceQueued);
+                relinkHooksSinceFlush++;
+                // Flush on size, or on staleness: a queue that never fills would leave its methods on
+                // generation 1 forever, which is a silent loss rather than a visible one.
+                // inRelinkFlush is the re-entrancy guard, and it is not theoretical: a flush performs an
+                // eager LoadMode.Link over each class's whole constant pool, which loads classes, which can
+                // run static initialisers, which can execute a hooked method and land right back here. A
+                // nested hook must only ENQUEUE -- its methods get picked up by the next top-level flush --
+                // otherwise one first execution can drive an unbounded stack of nested batches.
+                if (inRelinkFlush == false && (relinkPending.Count >= RelinkBatchSize || relinkHooksSinceFlush >= RelinkStaleFlush))
+                {
+                    batch = relinkPending;
+                    relinkPending = new List<int>();
+                    relinkHooksSinceFlush = 0;
+                }
+            }
+
+            if (batch != null)
+            {
+                inRelinkFlush = true;
+                try
+                {
+                    FlushRelinkBatch(batch);
+                }
+                finally
+                {
+                    inRelinkFlush = false;
+                }
+            }
+#endif
+        }
+
+#if FIRST_PASS == false && IMPORTER == false && EXPORTER == false
+
+        /// <summary>Methods per scratch type. Amortises the one cost that made per-method relinking unaffordable.</summary>
+        const int RelinkBatchSize = 48;
+
+        /// <summary>Flush even a short queue after this many hooks, so a tail cannot sit on generation 1 forever.</summary>
+        const int RelinkStaleFlush = 512;
+
+        static readonly object relinkPendingLock = new object();
+        static List<int> relinkPending = new List<int>();
+        static int relinkHooksSinceFlush;
+
+        /// <summary>Set while this thread is inside a flush; see the guard in RelinkBody.</summary>
+        [ThreadStatic]
+        static bool inRelinkFlush;
+
+        /// <summary>
+        /// Recompiles a batch of registered methods and installs each body in place.
+        /// </summary>
+        /// <remarks>
+        /// Grouped by MODULE, because the scratch type's metadata tokens are only valid for targets in the
+        /// same dynamic module, and different class loaders get different modules. Within a module the
+        /// reparsed ClassFile is shared per class, which matters because Reparse plus an eager
+        /// LoadMode.Link over the whole constant pool is the other per-method cost.
+        ///
+        /// One bad method must not poison the batch: everything per-method is caught, and a method that
+        /// fails to emit is simply not swapped. The type is still created, because its other members are
+        /// fine, and the failed method keeps generation 1.
+        /// </remarks>
+        static void FlushRelinkBatch(List<int> ids)
+        {
+            var context = JVM.Context;
+
+            // module -> entries
+            var byModule = new Dictionary<ModuleBuilder, List<LazyBodyRegistry.Entry>>();
+            foreach (var id in ids)
+            {
+                try
+                {
+                    var e = LazyBodyRegistry.Get(id);
+                    if (e == null)
+                    {
+                        Interlocked.Increment(ref LazyBodyStats.InPlaceDeclined);
+                        continue;
+                    }
+
+                    var mod = e.Wrapper.ClassLoader.GetTypeWrapperFactory().ModuleBuilder;
+                    if (byModule.TryGetValue(mod, out var list) == false)
+                        byModule[mod] = list = new List<LazyBodyRegistry.Entry>();
+                    list.Add(e);
+                }
+                catch
+                {
+                    Interlocked.Increment(ref LazyBodyStats.InPlaceFailed);
+                }
+            }
+
+            foreach (var kv in byModule)
+            {
+                TypeBuilder scratch;
+                try
+                {
+                    scratch = kv.Key.DefineType("__<>inplace_" + Interlocked.Increment(ref relinkScratchSeq), TypeAttributes.Public);
+                }
+                catch
+                {
+                    Interlocked.Add(ref LazyBodyStats.InPlaceFailed, kv.Value.Count);
+                    ClearPending(kv.Value);
+                    continue;
+                }
+
+                var reparsed = new Dictionary<ClassFile, ClassFile>();
+                var built = new List<RelinkPending>();
+                var nameSeq = 0;
+
+                foreach (var entry in kv.Value)
+                {
+                    try
+                    {
+                        if (reparsed.TryGetValue(entry.ClassFile, out var classFile) == false)
+                        {
+                            // Reparse is mandatory: MethodAnalyzer rewrote generation 1's opcode stream in
+                            // place. Null means constant-pool patches (anonymous/hidden classes).
+                            classFile = entry.ClassFile.Reparse();
+                            if (classFile != null)
+                            {
+                                // LinkNoLoad, NOT LoadMode.Link. This runs at a method's first execution,
+                                // which can be inside a Mixin transform, and an eager link there re-enters
+                                // Knot's class loader: Mixin throws ReEntrantTransformerError and defines
+                                // the class WITHOUT its mixins. That is not a slowdown, it is a DIFFERENT
+                                // PROGRAM -- measured at 189 re-entrance errors per run against 0-1 in the
+                                // control, which voided the timing comparison entirely.
+                                //
+                                // Resolving only what is already loaded is enough for the premise here (by
+                                // first execution most references are loaded) and cannot trigger a load, so
+                                // it cannot re-enter. What is still unresolved stays __dynamic_* and shows
+                                // up as Gen2StillDynamic.
+                                classFile.Link(entry.Wrapper, LoadMode.LinkNoLoad);
+                            }
+                            reparsed[entry.ClassFile] = classFile;
+                        }
+
+                        if (classFile == null)
+                        {
+                            Interlocked.Increment(ref LazyBodyStats.InPlaceDeclined);
+                            continue;
+                        }
+
+                        var m = classFile.Methods[entry.MethodIndex];
+                        if (Compiler.HasIndyOrMethodHandleSite(m) && JVM.LazyMethodHandles == false)
+                        {
+                            Interlocked.Increment(ref LazyBodyStats.InPlaceDeclined);
+                            continue;
+                        }
+
+                        var mw = entry.Method;
+                        var parameterTypesForDefine = mw.GetParametersForDefineMethod();
+                        var parameterTypes = m.IsStatic
+                            ? parameterTypesForDefine
+                            : PrependType(entry.Wrapper.TypeAsSignatureType, parameterTypesForDefine);
+
+                        // Name from a counter that advances for EVERY DefineMethod, not from built.Count.
+                        // An entry that defines its method and then throws in Compile is absent from
+                        // `built` but its method is already ON the type, so reusing built.Count hands the
+                        // next entry the same name -- and GetMethod then reports
+                        // AmbiguousMatchException on __<>body3 rather than anything about duplicates.
+                        var name = "__<>body" + (nameSeq++);
+                        var mb = scratch.DefineMethod(name, MethodAttributes.Public | MethodAttributes.Static, mw.ReturnTypeForDefineMethod, parameterTypes);
+                        var ilgen = context.CodeEmitterFactory.Create(mb);
+                        var finish = new RuntimeByteCodeJavaType.FinishContext(context, entry.Host, classFile, entry.Wrapper, scratch);
+                        finish.IsLazyRecompile = true;
+                        // Distinct name range per context: they all share this scratch type, and each one
+                        // otherwise starts its helper numbering at 0. The stride is deliberately huge -- a
+                        // single method defining 4096 helpers is not a thing -- and the counter is global so
+                        // ranges cannot collide across batches either.
+                        finish.SeedHelperNames(Interlocked.Add(ref relinkHelperSeq, 4096));
+                        var nonleaf = false;
+                        Compiler.Compile(finish, entry.Host, entry.Wrapper, mw, classFile, m, ilgen, ref nonleaf);
+                        ilgen.CheckLabels();
+                        ilgen.DoEmit();
+
+                        if (Compiler.HasDynamicReferences(m))
+                            Interlocked.Increment(ref LazyBodyStats.Gen2StillDynamic);
+                        else
+                            Interlocked.Increment(ref LazyBodyStats.Gen2Clean);
+
+                        if (finish.DefinedCallerID)
+                        {
+                            // A CallerID minted on the scratch type is the wrong identity for this method.
+                            Interlocked.Increment(ref LazyBodyStats.Gen2CallerID);
+                            Interlocked.Increment(ref LazyBodyStats.InPlaceDeclined);
+                            continue;
+                        }
+
+                        built.Add(new RelinkPending { Entry = entry, Name = name, Finish = finish });
+                    }
+                    catch (Exception e)
+                    {
+                        var n = Interlocked.Increment(ref LazyBodyStats.InPlaceFailed);
+                        if (n < 8 || JVM.TraceLazyBodies)
+                            Console.WriteLine($"[IKVM lazybody] inplace emit FAILED: {e.GetType().Name}: {e.Message}");
+                    }
+                }
+
+                Type created;
+                try
+                {
+                    created = scratch.CreateType();
+                    Interlocked.Increment(ref LazyBodyStats.InPlaceBatches);
+                    foreach (var b in built)
+                        b.Finish.CreateNestedTypes();
+                }
+                catch (Exception e)
+                {
+                    // The whole type failed to bake, so nothing in it can be installed. Every member keeps
+                    // generation 1, which is the pre-feature behaviour.
+                    var n = Interlocked.Add(ref LazyBodyStats.InPlaceFailed, built.Count);
+                    if (n < 16 || JVM.TraceLazyBodies)
+                        Console.WriteLine($"[IKVM lazybody] inplace CreateType FAILED ({built.Count} members): {e.GetType().Name}: {e.Message}");
+                    ClearPending(kv.Value);
+                    continue;
+                }
+
+                // Clear the pending mark for EVERY entry in this batch, including the ones that were
+                // declined or failed to emit and so are not in `built`. A method left marked is a method
+                // the wasm JIT will never compile at all, which is a strictly worse loss than keeping
+                // generation 1.
+                foreach (var entry in kv.Value)
+                {
+                    try
+                    {
+                        var t = entry.Method.GetMethod();
+                        if (t != null)
+                            LibIkvm.MarkRelinkPending(t.MethodHandle.Value, false);
+                    }
+                    catch { }
+                }
+
+                foreach (var b in built)
+                {
+                    try
+                    {
+                        var source = created.GetMethod(b.Name, BindingFlags.Public | BindingFlags.Static);
+                        if (source == null)
+                        {
+                            Interlocked.Increment(ref LazyBodyStats.InPlaceFailed);
+                            continue;
+                        }
+
+                        var mw = b.Entry.Method;
+                        mw.DeclaringType.Finish();
+                        mw.ResolveMethod();
+                        var target = mw.GetMethod();
+                        if (target == null)
+                        {
+                            Interlocked.Increment(ref LazyBodyStats.InPlaceFailed);
+                            continue;
+                        }
+
+                        var r = LibIkvm.ReplaceMethodBody(target.MethodHandle.Value, source.MethodHandle.Value);
+                        if (r == 1)
+                        {
+                            var n = Interlocked.Increment(ref LazyBodyStats.InPlaceOk);
+                            if (n == 1 || n % 250 == 0)
+                                Console.WriteLine($"[IKVM lazybody] inplace ok={n} late={LazyBodyStats.InPlaceLate} declined={LazyBodyStats.InPlaceDeclined} failed={LazyBodyStats.InPlaceFailed} batches={LazyBodyStats.InPlaceBatches}");
+                        }
+                        else if (r == 0)
+                        {
+                            // Already tiered up or already wasm-JITted; the runtime will not invalidate
+                            // either from here, so the method keeps generation 1.
+                            Interlocked.Increment(ref LazyBodyStats.InPlaceLate);
+                        }
+                        else if (r == -2)
+                            Interlocked.Increment(ref LazyBodyStats.InPlaceUnsupported);
+                        else
+                        {
+                            var n = Interlocked.Increment(ref LazyBodyStats.InPlaceFailed);
+                            if (n < 8 || JVM.TraceLazyBodies)
+                                Console.WriteLine($"[IKVM lazybody] inplace REJECTED (shape mismatch, r={r})");
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        var n = Interlocked.Increment(ref LazyBodyStats.InPlaceFailed);
+                        if (n < 8 || JVM.TraceLazyBodies)
+                            Console.WriteLine($"[IKVM lazybody] inplace install FAILED: {e.GetType().Name}: {e.Message}");
+                    }
+                }
+            }
+        }
+
+        /// <summary>Clears the relink-pending mark for a whole group, on any abandonment path.</summary>
+        static void ClearPending(List<LazyBodyRegistry.Entry> entries)
+        {
+            foreach (var e in entries)
+            {
+                try
+                {
+                    var t = e.Method.GetMethod();
+                    if (t != null)
+                        LibIkvm.MarkRelinkPending(t.MethodHandle.Value, false);
+                }
+                catch { }
+            }
+        }
+
+        static int relinkScratchSeq;
+        static int relinkHelperSeq;
+
+        sealed class RelinkPending
+        {
+            internal LazyBodyRegistry.Entry Entry;
+            internal string Name;
+            internal RuntimeByteCodeJavaType.FinishContext Finish;
+        }
+
+#endif
+
+        /// <summary>
+        /// Called once per generational method, from its trampoline, to produce the delegate the method will use
+        /// from then on: a freshly recompiled second-generation body if that is possible, else the
+        /// first-generation helper.
+        /// </summary>
+        /// <remarks>
+        /// Never throws. A recompile failure has to degrade to the first-generation body, because the
+        /// alternative is failing a method that was working perfectly well before this optimization existed.
+        /// The first few failures are printed with the exception type so a systematic cause is visible without
+        /// turning on tracing, then the log goes quiet.
+        ///
+        /// Declared unconditionally, with only the body compiled out, because ikvmc binds it by name against the
+        /// FIRST_PASS reference assembly (ByteCodeHelperMethods.BuildLazyBody). Guarding the whole method makes
+        /// the emitter fail with "Runtime method 'BuildLazyBody' not found" rather than silently skipping it.
+        /// </remarks>
+        public static Delegate BuildLazyBody(int id, Type owner, string helper, Type delegateType)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            if (JVM.LazyRecompile)
+            {
+                var limit = JVM.LazyRecompileLimit;
+                var atLimit = limit > 0 && Interlocked.Read(ref lazyRecompiled) >= limit;
+
+                try
+                {
+                    // Logged BEFORE the attempt and flushed, so a recompile that dies mid-way still names the
+                    // method that killed it. Diagnosing this from a post-hoc log is otherwise guesswork.
+                    if (JVM.TraceLazyBodies && atLimit == false)
+                    {
+                        var e = LazyBodyRegistry.Get(id);
+                        Console.WriteLine($"[IKVM lazybody] attempt id={id} {e?.Wrapper?.Name}.{e?.Method?.Name}{e?.Method?.Signature}");
+                        Console.Out.Flush();
+                    }
+
+                    var d = atLimit ? null : TryRecompileLazyBody(id, owner, delegateType);
+                    if (d != null)
+                    {
+                        var n = Interlocked.Increment(ref lazyRecompiled);
+                        if (JVM.TraceLazyBodies)
+                        {
+                            var e = LazyBodyRegistry.Get(id);
+                            Console.WriteLine($"[IKVM lazybody] #{n} id={id} {e?.Wrapper?.Name}.{e?.Method?.Name}{e?.Method?.Signature}");
+                            Console.Out.Flush();
+                        }
+
+                        if (n == 1 || n % 50 == 0)
+                            Console.WriteLine($"[IKVM lazybody] recompiled={n} fellBack={Interlocked.Read(ref lazyFellBack)}");
+
+                        return d;
+                    }
+
+                    if (atLimit == false && Interlocked.Read(ref lazyFellBack) < 8)
+                        Console.WriteLine($"[IKVM lazybody] declined id {id} (not recompilable)");
+                }
+                catch (Exception e)
+                {
+                    if (Interlocked.Read(ref lazyFellBack) < 8 || JVM.TraceLazyBodies)
+                    {
+                        // Name the FAILING FRAME, not just the exception. Every Define* on an already-baked
+                        // TypeBuilder throws the same InvalidOperation_TypeHasBeenCreated with no operand, and
+                        // there are six candidates a recompile can reach (__<GetCallerID>, the dynamic
+                        // instance-check and new-check caches, __<>classN class literals, __<>MHC dispatch
+                        // stubs, __<>invokeCacheN). Guessing which one costs a build; the top frames say it.
+                        var frames = (e.StackTrace ?? "").Split('\n');
+                        var where = new System.Text.StringBuilder();
+                        for (int fi = 0; fi < frames.Length && fi < 3; fi++)
+                        {
+                            if (fi > 0)
+                                where.Append(" | ");
+                            where.Append(frames[fi].Trim());
+                        }
+                        Console.WriteLine($"[IKVM lazybody] recompile FAILED id {id}: {e.GetType().Name}: {e.Message} AT {where}");
+                    }
+                }
+            }
+
+            var fell = Interlocked.Increment(ref lazyFellBack);
+            if (fell == 1 || fell % 50 == 0)
+                Console.WriteLine($"[IKVM lazybody] fellBack={fell} recompiled={Interlocked.Read(ref lazyRecompiled)}");
+
+            return BindLazyFallback(owner, helper, delegateType);
+#endif
+        }
+
+#if FIRST_PASS == false && IMPORTER == false && EXPORTER == false
+
+        /// <summary>
+        /// Recompiles the registered method into a DynamicMethod, now that the types its body referenced are
+        /// loaded, and returns it as <paramref name="delegateType"/>. Null means "not recompilable".
+        /// </summary>
+        static Delegate TryRecompileLazyBody(int id, Type owner, Type delegateType)
+        {
+            var entry = LazyBodyRegistry.Get(id);
+            if (entry == null)
+                return null;
+
+            // MANDATORY reparse. MethodAnalyzer rewrote the original ClassFile's opcodes in place during the
+            // first compile, so recompiling from it would emit the already-resolved form and defeat the point
+            // (and, where it patched a __dynamic_* into a direct reference, emit something inconsistent).
+            var classFile = entry.ClassFile.Reparse();
+            if (classFile == null)
+                return null;
+
+            // DELIBERATELY still LoadMode.Link, unlike the in-place path's LinkNoLoad.
+            //
+            // The eager link carries a real hazard -- it can re-enter Knot from inside a Mixin transform and
+            // leave a class defined without its mixins -- but at this path's volume it does not fire in
+            // practice: control runs show 0-1 `ReEntrantTransformerError` against 189 for the batched
+            // in-place path, which concentrates up to 48 classes' worth of linking into one arbitrary
+            // execution point. This is the SHIPPED default, so changing it would move the baseline every
+            // in-place measurement is compared against. Leave it until it is measured on its own.
+            classFile.Link(entry.Wrapper, LoadMode.Link);
+            var m = classFile.Methods[entry.MethodIndex];
+
+            // Re-checked here and not only at candidacy: the analyzer has now run, so this is the authoritative
+            // test, and the candidacy gate could only guess from the constant pool.
+            if (Compiler.HasIndyOrMethodHandleSite(m) && JVM.LazyMethodHandles == false)
+                return null;
+
+            var mw = entry.Method;
+            var parameterTypesForDefine = mw.GetParametersForDefineMethod();
+            var parameterTypes = m.IsStatic ? parameterTypesForDefine : PrependType(entry.Wrapper.TypeAsSignatureType, parameterTypesForDefine);
+            var returnType = mw.ReturnTypeForDefineMethod;
+
+            // A DynamicMethod signature cannot mention unbaked builders or open generics.
+            if (IsUsableInDynamicMethod(returnType) == false)
+                return null;
+            for (int i = 0; i < parameterTypes.Length; i++)
+                if (IsUsableInDynamicMethod(parameterTypes[i]) == false)
+                    return null;
+
+            // Owner-vs-module: DynamicMethod validates the owner and rejects interfaces (a default method's
+            // declaring type is one), array/generic types, and TypeBuilders. Falling back to the module keeps
+            // those cases recompilable instead of failing them; it cost 46 of 64 observed failures to learn
+            // that the earlier "fix" of adjusting signature types was aimed at the wrong argument.
+            var dm = IsUsableAsDynamicMethodOwner(owner)
+                ? new DynamicMethod("__<>lazyrecompiled_" + id, returnType, parameterTypes, owner, true)
+                : new DynamicMethod("__<>lazyrecompiled_" + id, returnType, parameterTypes, owner.Module, true);
+
+            var context = JVM.Context;
+            var ilgen = context.CodeEmitterFactory.Create(dm);
+
+            // A recompile may want to define new nested types/fields, which the real TypeBuilder can no longer
+            // accept because it has been baked. Give it a scratch type to define them on instead. Only needed
+            // for the MethodHandle path, which is off by default.
+            TypeBuilder scratch = null;
+            if (JVM.LazyMethodHandles)
+            {
+                try
+                {
+                    scratch = entry.Wrapper.ClassLoader.GetTypeWrapperFactory().ModuleBuilder.DefineType("__<>lazyscratch_" + id, TypeAttributes.Public);
+                }
+                catch
+                {
+                    scratch = null;
+                }
+            }
+
+            var finish = new RuntimeByteCodeJavaType.FinishContext(context, entry.Host, classFile, entry.Wrapper, scratch ?? entry.TypeBuilder);
+            // Tells the emitter that typeBuilder is baked and that once-unloadable types are now
+            // resolvable, so entry checks take the cheap form instead of defining a fresh cache field.
+            finish.IsLazyRecompile = true;
+            var nonleaf = false;
+            Compiler.Compile(finish, entry.Host, entry.Wrapper, entry.Method, classFile, m, ilgen, ref nonleaf);
+            ilgen.CheckLabels();
+            ilgen.DoEmit();
+
+            // Did the second generation actually resolve anything? Nothing verified this before, and the
+            // whole premise of the feature is that relinking with LoadMode.Link leaves no __dynamic_* behind.
+            // It must be asked AFTER Compile: the __dynamic_* opcodes are assigned by MethodAnalyzer, which
+            // runs inside the Compiler constructor, so asking earlier reads the pre-analysis opcode stream
+            // and answers "clean" for every method -- the exact bug that once made the candidacy gate reject
+            // everything while looking healthy.
+            if (Compiler.HasDynamicReferences(m))
+                Interlocked.Increment(ref LazyBodyStats.Gen2StillDynamic);
+            else
+                Interlocked.Increment(ref LazyBodyStats.Gen2Clean);
+
+            if (scratch != null)
+            {
+                try
+                {
+                    // A body that needed a CallerID refers to storage on the scratch type, not the real one, so
+                    // it must be discarded rather than installed.
+                    if (finish.BakeScratchType(scratch) == false)
+                    {
+                        if (JVM.TraceLazyBodies)
+                            Console.WriteLine($"[IKVM lazybody] declined id {id}: recompile needs a CallerID");
+
+                        return null;
+                    }
+                }
+                catch (Exception e)
+                {
+                    if (JVM.TraceLazyBodies)
+                        Console.WriteLine($"[IKVM lazybody] scratch CreateType failed for id {id}: {e.GetType().Name}");
+
+                    return null;
+                }
+            }
+
+            return dm.CreateDelegate(delegateType);
+        }
+
+        /// <summary>
+        /// Whether <paramref name="t"/> is acceptable as a DynamicMethod owner.
+        /// </summary>
+        static bool IsUsableAsDynamicMethodOwner(Type t)
+        {
+            return t != null
+                && t.HasElementType == false
+                && t.IsInterface == false
+                && t.IsGenericParameter == false
+                && t.ContainsGenericParameters == false
+                && t is not TypeBuilder;
+        }
+
+        static Type[] PrependType(Type first, Type[] rest)
+        {
+            var a = new Type[rest.Length + 1];
+            a[0] = first;
+            Array.Copy(rest, 0, a, 1, rest.Length);
+            return a;
+        }
+
+        /// <summary>
+        /// Whether <paramref name="t"/> can appear in a DynamicMethod signature. Unwraps arrays/byrefs first,
+        /// since it is the element type that carries the problem.
+        /// </summary>
+        static bool IsUsableInDynamicMethod(Type t)
+        {
+            if (t == null)
+                return false;
+
+            while (t.HasElementType)
+                t = t.GetElementType();
+
+            if (t is TypeBuilder || t is EnumBuilder || t is GenericTypeParameterBuilder)
+                return false;
+
+            return t.IsGenericParameter == false && t.ContainsGenericParameters == false;
+        }
+
+        /// <summary>
+        /// Binds the first-generation helper as the method's implementation.
+        /// </summary>
+        static Delegate BindLazyFallback(Type owner, string helper, Type delegateType)
+        {
+            var mi = owner.GetMethod(helper, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+            if (mi == null)
+                throw new java.lang.InternalError("lazy body helper missing: " + owner.FullName + "." + helper);
+
+            return Delegate.CreateDelegate(delegateType, mi);
+        }
+
+#endif
 
         [DebuggerStepThrough]
         public static T DynamicBinderMemberLookup<T>(int kind, string clazz, string name, string sig, ikvm.@internal.CallerID callerID)

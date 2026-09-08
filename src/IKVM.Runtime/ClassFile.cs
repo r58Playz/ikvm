@@ -297,6 +297,21 @@ namespace IKVM.Runtime
         readonly IDiagnosticHandler diagnostics;
         readonly IKVM.ByteCode.Decoding.ClassFile clazz;
 
+        /// <summary>
+        /// Retained so <see cref="Reparse"/> can produce a second parse of the same class with identical
+        /// options. Required because MethodAnalyzer mutates the instruction stream in place --
+        /// Instruction.PatchOpCode rewrites normopcode -- so a ClassFile that has been compiled once cannot be
+        /// compiled again from the same instructions. A recompile has to start from a fresh parse.
+        /// </summary>
+        readonly ClassFileParseOptions parseOptions;
+
+        /// <summary>
+        /// True when the constructor was handed constant-pool patches. Such a ClassFile must not be reparsed:
+        /// the patches live only in the in-memory pool the caller supplied (anonymous/hidden classes) and are
+        /// not recoverable from <see cref="clazz"/>, so a second parse would silently differ from the first.
+        /// </summary>
+        readonly bool hadConstantPoolPatches;
+
         readonly ConstantPoolItem[] constantpool;
         readonly string[] utf8_cp;
 
@@ -380,6 +395,8 @@ namespace IKVM.Runtime
             this.context = context ?? throw new ArgumentNullException(nameof(context));
             this.diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
             this.clazz = clazz ?? throw new ArgumentNullException(nameof(clazz));
+            this.parseOptions = options;
+            this.hadConstantPoolPatches = constantPoolPatches != null;
 
             try
             {
@@ -1259,6 +1276,26 @@ namespace IKVM.Runtime
         internal string[] EnclosingMethod => enclosingMethod;
 
         internal ref readonly TypeAnnotationTable RuntimeVisibleTypeAnnotations => ref runtimeVisibleTypeAnnotations;
+
+        /// <summary>
+        /// A second, pristine parse of this same class, or <c>null</c> if that cannot be produced faithfully.
+        /// </summary>
+        /// <remarks>
+        /// Exists for the lazy-body recompile path. Compiling a method runs MethodAnalyzer, which rewrites
+        /// opcodes in the instruction array in place (Instruction.PatchOpCode assigns normopcode), so the
+        /// ClassFile that produced the first body is not reusable for a second compile of the same method --
+        /// the __dynamic_* opcodes have already been resolved away. Reparsing restores the original stream.
+        ///
+        /// Returns null rather than a partial answer when constant-pool patches were applied, because those
+        /// are not represented in the retained reader and the reparse would differ from what was compiled.
+        /// </remarks>
+        internal ClassFile Reparse()
+        {
+            if (hadConstantPoolPatches)
+                return null;
+
+            return new ClassFile(context, diagnostics, clazz, null, parseOptions, null);
+        }
 
         internal object[] GetConstantPool()
         {

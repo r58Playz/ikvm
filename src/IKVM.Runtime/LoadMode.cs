@@ -40,6 +40,19 @@ namespace IKVM.Runtime
         // lazily at first execution of the referencing instruction via the __dynamic_* stubs.
         LinkLazy = ReturnUnloadable | SuppressExceptions | TrustedProbe,
 
+        // Link WITHOUT ever loading anything: resolves only what is already loaded and returns unloadable
+        // for the rest. No Load bit and, unlike LinkLazy, no TrustedProbe either -- TrustedProbe re-enters
+        // with the Load bit for a vouched name, which is still a load.
+        //
+        // This exists for the in-place second-generation relink, which runs at a method's FIRST EXECUTION.
+        // That can be inside a Fabric Mixin transform, and an eager LoadMode.Link there re-enters Knot:
+        // `ReEntrantTransformerError`, Mixin bails, and the class is defined WITHOUT its mixins. Measured
+        // with LoadMode.Link: 189 re-entrance errors per run against 0-1 in the control, which silently
+        // changed the workload and voided the timing. Not loading at all removes the whole class of bug
+        // rather than guarding each path into it -- and it costs only the references that genuinely are
+        // not loaded yet, which stay __dynamic_* and are counted as Gen2StillDynamic.
+        LinkNoLoad = ReturnUnloadable | SuppressExceptions,
+
         // call into Java class loader
         Load = 0x0001,
 

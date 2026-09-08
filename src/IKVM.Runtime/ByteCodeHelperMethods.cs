@@ -71,6 +71,11 @@ namespace IKVM.Runtime
         internal readonly MethodInfo DynamicLoadMethodType;
         internal readonly MethodInfo DynamicLoadMethodHandle;
         internal readonly MethodInfo DynamicBinderMemberLookup;
+        /// <summary>Target of the generational-body trampoline; see ByteCodeHelper.BuildLazyBody.</summary>
+        internal readonly MethodInfo BuildLazyBody;
+
+        /// <summary>Target of the IN-PLACE relink hook; see ByteCodeHelper.RelinkBody.</summary>
+        internal readonly MethodInfo RelinkBody;
         internal readonly MethodInfo DynamicMapException;
         internal readonly MethodInfo DynamicCallerID;
         internal readonly MethodInfo DynamicLinkIndyCallSite;
@@ -151,6 +156,8 @@ namespace IKVM.Runtime
             DynamicLoadMethodType = GetHelper(typeofByteCodeHelper, "DynamicLoadMethodType");
             DynamicLoadMethodHandle = GetHelper(typeofByteCodeHelper, "DynamicLoadMethodHandle");
             DynamicBinderMemberLookup = GetHelper(typeofByteCodeHelper, "DynamicBinderMemberLookup");
+            BuildLazyBody = GetHelper(typeofByteCodeHelper, "BuildLazyBody");
+            RelinkBody = GetHelper(typeofByteCodeHelper, "RelinkBody");
             DynamicMapException = GetHelper(typeofByteCodeHelper, "DynamicMapException");
             DynamicCallerID = GetHelper(typeofByteCodeHelper, "DynamicCallerID");
             DynamicLinkIndyCallSite = GetHelper(typeofByteCodeHelper, "DynamicLinkIndyCallSite");

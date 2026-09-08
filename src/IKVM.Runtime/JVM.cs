@@ -33,6 +33,84 @@ namespace IKVM.Runtime
         // logs every invocation of a Java class loader's loadClass with the loader's type, for
         // diffing load order/set against a real JVM run with -verbose:class
         internal static readonly bool TraceLoadClass = SafeGetEnvironmentVariable("IKVM_TRACE_LOADCLASS") != null;
+
+        // GENERATIONAL METHOD BODIES ("lazy bodies").
+        //
+        // A method whose body still contains __dynamic_* references is compiled into a static helper
+        // (__<>lazybody_N) reached through a cached delegate, instead of directly into the method. On first
+        // execution the trampoline calls ByteCodeHelper.BuildLazyBody, which RECOMPILES the body now that the
+        // once-unloadable types have been resolved, so the second generation binds those references directly
+        // and the __dynamic_* stubs disappear from the hot path.
+        //
+        // Default ON (`!= "0"`), which is the configuration that measured -15% in-game over 8 interleaved runs.
+        internal static readonly bool LazyBodies = SafeGetEnvironmentVariable("IKVM_LAZY_BODIES") != "0";
+
+        // Whether the trampoline actually attempts the recompile. With this off the trampoline still exists but
+        // always binds the first-generation helper, which isolates "did the indirection cost anything" from
+        // "did the recompile buy anything".
+        internal static readonly bool LazyRecompile = SafeGetEnvironmentVariable("IKVM_LAZY_RECOMPILE") != "0";
+
+        // Cap on successful recompiles (0 = unlimited). Used to bisect a recompile-induced fault down to the
+        // first N methods.
+        internal static readonly int LazyRecompileLimit = ParseInt(SafeGetEnvironmentVariable("IKVM_LAZY_RECOMPILE_LIMIT"), 0);
+
+        // Exclude methods with exception handlers from candidacy. Default OFF: it was on while the EH-bearing
+        // recompile path was unproven, and leaving it on now would decline a large share of real candidates.
+        internal static readonly bool LazySkipExceptionHandlers = SafeGetEnvironmentVariable("IKVM_LAZY_SKIP_EH") == "1";
+
+        // Put the second-generation body IN the method instead of behind a cached delegate. Default OFF.
+        //
+        // This is the point of the whole feature, and the delegate was always the compromise. Reaching a
+        // recompiled body through a cache field costs a static load, a branch, a Delegate::Invoke and a
+        // non-inlinable frame on EVERY call for the life of the process -- and R226 measured that at 3x
+        // what removing the dynamic stubs saved: the dispatch pool fell 11.359% -> 4.640% of the client
+        // render thread and total work still rose +14.2% per frame, because ~2,949 newly-admitted methods
+        // each acquired a permanent hop. Swapping the body pays none of it, and it also removes the two
+        // limits the delegate imposed: MethodHandleUtil.MaxArity (8) and any signature the delegate cannot
+        // express.
+        //
+        // Requires a runtime that can swap a method's IL (mono_interp_replace_method_body, reached via
+        // LibIkvm.ReplaceMethodBody). On CoreCLR the swap reports unsupported and every candidate keeps
+        // generation 1, i.e. exactly the behaviour it has with this off.
+        internal static readonly bool LazyInPlace = SafeGetEnvironmentVariable("IKVM_LAZY_INPLACE") == "1";
+
+        // Admit a candidate whose SIGNATURE mentions an unloadable type. Default OFF.
+        //
+        // The signature screen used to refuse these together with ghost/remapped/value types, and that
+        // conflated two different problems. Ghost and value types need real conversion at the delegate
+        // boundary, which the trampoline does not do. An unloadable does not: it erases to plain
+        // System.Object (RuntimeJavaType.TypeAsSignatureType), so the delegate type is expressible, and
+        // TryRecompileLazyBody builds generation 2's signature from the generation-1 RuntimeJavaMethod
+        // anyway -- so the erased signature is already stable across generations.
+        //
+        // It matters because an unloadable in the signature is the MARKER of the very condition a second
+        // generation exists to remove, so the screen was refusing the population with the most to gain:
+        // measured 2026-09-07 on Minecraft, sig=5,583 of 51,000 evaluations, and the bodies whose own
+        // signature carries __<Unloadable> are the callers of 77.7% of the residual __<>MHC /
+        // __<>DynamicBinder__ dispatch pool (itself 11.673% of the client render thread).
+        internal static readonly bool LazyUnloadableSig = SafeGetEnvironmentVariable("IKVM_LAZY_SIG") == "1";
+
+        // Make every eligible method a candidate, not just those with dynamic references. Diagnostic: it turns
+        // the trampoline cost on for bodies that have nothing to gain, which is how the indirection's own cost
+        // was measured.
+        internal static readonly bool LazyAll = SafeGetEnvironmentVariable("IKVM_LAZY_ALL") == "1";
+
+        // Allow candidates containing invokedynamic / MethodHandle call sites. Default OFF, and not merely for
+        // caution: recompiling such a body silently corrupts data, because FinishContext would Define* fresh
+        // call sites, caches and CallerID nested types instead of REFERENCING the ones already baked into the
+        // type. Turning this on needs a "recompile mode" in FinishContext first.
+        internal static readonly bool LazyMethodHandles = SafeGetEnvironmentVariable("IKVM_LAZY_MH") == "1";
+
+        // Report each failing cast with its source and target type, for locating an intermittent
+        // Arg_InvalidCastException that lives in the MethodHandle PairwiseConvert/castReference path.
+        internal static readonly bool TraceCastFailures = SafeGetEnvironmentVariable("IKVM_TRACE_CASTFAIL") != null;
+
+        // Per-method tracing of the lazy-body path: candidacy, recompile attempt, and outcome.
+        internal static readonly bool TraceLazyBodies = SafeGetEnvironmentVariable("IKVM_TRACE_LAZY_BODIES") != null;
+
+        // Traces the dynamic binder and the residual __dynamic_* reference population respectively.
+        internal static readonly bool TraceBinder = SafeGetEnvironmentVariable("IKVM_TRACE_BINDER") != null;
+        internal static readonly bool TraceDynRefs = SafeGetEnvironmentVariable("IKVM_TRACE_DYNREFS") != null;
 #endif
 
         /// <summary>
@@ -211,6 +289,14 @@ namespace IKVM.Runtime
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Parses an integer knob value, falling back to <paramref name="dflt"/> for null/unparseable input.
+        /// </summary>
+        static int ParseInt(string s, int dflt)
+        {
+            return int.TryParse(s, out var v) ? v : dflt;
         }
 
         internal static string MangleResourceName(string name)

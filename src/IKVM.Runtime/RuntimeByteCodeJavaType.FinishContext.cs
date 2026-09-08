@@ -99,6 +99,27 @@ namespace IKVM.Runtime
             /// </summary>
             public RuntimeContext Context => context;
 
+            /// <summary>
+            /// True when this context is emitting a SECOND-generation body from
+            /// <see cref="ByteCodeHelper.BuildLazyBody"/>, i.e. after the once-unloadable types have been
+            /// resolved and after <c>typeBuilder</c> has been baked.
+            /// </summary>
+            /// <remarks>
+            /// Two things change in that state, and both are load-bearing.
+            ///
+            /// The type builder can no longer accept Define*, so any path that would define a fresh field or
+            /// helper throws InvalidOperation_TypeHasBeenCreated and the whole recompile is declined. Measured
+            /// on a boot with IKVM_LAZY_SIG=1 (2026-09-07): fellBack 28 -> 489, and the logged stack frame
+            /// names Compiler..ctor -- the prologue's unloadable-parameter cast, which reaches
+            /// EmitDynamicCast -> DefineDynamicInstanceCheckCacheField -> typeBuilder.DefineField.
+            ///
+            /// And it is unnecessary work: the prologue cast only needs the dynamic form while the type is
+            /// unresolved. By the time a second generation is compiled it is resolved, so a plain checkcast is
+            /// both correct and ~1 instruction against the dynamic chain's ~10 -- that chain measured 94.22%
+            /// of the type-check pool, 2.355% of the client render thread.
+            /// </remarks>
+            internal bool IsLazyRecompile { get; set; }
+
             internal RuntimeByteCodeJavaType TypeWrapper
             {
                 get { return wrapper; }
@@ -202,6 +223,357 @@ namespace IKVM.Runtime
             {
                 nestedTypeBuilders ??= new List<TypeBuilder>();
                 nestedTypeBuilders.Add(tb);
+            }
+
+            /// <summary>
+            /// The first-generation body of a method whose real body was moved into a static helper.
+            /// </summary>
+            private sealed class LazyBody
+            {
+
+                /// <summary>The static helper holding the first-generation body.</summary>
+                internal MethodBuilder Helper;
+
+                /// <summary>Delegate type matching (this?, args...) -> ret, used for both the cache field and
+                /// the trampoline's invoke.</summary>
+                internal Type DelegateType;
+
+                /// <summary>Static field caching the bound delegate after the first execution.</summary>
+                internal FieldBuilder Cache;
+
+                /// <summary>Helper's name, passed to BuildLazyBody so it can bind the first generation as the
+                /// fallback when a recompile is impossible.</summary>
+                internal string HelperName;
+
+                /// <summary>Index into LazyBodyRegistry; the only thing the emitted trampoline can carry.</summary>
+                internal int RegistryId;
+
+            }
+
+            /// <summary>
+            /// Bakes a scratch type used by a recompile, plus any nested types the recompile defined, and
+            /// reports whether the result is usable.
+            /// </summary>
+            /// <returns>
+            /// False if the recompile defined a CallerID nested type, which means the body it produced refers to
+            /// storage that only exists on the scratch type rather than on the real one.
+            /// </returns>
+            /// <remarks>
+            /// Detected by name because that is the only handle available at this point, and returned as a
+            /// decline rather than thrown: the caller's correct response is to keep the first-generation body,
+            /// not to fail the method.
+            /// </remarks>
+            /// <summary>
+            /// Bakes <paramref name="scratch"/> and RETURNS the created type, which the in-place path needs
+            /// in order to look up the emitted method and take its MonoMethod*.
+            /// </summary>
+            /// <remarks>
+            /// Separate from BakeScratchType only because that one discards CreateType()'s result and
+            /// TypeBuilder.CreateType() is not something to call twice on a hunch -- a decline here would be
+            /// indistinguishable from the feature not working, which is the failure shape this file has paid
+            /// for repeatedly.
+            /// </remarks>
+            /// <summary>
+            /// Whether this context defined a CallerID nested type, which makes its body unusable on another
+            /// method: a CallerID identifies the CALLING class, so one minted on a scratch type is the wrong
+            /// identity.
+            /// </summary>
+            internal bool DefinedCallerID
+            {
+                get
+                {
+                    if (nestedTypeBuilders != null)
+                        foreach (var tb in nestedTypeBuilders)
+                            if (tb.Name != null && tb.Name.Contains(NestedTypeName.CallerID))
+                                return true;
+
+                    return false;
+                }
+            }
+
+            /// <summary>
+            /// Creates the nested types this context defined. Called AFTER the shared scratch type has been
+            /// created, because a batch puts many methods -- and therefore many FinishContexts -- on one type
+            /// and CreateType() must happen exactly once for it.
+            /// </summary>
+            internal void CreateNestedTypes()
+            {
+                if (nestedTypeBuilders != null)
+                    foreach (var tb in nestedTypeBuilders)
+                        tb.CreateType();
+            }
+
+            internal Type BakeScratchTypeCreate(TypeBuilder scratch, out bool needsCallerID)
+            {
+                needsCallerID = false;
+                if (nestedTypeBuilders != null)
+                    foreach (var tb in nestedTypeBuilders)
+                        if (tb.Name != null && tb.Name.Contains(NestedTypeName.CallerID))
+                            needsCallerID = true;
+
+                var created = scratch.CreateType();
+                if (nestedTypeBuilders != null)
+                    foreach (var tb in nestedTypeBuilders)
+                        tb.CreateType();
+
+                return created;
+            }
+
+            internal bool BakeScratchType(TypeBuilder scratch)
+            {
+                var needsCallerID = false;
+                if (nestedTypeBuilders != null)
+                    foreach (var tb in nestedTypeBuilders)
+                        if (tb.Name != null && tb.Name.Contains(NestedTypeName.CallerID))
+                            needsCallerID = true;
+
+                scratch.CreateType();
+                if (nestedTypeBuilders != null)
+                    foreach (var tb in nestedTypeBuilders)
+                        tb.CreateType();
+
+                return !needsCallerID;
+            }
+
+            /// <summary>
+            /// Whether <paramref name="m"/> is worth compiling as a generational body.
+            /// </summary>
+            /// <remarks>
+            /// Every rejection is counted by reason (see LazyBodyStats): a gate that rejects everything looks
+            /// exactly like a gate that never ran, and that has already happened once here.
+            /// </remarks>
+            private bool IsLazyBodyCandidate(RuntimeJavaMethod mw, ClassFile.Method m)
+            {
+                // No body to move, or a body that must run exactly where it is: a constructor's trampoline
+                // would run before the object is initialised, and a static initialiser's before the type is.
+                if (m.IsAbstract || m.IsNative || m.Instructions == null)
+                    return LazyBodyStats.Reject(ref LazyBodyStats.RejShape);
+                if (ReferenceEquals(m.Name, StringConstants.INIT) || ReferenceEquals(m.Name, StringConstants.CLINIT))
+                    return LazyBodyStats.Reject(ref LazyBodyStats.RejShape);
+
+                // Decided from the constant pool, NOT from __dynamic_* opcodes: those are assigned by the
+                // analyzer, which has not run yet at this point in FinishContext.
+                if (!Compiler.MayHaveDynamicReferences(classFile, m, wrapper, out var methodHandleSite) && !JVM.LazyAll)
+                    return LazyBodyStats.Reject(ref LazyBodyStats.RejNoDynamic);
+
+                // Recompiling an indy/MethodHandle body corrupts data unless FinishContext can reference the
+                // already-baked call sites instead of defining new ones.
+                if (methodHandleSite && !JVM.LazyMethodHandles)
+                    return LazyBodyStats.Reject(ref LazyBodyStats.RejMethodHandle);
+
+                if (JVM.LazySkipExceptionHandlers && m.ExceptionTable.Length != 0)
+                    return LazyBodyStats.Reject(ref LazyBodyStats.RejExceptionHandlers);
+
+                // The delegate types only go up to a fixed arity; `this` counts against it.
+                var parameters = mw.GetParameters();
+                if (parameters.Length + (m.IsStatic ? 0 : 1) > 8)
+                    return LazyBodyStats.Reject(ref LazyBodyStats.RejArity);
+
+                // Signature screening, SPLIT BY CAUSE -- the two halves are not the same problem.
+                //
+                // Ghost, ghost-array, remapped and non-primitive value types genuinely need conversion at
+                // the delegate boundary, which the trampoline does not do. An unloadable does not: it erases
+                // to plain System.Object, so the delegate type is expressible and the boundary is a straight
+                // reference pass. Refusing both together refused the population with the MOST to gain, since
+                // an unloadable in the signature is the marker of the very condition a second generation
+                // removes. See JVM.LazyUnloadableSig for the measurement.
+                var sigUnloadable = false;
+                var sigAwkward = false;
+                ScreenSignatureType(mw.ReturnType, ref sigUnloadable, ref sigAwkward);
+                for (int i = 0; i < parameters.Length; i++)
+                    ScreenSignatureType(parameters[i], ref sigUnloadable, ref sigAwkward);
+                if (!m.IsStatic)
+                    ScreenSignatureType(wrapper, ref sigUnloadable, ref sigAwkward);
+
+                // Awkward first: a signature that is both is refused either way, and attributing it to the
+                // half that is NOT admissible keeps sigUnloadable an honest count of what the knob would add.
+                // Only the DELEGATE path cares. Ghost, remapped and value types needed conversion because
+                // the body was reached through a CreateMethodHandleDelegateType delegate, which cannot
+                // express a ghost struct or a byref receiver -- hence DynamicBinder's MakeByRefType hack.
+                // The in-place path has no delegate: the scratch method's signature comes from
+                // GetParametersForDefineMethod(), the SAME function that built the real method's signature,
+                // so it is identical and there is nothing to convert. Measured weight of this bucket is
+                // small either way (ghost machinery is 0.0% of the client thread), but it is free to admit.
+                if (sigAwkward && JVM.LazyInPlace == false)
+                    return LazyBodyStats.Reject(ref LazyBodyStats.RejSigAwkward);
+                if (sigUnloadable && JVM.LazyUnloadableSig == false)
+                    return LazyBodyStats.Reject(ref LazyBodyStats.RejSigUnloadable);
+
+                return LazyBodyStats.Accept();
+            }
+
+            /// <summary>
+            /// Classifies one signature type into the two refusal causes. Unloadable is tested FIRST and
+            /// exclusively, because an unloadable reports nothing useful for the other predicates.
+            /// </summary>
+            private static void ScreenSignatureType(RuntimeJavaType tw, ref bool unloadable, ref bool awkward)
+            {
+                if (tw.IsUnloadable)
+                    unloadable = true;
+                else if (tw.IsGhost || tw.IsGhostArray || tw.IsNonPrimitiveValueType || tw.IsRemapped)
+                    awkward = true;
+            }
+
+            /// <summary>
+            /// Compiles <paramref name="m"/>'s body into a static helper and registers what a later recompile
+            /// will need, or returns null if the method is not a candidate.
+            /// </summary>
+            private LazyBody TryMoveBodyToHelper(RuntimeJavaMethod mw, ClassFile.Method m, int index, RuntimeJavaType host, ref bool nonleaf)
+            {
+                if (IsLazyBodyCandidate(mw, m) == false)
+                    return null;
+
+                var parameters = mw.GetParameters();
+                var parameterTypesForDefine = mw.GetParametersForDefineMethod();
+                // An instance method's helper is static, so `this` becomes an explicit leading parameter.
+                var parameterTypes = m.IsStatic ? parameterTypesForDefine : Prepend(wrapper.TypeAsSignatureType, parameterTypesForDefine);
+                var args = m.IsStatic ? parameters : Prepend(wrapper, parameters);
+
+                var helperName = "__<>lazybody_" + helperNameCounter++;
+                var helper = typeBuilder.DefineMethod(helperName, MethodAttributes.Static, mw.ReturnTypeForDefineMethod, parameterTypes);
+                var ilgen = context.CodeEmitterFactory.Create(helper);
+                Compiler.Compile(this, host, wrapper, mw, classFile, m, ilgen, ref nonleaf);
+                ilgen.CheckLabels();
+                ilgen.DoEmit();
+
+                var delegateType = context.MethodHandleUtil.CreateMethodHandleDelegateType(args, mw.ReturnType);
+
+                // Keep the ClassFile itself, not its instructions: the recompile calls Reparse() precisely
+                // because the analyzer has already rewritten this instance's opcode stream in place.
+                var registryId = LazyBodyRegistry.Add(new LazyBodyRegistry.Entry
+                {
+                    ClassFile = classFile,
+                    MethodIndex = index,
+                    Wrapper = wrapper,
+                    Host = host,
+                    TypeBuilder = typeBuilder,
+                    Method = mw,
+                });
+
+                return new LazyBody
+                {
+                    RegistryId = registryId,
+                    Helper = helper,
+                    HelperName = helperName,
+                    DelegateType = delegateType,
+                    Cache = typeBuilder.DefineField("__<>lazybodyCache" + helperNameCounter++, delegateType, FieldAttributes.Static),
+                };
+            }
+
+            private static Type[] Prepend(Type first, Type[] rest)
+            {
+                var a = new Type[rest.Length + 1];
+                a[0] = first;
+                Array.Copy(rest, 0, a, 1, rest.Length);
+                return a;
+            }
+
+            private static RuntimeJavaType[] Prepend(RuntimeJavaType first, RuntimeJavaType[] rest)
+            {
+                var a = new RuntimeJavaType[rest.Length + 1];
+                a[0] = first;
+                Array.Copy(rest, 0, a, 1, rest.Length);
+                return a;
+            }
+
+            /// <summary>
+            /// Registers <paramref name="m"/> for an IN-PLACE second generation and returns the one-shot flag
+            /// field the hook tests, or null if it is not a candidate.
+            /// </summary>
+            /// <remarks>
+            /// Unlike the delegate path this moves NOTHING: the first-generation body is compiled straight
+            /// into the method, preceded by a hook that fires once. So a method that is never relinked is
+            /// byte-for-byte what it would have been with the whole feature off, plus three instructions --
+            /// against the delegate path, which costs a load, a branch, a Delegate::Invoke and an extra frame
+            /// on every call forever.
+            /// </remarks>
+            private FieldBuilder TryPrepareInPlaceRelink(RuntimeJavaMethod mw, ClassFile.Method m, int index, RuntimeJavaType host)
+            {
+                if (IsLazyBodyCandidate(mw, m) == false)
+                    return null;
+
+                // Same side table as the delegate path: the hook is emitted code and can only carry an
+                // immediate, so it carries an integer id.
+                var registryId = LazyBodyRegistry.Add(new LazyBodyRegistry.Entry
+                {
+                    ClassFile = classFile,
+                    MethodIndex = index,
+                    Wrapper = wrapper,
+                    Host = host,
+                    TypeBuilder = typeBuilder,
+                    Method = mw,
+                });
+
+                var flag = typeBuilder.DefineField("__<>relinked" + registryId, context.Types.Int32, FieldAttributes.Static | FieldAttributes.PrivateScope);
+                inPlaceRelinkId = registryId;
+                return flag;
+            }
+
+            /// <summary>The registry id assigned by the last <see cref="TryPrepareInPlaceRelink"/> call.</summary>
+            private int inPlaceRelinkId;
+
+            /// <summary>
+            /// Emits the one-shot relink hook that precedes an in-place first-generation body.
+            /// </summary>
+            /// <remarks>
+            /// Shape: test a flag, SET IT, then call. Setting before calling is not an optimisation -- it is
+            /// what stops unbounded recursion, because RelinkBody runs the IKVM compiler, which can run a
+            /// class initialiser, which can re-enter this very method. The flag is written non-atomically on
+            /// purpose: two threads racing here both call RelinkBody, and the second one's swap is a no-op
+            /// against an identical body, which is cheaper than a lock on a path that runs once per method.
+            ///
+            /// After a successful swap the method's IL is generation 2, which contains no hook at all -- so
+            /// this costs three instructions on exactly one invocation and then ceases to exist, rather than
+            /// a delegate hop on every invocation forever.
+            /// </remarks>
+            private void EmitInPlaceRelinkHook(CodeEmitter ilgen, FieldBuilder flag, int registryId)
+            {
+                var skip = ilgen.DefineLabel();
+                ilgen.Emit(OpCodes.Ldsfld, flag);
+                ilgen.EmitBrtrue(skip);
+                ilgen.EmitLdc_I4(1);
+                ilgen.Emit(OpCodes.Volatile);
+                ilgen.Emit(OpCodes.Stsfld, flag);
+                ilgen.EmitLdc_I4(registryId);
+                ilgen.Emit(OpCodes.Call, context.ByteCodeHelperMethods.RelinkBody);
+                ilgen.MarkLabel(skip);
+            }
+
+            /// <summary>
+            /// Emits the method as: use the cached delegate if present, otherwise build it once, then tail into
+            /// it with the original arguments.
+            /// </summary>
+            /// <remarks>
+            /// The cache is read once into the evaluation stack and duplicated rather than re-read after the
+            /// store, so a concurrent build on another thread cannot make this invocation see null. Both threads
+            /// may build; both results are equivalent, and the volatile store publishes whichever wins.
+            /// </remarks>
+            private void EmitLazyBodyTrampoline(CodeEmitter ilgen, LazyBody lazy, RuntimeJavaMethod mw, ClassFile.Method m)
+            {
+                var haveDelegate = ilgen.DefineLabel();
+                ilgen.Emit(OpCodes.Ldsfld, lazy.Cache);
+                ilgen.Emit(OpCodes.Dup);
+                ilgen.EmitBrtrue(haveDelegate);
+                ilgen.Emit(OpCodes.Pop);
+
+                ilgen.EmitLdc_I4(lazy.RegistryId);
+                ilgen.Emit(OpCodes.Ldtoken, typeBuilder);
+                ilgen.Emit(OpCodes.Call, context.CompilerFactory.GetTypeFromHandleMethod);
+                ilgen.Emit(OpCodes.Ldstr, lazy.HelperName);
+                ilgen.Emit(OpCodes.Ldtoken, lazy.DelegateType);
+                ilgen.Emit(OpCodes.Call, context.CompilerFactory.GetTypeFromHandleMethod);
+                ilgen.Emit(OpCodes.Call, context.ByteCodeHelperMethods.BuildLazyBody);
+                ilgen.Emit(OpCodes.Castclass, lazy.DelegateType);
+                ilgen.Emit(OpCodes.Dup);
+                ilgen.Emit(OpCodes.Volatile);
+                ilgen.Emit(OpCodes.Stsfld, lazy.Cache);
+
+                ilgen.MarkLabel(haveDelegate);
+                var argc = mw.GetParameters().Length + (m.IsStatic ? 0 : 1);
+                for (int i = 0; i < argc; i++)
+                    ilgen.EmitLdarg(i);
+                ilgen.Emit(OpCodes.Callvirt, context.MethodHandleUtil.GetDelegateInvokeMethod(lazy.DelegateType));
+                ilgen.Emit(OpCodes.Ret);
             }
 
             internal Type FinishImpl()
@@ -538,7 +910,30 @@ namespace IKVM.Runtime
                             }
 #endif
                             var nonleaf = false;
-                            Compiler.Compile(this, host, wrapper, methods[i], classFile, m, ilGenerator, ref nonleaf);
+                            // GENERATIONAL BODIES: if this method is a candidate, its body goes into a static
+                            // helper and the method itself becomes a trampoline through a cached delegate, so
+                            // first execution can recompile the body with its dynamic references now resolved.
+                            // Not a candidate (or knob off) => compile straight into the method as before.
+                            // Three shapes, in order of preference. In-place keeps the body where it is and
+                            // adds a one-shot hook; the delegate path moves the body out and pays a hop on
+                            // every call; plain Compile is the no-feature baseline.
+                            FieldBuilder inPlaceFlag = null;
+                            if (JVM.LazyBodies && JVM.LazyInPlace)
+                                inPlaceFlag = TryPrepareInPlaceRelink(methods[i], m, i, host);
+
+                            var lazyBody = (inPlaceFlag == null && JVM.LazyBodies && JVM.LazyInPlace == false)
+                                ? TryMoveBodyToHelper(methods[i], m, i, host, ref nonleaf)
+                                : null;
+
+                            if (inPlaceFlag != null)
+                            {
+                                EmitInPlaceRelinkHook(ilGenerator, inPlaceFlag, inPlaceRelinkId);
+                                Compiler.Compile(this, host, wrapper, methods[i], classFile, m, ilGenerator, ref nonleaf);
+                            }
+                            else if (lazyBody != null)
+                                EmitLazyBodyTrampoline(ilGenerator, lazyBody, methods[i], m);
+                            else
+                                Compiler.Compile(this, host, wrapper, methods[i], classFile, m, ilGenerator, ref nonleaf);
                             ilGenerator.CheckLabels();
                             ilGenerator.DoEmit();
                             if (nonleaf)
@@ -1100,7 +1495,7 @@ namespace IKVM.Runtime
                 {
                     name += "_";
                 }
-                TypeBuilder tb = typeBuilder.DefineNestedType(name, TypeAttributes.Class | TypeAttributes.NestedPublic | TypeAttributes.Sealed | TypeAttributes.Abstract);
+                TypeBuilder tb = typeBuilder.DefineNestedType(NestedName(name), TypeAttributes.Class | TypeAttributes.NestedPublic | TypeAttributes.Sealed | TypeAttributes.Abstract);
                 RegisterNestedTypeBuilder(tb);
                 context.AttributeHelper.HideFromJava(tb);
                 return tb;
@@ -2190,16 +2585,20 @@ namespace IKVM.Runtime
                 }
                 else
                 {
-                    RegisterNestedTypeBuilder(EmitCreateCallerID(context, typeBuilder, ilGenerator));
+                    RegisterNestedTypeBuilder(EmitCreateCallerID(context, typeBuilder, ilGenerator, nestedNamePrefix));
                 }
 
                 ilGenerator.Emit(OpCodes.Stsfld, callerIDField);
             }
 
-            internal static TypeBuilder EmitCreateCallerID(RuntimeContext context, TypeBuilder typeBuilder, CodeEmitter ilGenerator)
+            /// <param name="nestedPrefix">Scopes the nested type's name; see FinishContext.NestedName. Empty
+            /// for ordinary compilation. Passed explicitly because this is static -- and CallerID is the
+            /// nested name that MOST needs scoping, since it carries no per-site suffix at all and so
+            /// collides between any two contexts sharing a batched scratch type.</param>
+            internal static TypeBuilder EmitCreateCallerID(RuntimeContext context, TypeBuilder typeBuilder, CodeEmitter ilGenerator, string nestedPrefix = "")
             {
                 var tw = context.JavaBase.TypeOfIkvmInternalCallerID;
-                var typeCallerID = typeBuilder.DefineNestedType(NestedTypeName.CallerID, TypeAttributes.Sealed | TypeAttributes.NestedPrivate, tw.TypeAsBaseType);
+                var typeCallerID = typeBuilder.DefineNestedType(nestedPrefix + NestedTypeName.CallerID, TypeAttributes.Sealed | TypeAttributes.NestedPrivate, tw.TypeAsBaseType);
                 var cb = ReflectUtil.DefineConstructor(typeCallerID, MethodAttributes.Assembly, null);
                 var ctorIlgen = context.CodeEmitterFactory.Create(cb);
                 ctorIlgen.Emit(OpCodes.Ldarg_0);
@@ -2273,7 +2672,7 @@ namespace IKVM.Runtime
             {
                 var threadLocal = context.ClassLoaderFactory.LoadClassCritical("ikvm.internal.IntrinsicThreadLocal");
                 int id = nestedTypeBuilders == null ? 0 : nestedTypeBuilders.Count;
-                var tb = typeBuilder.DefineNestedType(NestedTypeName.ThreadLocal + id, TypeAttributes.NestedPrivate | TypeAttributes.Sealed, threadLocal.TypeAsBaseType);
+                var tb = typeBuilder.DefineNestedType(NestedName(NestedTypeName.ThreadLocal + id), TypeAttributes.NestedPrivate | TypeAttributes.Sealed, threadLocal.TypeAsBaseType);
                 var fb = tb.DefineField("field", context.Types.Object, FieldAttributes.Private | FieldAttributes.Static);
                 fb.SetCustomAttribute(new CustomAttributeBuilder(context.Resolver.ResolveCoreType(typeof(ThreadStaticAttribute).FullName).GetConstructor([]).AsReflection(), new object[0]));
 
@@ -2308,7 +2707,7 @@ namespace IKVM.Runtime
                 if (!arfuMap.TryGetValue(field, out var cb))
                 {
                     RuntimeJavaType arfuTypeWrapper = context.ClassLoaderFactory.LoadClassCritical("ikvm.internal.IntrinsicAtomicReferenceFieldUpdater");
-                    TypeBuilder tb = typeBuilder.DefineNestedType(NestedTypeName.AtomicReferenceFieldUpdater + arfuMap.Count, TypeAttributes.NestedPrivate | TypeAttributes.Sealed, arfuTypeWrapper.TypeAsBaseType);
+                    TypeBuilder tb = typeBuilder.DefineNestedType(NestedName(NestedTypeName.AtomicReferenceFieldUpdater + arfuMap.Count), TypeAttributes.NestedPrivate | TypeAttributes.Sealed, arfuTypeWrapper.TypeAsBaseType);
                     AtomicReferenceFieldUpdaterEmitter.EmitImpl(context, tb, field.GetField());
                     cb = ReflectUtil.DefineConstructor(tb, MethodAttributes.Assembly, Type.EmptyTypes);
                     arfuMap.Add(field, cb);
@@ -2327,21 +2726,21 @@ namespace IKVM.Runtime
             internal TypeBuilder DefineIndyCallSiteType()
             {
                 int id = nestedTypeBuilders == null ? 0 : nestedTypeBuilders.Count;
-                var tb = typeBuilder.DefineNestedType(NestedTypeName.IndyCallSite + id, TypeAttributes.NestedPrivate | TypeAttributes.Abstract | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit);
+                var tb = typeBuilder.DefineNestedType(NestedName(NestedTypeName.IndyCallSite + id), TypeAttributes.NestedPrivate | TypeAttributes.Abstract | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit);
                 RegisterNestedTypeBuilder(tb);
                 return tb;
             }
 
             internal TypeBuilder DefineMethodHandleConstantType(MethodHandleConstantHandle handle)
             {
-                var tb = typeBuilder.DefineNestedType(NestedTypeName.MethodHandleConstant + handle.Slot, TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.Abstract | TypeAttributes.BeforeFieldInit); ;
+                var tb = typeBuilder.DefineNestedType(NestedName(NestedTypeName.MethodHandleConstant + handle.Slot), TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.Abstract | TypeAttributes.BeforeFieldInit); ;
                 RegisterNestedTypeBuilder(tb);
                 return tb;
             }
 
             internal TypeBuilder DefineMethodTypeConstantType(MethodTypeConstantHandle handle)
             {
-                var tb = typeBuilder.DefineNestedType(NestedTypeName.MethodTypeConstant + handle.Slot, TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.Abstract | TypeAttributes.BeforeFieldInit);
+                var tb = typeBuilder.DefineNestedType(NestedName(NestedTypeName.MethodTypeConstant + handle.Slot), TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.Abstract | TypeAttributes.BeforeFieldInit);
                 RegisterNestedTypeBuilder(tb);
                 return tb;
             }
@@ -2350,7 +2749,7 @@ namespace IKVM.Runtime
             internal TypeBuilder DefineAnonymousClass()
             {
                 int id = nestedTypeBuilders == null ? 0 : nestedTypeBuilders.Count;
-                var tb = typeBuilder.DefineNestedType(NestedTypeName.IntrinsifiedAnonymousClass + id, TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.SpecialName | TypeAttributes.BeforeFieldInit);
+                var tb = typeBuilder.DefineNestedType(NestedName(NestedTypeName.IntrinsifiedAnonymousClass + id), TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.SpecialName | TypeAttributes.BeforeFieldInit);
                 RegisterNestedTypeBuilder(tb);
                 return tb;
             }
@@ -2359,6 +2758,44 @@ namespace IKVM.Runtime
             // (e.g. Mono's dynamic-image fallback for baked TypeBuilders) can then bind call
             // sites to the wrong member, so every helper gets a unique name
             int helperNameCounter;
+
+            /// <summary>
+            /// Offsets the names this context generates, so that several contexts can safely share one
+            /// TypeBuilder.
+            /// </summary>
+            /// <remarks>
+            /// Every Define* below names its member "&lt;prefix&gt;" + helperNameCounter++, and that counter is
+            /// per-context. Batched in-place relinking puts many methods -- and therefore many contexts -- on
+            /// ONE scratch type, so without distinct ranges the second context redefines
+            /// __&lt;&gt;dynamicInstanceCheckCache0 and Reflection.Emit throws
+            /// Argument_AddingDuplicateWithKey. Measured: 538 of 1,411 batched methods failed that way.
+            /// </remarks>
+            internal void SeedHelperNames(int seed)
+            {
+                helperNameCounter = seed;
+                nestedNamePrefix = "r" + seed + "$";
+            }
+
+            /// <summary>
+            /// Prefix applied to nested type names, non-empty only for a batched in-place recompile.
+            /// </summary>
+            /// <remarks>
+            /// Nested types are the OTHER name collision on a shared scratch type, and a worse one than the
+            /// members: NestedTypeName.CallerID has no suffix at all, and ThreadLocal/IndyCallSite/
+            /// MethodHandleConstant/AtomicReferenceFieldUpdater are suffixed with PER-CONTEXT ids that
+            /// restart at 0. Two contexts on one type therefore collide immediately, and Reflection.Emit
+            /// reports it as Argument_AddingDuplicateWithKey against System.TypeNames -- which is what took
+            /// 539 of 1,700 batched methods. Safe to rename because generation-2 IL refers to these by
+            /// token, not by name; the only name-based consumer is the CallerID check, which matches on
+            /// Contains() and so still sees a prefixed one.
+            /// </remarks>
+            private string nestedNamePrefix = "";
+
+            /// <summary>Nested type name, scoped so batched contexts on one TypeBuilder cannot collide.</summary>
+            private string NestedName(string name)
+            {
+                return nestedNamePrefix.Length == 0 ? name : nestedNamePrefix + name;
+            }
 
             MethodBuilder DefineHelperMethod(string name, Type returnType, Type[] parameterTypes)
             {
