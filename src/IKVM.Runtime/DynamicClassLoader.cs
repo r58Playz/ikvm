@@ -67,6 +67,9 @@ namespace IKVM.Runtime
 #endif
 
         Dictionary<string, TypeBuilder> unloadables;
+#if !IMPORTER
+        Dictionary<string, Type> createdUnloadables;
+#endif
         TypeBuilder unloadableContainer;
         Type[] delegates;
 
@@ -186,6 +189,13 @@ namespace IKVM.Runtime
         {
             lock (this)
             {
+#if !IMPORTER
+                createdUnloadables ??= new Dictionary<string, Type>();
+                if (createdUnloadables.TryGetValue(name, out var createdType))
+                {
+                    return createdType;
+                }
+#endif
                 if (unloadables == null)
                 {
                     unloadables = new Dictionary<string, TypeBuilder>();
@@ -199,10 +209,40 @@ namespace IKVM.Runtime
                 {
                     unloadableContainer = moduleBuilder.DefineType(RuntimeUnloadableJavaType.ContainerTypeName, TypeAttributes.Interface | TypeAttributes.Abstract);
                     context.AttributeHelper.HideFromJava(unloadableContainer);
+#if !IMPORTER
+                    unloadableContainer.CreateType();
+#endif
                 }
                 type = unloadableContainer.DefineNestedType(TypeNameUtil.MangleNestedTypeName(name), TypeAttributes.NestedPrivate | TypeAttributes.Interface | TypeAttributes.Abstract);
+#if !IMPORTER
+                // These dummies only ever appear as optional custom modifiers, so nothing drags them through
+                // the normal finish path; the only place that creates them is FinishAll(), which is an
+                // IMPORTER-only entry point and never runs at runtime. An uncreated TypeBuilder is not a
+                // resolvable type, so any reflection that materialises a signature carrying one dies with
+                // TypeLoadException "Could not load type '...' from assembly 'ikvm_dynamic_assembly__N'" --
+                // e.g. ParameterInfo.GetOptionalCustomModifiers(), which RuntimeJavaMethod.MatchesModOpt uses
+                // to disambiguate overloads that erased to the same CIL signature.
+                //
+                // That was survivable while unloadable types were a corner case, but under
+                // IKVM_LAZY_CLASS_LOADING every link-time reference a user loader declines to resolve becomes
+                // one, so it turned into a startup crash (Fabric's MappingFormat.<clinit>, via a method
+                // handle onto a signature mentioning a not-yet-loaded enum). They are empty abstract
+                // interfaces with nothing to defer, so create them at definition time. Nested types can
+                // still be added to a container that has already been created.
+                //
+                // Hand back the created type rather than the builder: Type equality between the two is
+                // ASYMMETRIC (TypeBuilder.Equals(RuntimeType) is true, RuntimeType.Equals(TypeBuilder) is
+                // not), so a builder that leaks into a signature is invisible to any Array.IndexOf /
+                // Contains over modifiers reflection handed back -- which is how MatchesModOpt silently
+                // failed to match either candidate and picked the wrong erased overload.
+                var created = type.CreateType();
+                unloadables.Add(name, type);
+                createdUnloadables.Add(name, created);
+                return created;
+#else
                 unloadables.Add(name, type);
                 return type;
+#endif
             }
         }
 

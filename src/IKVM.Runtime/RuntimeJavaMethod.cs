@@ -564,11 +564,31 @@ namespace IKVM.Runtime
                     return false;
 
                 for (int j = 0; j < expected.Length; j++)
-                    if (Array.IndexOf(actual, expected[j]) < 0)
+                    if (ContainsType(actual, expected[j]) == false)
                         return false;
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Membership test for a type in a set of custom modifiers reflection handed back, tolerating the
+        /// builder/runtime split.
+        /// </summary>
+        /// <remarks>
+        /// Type equality across that split is asymmetric: a TypeBuilder equals the runtime type it was created
+        /// into, but the runtime type does not equal the builder. Array.IndexOf and friends compare the wrong
+        /// way round (element.Equals(value)), so a builder-side expectation silently matches nothing -- and a
+        /// no-match here does not fail loudly, it falls through to picking the first candidate, i.e. the wrong
+        /// overload. Try both directions.
+        /// </remarks>
+        static bool ContainsType(Type[] haystack, Type needle)
+        {
+            foreach (var i in haystack)
+                if (ReferenceEquals(i, needle) || needle.Equals(i) || i.Equals(needle))
+                    return true;
+
+            return false;
         }
 
 #endif
