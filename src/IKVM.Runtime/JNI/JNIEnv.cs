@@ -342,7 +342,12 @@ namespace IKVM.Runtime.JNI
                 var env = pEnv->GetContext();
                 var e = UnwrapRef(env, throwable) as Exception;
                 if (e != null)
+                {
+                    // native code built this exception, so an errno inside it is the host libc's numbering, which
+                    // is not necessarily the numbering the JDK image was compiled to compare against
+                    UnixErrnoTranslation.Apply(e);
                     JVM.SetPendingException(e);
+                }
 
                 return JNI_OK;
             }
