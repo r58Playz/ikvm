@@ -2926,19 +2926,29 @@ namespace IKVM.Runtime
 
             static bool HasMethodImplCompatibleSignature(MethodInfo body, MethodInfo declaration)
             {
-                if (body.ReturnType != declaration.ReturnType)
-                    return false;
-
-                var bodyParams = body.GetParameters();
-                var declarationParams = declaration.GetParameters();
-                if (bodyParams.Length != declarationParams.Length)
-                    return false;
-
-                for (int i = 0; i < bodyParams.Length; i++)
-                    if (bodyParams[i].ParameterType != declarationParams[i].ParameterType)
+                try
+                {
+                    if (body.ReturnType != declaration.ReturnType)
                         return false;
 
-                return true;
+                    var bodyParams = body.GetParameters();
+                    var declarationParams = declaration.GetParameters();
+                    if (bodyParams.Length != declarationParams.Length)
+                        return false;
+
+                    for (int i = 0; i < bodyParams.Length; i++)
+                        if (bodyParams[i].ParameterType != declarationParams[i].ParameterType)
+                            return false;
+
+                    return true;
+                }
+                catch (NotSupportedException)
+                {
+                    // this is a diagnostic, and the body side is a MethodBuilder on a type that is still open.
+                    // CoreCLR refuses to report a signature for one of those ("Type has not been created"), and a
+                    // diagnostic that cannot run must not stop the override from being defined.
+                    return true;
+                }
             }
 
             static string FormatClrSignature(MethodInfo method)
