@@ -2617,7 +2617,10 @@ namespace IKVM.Runtime
             ilGenerator.MarkLabel(fast);
             ilGenerator.Emit(OpCodes.Ldsfld, cache);
             ilGenerator.Emit(OpCodes.Ldloc, obj);
-            ilGenerator.Emit(OpCodes.Callvirt, finish.Context.CompilerFactory.IsInstanceOfTypeMethod);
+            // The cached InstanceCheck answers this as `obj is T` in shared generic code. The Type-typed cache this
+            // replaced had to ask Type.IsInstanceOfType, a reflection icall costing ~1.13% of in-game time plus the
+            // handle allocation and mem-manager lock at the boundary.
+            ilGenerator.Emit(OpCodes.Call, finish.Context.ByteCodeHelperMethods.InstanceCheckIsInstanceOf);
             ilGenerator.EmitBrtrue(cast);
             ilGenerator.Emit(OpCodes.Ldloc, obj);
             EmitDynamicClassLiteral(tw);
@@ -2659,7 +2662,8 @@ namespace IKVM.Runtime
             ilGenerator.MarkLabel(fast);
             ilGenerator.Emit(OpCodes.Ldsfld, cache);
             ilGenerator.Emit(OpCodes.Ldloc, obj);
-            ilGenerator.Emit(OpCodes.Callvirt, finish.Context.CompilerFactory.IsInstanceOfTypeMethod);
+            // See EmitDynamicCast: dispatch the cached InstanceCheck instead of the Type.IsInstanceOfType icall.
+            ilGenerator.Emit(OpCodes.Call, finish.Context.ByteCodeHelperMethods.InstanceCheckIsInstanceOf);
             ilGenerator.ReleaseTempLocal(obj);
             ilGenerator.MarkLabel(end);
         }

@@ -80,6 +80,8 @@ namespace IKVM.Runtime
         internal readonly MethodInfo SkipFinalizerOf;
         internal readonly MethodInfo DynamicInstanceOf;
         internal readonly MethodInfo DynamicInstanceOfResolve;
+        /// <summary>Resolved-call-site fast path for dynamic instanceof/cast; see ByteCodeHelper.InstanceCheckIsInstanceOf.</summary>
+        internal readonly MethodInfo InstanceCheckIsInstanceOf;
         internal readonly MethodInfo VolatileReadBoolean;
         internal readonly MethodInfo VolatileReadByte;
         internal readonly MethodInfo VolatileReadChar;
@@ -158,6 +160,7 @@ namespace IKVM.Runtime
             SkipFinalizerOf = GetHelper(typeofByteCodeHelper, "SkipFinalizer", new Type[] { context.Types.Object });
             DynamicInstanceOf = GetHelper(typeofByteCodeHelper, "DynamicInstanceOf");
             DynamicInstanceOfResolve = GetHelper(typeofByteCodeHelper, "DynamicInstanceOfResolve");
+            InstanceCheckIsInstanceOf = GetHelper(typeofByteCodeHelper, "InstanceCheckIsInstanceOf");
             VolatileReadBoolean = GetHelper(typeofByteCodeHelper, "VolatileRead", new Type[] { context.Types.Boolean.MakeByRefType() });
             VolatileReadByte = GetHelper(typeofByteCodeHelper, "VolatileRead", new Type[] { context.Types.Byte.MakeByRefType() });
             VolatileReadChar = GetHelper(typeofByteCodeHelper, "VolatileRead", new Type[] { context.Types.Char.MakeByRefType() });

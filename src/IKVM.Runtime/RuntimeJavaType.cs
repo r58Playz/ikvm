@@ -1443,11 +1443,19 @@ namespace IKVM.Runtime
         }
 
         /// <summary>
-        /// The single <see cref="Type"/> a dynamic instanceof or cast against this type can be answered by, or null when
-        /// the check needs the full Java type graph walk. Never changes once non-null, so a call site may cache it and
-        /// test against it directly from then on.
+        /// The <see cref="InstanceCheck"/> a dynamic instanceof or cast against this type can be answered by, or null
+        /// when the check needs the full Java type graph walk. Never changes once non-null, so a call site may cache it
+        /// and dispatch through it from then on.
         /// </summary>
-        internal Type DynamicInstanceCheckType => ((Volatile.Read(ref dynamicInstanceCheckCache) ?? ClassifyDynamicInstanceCheck()) as InstanceCheck)?.Type;
+        /// <remarks>
+        /// Returns the check rather than its <see cref="InstanceCheck.Type"/> deliberately. Handing out only the Type
+        /// forces the call site to ask <see cref="Type.IsInstanceOfType"/>, which is a reflection ICALL: measured at
+        /// 1.13% of in-game time in `ves_icall_RuntimeTypeHandle_IsInstanceOfType_raw`, plus the `mono_handle_new` and
+        /// `mono_mem_manager_lock` the icall boundary drags in, and roughly a third of that symbol is frame spill
+        /// traffic. The check answers the identical question as `obj is T` in shared reference-generic code with no
+        /// boundary at all -- and it was already built here, then thrown away.
+        /// </remarks>
+        internal InstanceCheck DynamicInstanceCheck => (Volatile.Read(ref dynamicInstanceCheckCache) ?? ClassifyDynamicInstanceCheck()) as InstanceCheck;
 
         /// <summary>
         /// Classifies the dynamic instanceof check for this type, memoizing the answer once it is known to be stable.

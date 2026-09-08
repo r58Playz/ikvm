@@ -309,7 +309,7 @@ namespace IKVM.Runtime
         /// <param name="cache"></param>
         /// <returns></returns>
         [DebuggerStepThrough]
-        public static bool DynamicInstanceOfResolve(object obj, global::java.lang.Class clazz, ref Type cache)
+        public static bool DynamicInstanceOfResolve(object obj, global::java.lang.Class clazz, ref object cache)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -318,12 +318,39 @@ namespace IKVM.Runtime
             Profiler.Count("DynamicInstanceOfResolve");
 
             var tw = RuntimeJavaType.FromClass(clazz);
-            var type = tw.DynamicInstanceCheckType;
-            if (type == null)
+            var check = tw.DynamicInstanceCheck;
+            if (check == null)
                 return tw.DynamicIsInstance(obj);
 
-            Volatile.Write(ref cache, type);
-            return type.IsInstanceOfType(obj);
+            Volatile.Write(ref cache, check);
+            return check.IsInstanceOf(obj);
+#endif
+        }
+
+        /// <summary>
+        /// The fast path a resolved dynamic instanceof/cast call site takes: dispatch the cached
+        /// <see cref="RuntimeJavaType.InstanceCheck"/>, whose body is `obj is T` in shared reference-generic code.
+        /// </summary>
+        /// <remarks>
+        /// Exists so the emitted call site does not have to name a type internal to the runtime: the cache field is
+        /// typed `object` and the cast happens here. It replaces `callvirt Type.IsInstanceOfType` on the same two
+        /// stack operands, in the same order, so the call sites needed no reordering.
+        /// </remarks>
+        [DebuggerStepThrough]
+        public static bool InstanceCheckIsInstanceOf(object check, object obj)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            // Unsafe.As, not a cast: the cast compiles to a castclass, which on this runtime is an
+            // out-of-line type-check helper call, and it measured as the bulk of this method's 199
+            // instructions -- 1.56% of in-game time for what is semantically one virtual call.
+            //
+            // The invariant that makes it sound: the only writers of a __<>dynamicInstanceCheckCache field are
+            // DynamicInstanceOfResolve/DynamicCastResolve, both of which store a RuntimeJavaType.InstanceCheck
+            // and nothing else, and the emitted call site reaches here only after testing that cache non-null.
+            // So the runtime type is known by construction and re-checking it buys nothing.
+            return Unsafe.As<RuntimeJavaType.InstanceCheck>(check).IsInstanceOf(obj);
 #endif
         }
 
@@ -335,7 +362,7 @@ namespace IKVM.Runtime
         /// <param name="cache"></param>
         /// <returns></returns>
         [DebuggerStepThrough]
-        public static object DynamicCastResolve(object obj, global::java.lang.Class clazz, ref Type cache)
+        public static object DynamicCastResolve(object obj, global::java.lang.Class clazz, ref object cache)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -344,12 +371,12 @@ namespace IKVM.Runtime
             Profiler.Count("DynamicCastResolve");
 
             var tw = RuntimeJavaType.FromClass(clazz);
-            var type = tw.DynamicInstanceCheckType;
-            if (type == null)
+            var check = tw.DynamicInstanceCheck;
+            if (check == null)
                 return tw.DynamicIsInstance(obj) ? obj : DynamicCastFailed(obj, clazz);
 
-            Volatile.Write(ref cache, type);
-            return type.IsInstanceOfType(obj) ? obj : DynamicCastFailed(obj, clazz);
+            Volatile.Write(ref cache, check);
+            return check.IsInstanceOf(obj) ? obj : DynamicCastFailed(obj, clazz);
 #endif
         }
 

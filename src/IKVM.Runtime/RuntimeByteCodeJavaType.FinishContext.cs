@@ -2382,7 +2382,11 @@ namespace IKVM.Runtime
             /// <returns></returns>
             internal FieldBuilder DefineDynamicInstanceCheckCacheField()
             {
-                return typeBuilder.DefineField("__<>dynamicInstanceCheckCache" + helperNameCounter++, context.Types.Type, FieldAttributes.Static | FieldAttributes.PrivateScope);
+                // `object`, not `Type`: the site caches the resolved RuntimeJavaType.InstanceCheck, which is internal to
+                // the runtime and so cannot be named from emitted code. Dispatch goes through
+                // ByteCodeHelper.InstanceCheckIsInstanceOf, which avoids the Type.IsInstanceOfType reflection icall the
+                // Type-typed cache forced.
+                return typeBuilder.DefineField("__<>dynamicInstanceCheckCache" + helperNameCounter++, context.Types.Object, FieldAttributes.Static | FieldAttributes.PrivateScope);
             }
 
             /// <summary>
