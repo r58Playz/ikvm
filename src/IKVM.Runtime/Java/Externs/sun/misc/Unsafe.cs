@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -3206,7 +3206,15 @@ namespace IKVM.Java.Externs.sun.misc
 
             if (currentThread != null)
             {
-                if (Interlocked.CompareExchange(ref currentThread.parkState, PARK_STATE_PERMIT, PARK_STATE_RUNNING) == PARK_STATE_PARKED)
+                var parkStateWas = Interlocked.CompareExchange(ref currentThread.parkState, PARK_STATE_PERMIT, PARK_STATE_RUNNING);
+
+                // Wake anything sleeping in FutexPark. Ordered AFTER the permit store so a waiter that
+                // wakes is guaranteed to see it. Unconditional because a post with no waiter is an atomic
+                // add plus a notify that finds nothing -- cheaper than tracking whether to send it.
+                if (LibIkvm.CanParkNanos)
+                    LibIkvm.ParkPost((int)currentThread.getId());
+
+                if (parkStateWas == PARK_STATE_PARKED)
                 {
                     if (Interlocked.CompareExchange(ref currentThread.parkState, PARK_STATE_RUNNING, PARK_STATE_PARKED) == PARK_STATE_PARKED)
                     {
@@ -3221,6 +3229,38 @@ namespace IKVM.Java.Externs.sun.misc
             }
 #endif
         }
+
+        /// <summary>
+        /// Waits up to <paramref name="nanos"/> nanoseconds for an unpark, for requests too short to
+        /// express through Object.wait(long, int). See the long note in <see cref="park"/> for why this
+        /// path exists.
+        /// </summary>
+        /* Guarded like every other body in this file that touches java.lang.Thread's package-private
+         * fields: FIRST_PASS compiles against a stub IKVM.Java in which `parkState` does not exist. */
+#if !FIRST_PASS
+        static void FutexPark(global::java.lang.Thread thread, long nanos)
+        {
+            // Keyed by the Java thread id rather than the OS thread, because park and unpark address a
+            // Thread OBJECT. Truncating to int is safe against the native table, which masks into range;
+            // a collision there can only cause a spurious early return, which park is allowed to do.
+            var key = (int)thread.getId();
+
+            // Read the wakeup sequence BEFORE testing the permit. That order is the entire race argument:
+            // if an unpark lands between this load and the wait, it has already bumped the word, so the
+            // wait compares unequal and returns at once rather than sleeping through a granted permit.
+            var seq = LibIkvm.ParkSeq(key);
+
+            if (Interlocked.CompareExchange(ref thread.parkState, PARK_STATE_RUNNING, PARK_STATE_PERMIT) == PARK_STATE_PERMIT)
+                return;
+
+            LibIkvm.ParkWait(key, seq, nanos);
+
+            // Consume a permit that arrived while we slept. This must run on EVERY exit path including the
+            // timeout: a permit left set would make the next park return immediately, which is the same
+            // lost-wakeup bug in the opposite direction.
+            Interlocked.CompareExchange(ref thread.parkState, PARK_STATE_RUNNING, PARK_STATE_PERMIT);
+        }
+#endif
 
         /// <summary>
         /// Implements the native method 'park'.
@@ -3239,6 +3279,60 @@ namespace IKVM.Java.Externs.sun.misc
 
             if (Interlocked.CompareExchange(ref currentThread.parkState, PARK_STATE_RUNNING, PARK_STATE_PERMIT) == PARK_STATE_PERMIT)
                 return;
+
+            // A SUB-MILLISECOND RELATIVE PARK CANNOT GO THROUGH Object.wait(long, int), AND SILENTLY
+            // BECOMES A 1 ms PARK IF IT DOES.
+            //
+            // The blocking path below calls parkLock.wait(time / 1000000, time % 1000000). For any
+            // request under a millisecond the integer division makes the millisecond argument 0, and
+            // OpenJDK's Object.wait(long, int) contract then rounds the leftover nanoseconds UP to a whole
+            // millisecond:
+            //
+            //     if (nanos > 0) { timeout++; }   // java/lang/Object.java
+            //     wait(timeout);
+            //
+            // so parkNanos(100_000) -- 100 us -- waits 1 ms. Measured on Minecraft 1.16 under IKVM/wasm:
+            // 34,736 parks in one run, mean 1075 us, 91.5% landing in the 1-2 ms bucket, for a requested
+            // total of 3.5 s that cost 37.3 s of wall. That is a ~12x overshoot on every call.
+            //
+            // WHY IT MATTERS RATHER THAN JUST IDLING. Callers use a short parkNanos as "check again very
+            // soon" for work that arrives WITHOUT an unpark. Minecraft's BlockableEventLoop is the case
+            // that exposed it: tell() does unpark the thread, but the server thread also drains chunk
+            // tasks via ServerChunkCache.pollTask(), a poll of a queue nobody unparks it for. So the
+            // effective poll interval is the park duration, and a 12x overshoot is a 12x latency penalty
+            // on every handoff in a pipeline that crosses that boundary repeatedly.
+            //
+            // THE FIX: honour sub-millisecond requests with a real nanosecond-resolution wait instead of
+            // a rounded-up block. On wasm that is memory.atomic.wait32, reached through emscripten's
+            // futex wrapper, which takes a DOUBLE of milliseconds and converts with
+            // `max_wait_ns = (int64_t)(max_wait_ms*1000*1000)` -- no integer rounding, so 100 us survives.
+            //
+            // WHY NOT A SPIN, which is the obvious alternative and was tried first: neither of the two
+            // primitives a spin would rest on does anything on this runtime. Thread.Yield() lowers to
+            // `return TRUE` (mono/utils/mono-threads-wasm.c:169) and Thread.SpinWait() is a relaxed-NOP
+            // loop (Thread.Mono.cs:206), so a spin occupies its worker continuously instead of yielding
+            // it. That converts park from a blocking operation into a CPU-delay loop -- and it also makes
+            // the change unmeasurable, because the metric this was diagnosed with is thread parallelism
+            // (1.48 -> 0.73 cores across the stall), which a busy-wait inflates in exactly the direction
+            // that looks like a fix.
+            //
+            // Three properties make the futex path safe:
+            //   * It runs OUTSIDE the parkLock. Blocking while holding it would block unpark(), which takes
+            //     the same lock to Monitor.Pulse.
+            //   * It never sets PARK_STATE_PARKED, so a concurrent unpark() takes its cheap path and simply
+            //     stores PARK_STATE_PERMIT -- which FutexPark observes and consumes -- then posts the
+            //     wakeup word. No pulse, and no lock is touched on either side.
+            //   * Returning when the timeout expires is spec-legal: LockSupport.park is explicitly
+            //     permitted to return spuriously, and every caller re-checks its own condition in a loop.
+            //
+            // Gated on CanParkNanos so the desktop CoreCLR targets (net472/net8.0), which have no such
+            // wait available, keep the Monitor path they have always used.
+            const long NanosPerMillisecond = 1_000_000;
+            if (!isAbsolute && time > 0 && time < NanosPerMillisecond && LibIkvm.CanParkNanos)
+            {
+                FutexPark(currentThread, time);
+                return;
+            }
 
             // initialize lock
             Interlocked.CompareExchange(ref currentThread.parkLock, new global::java.lang.Object(), null);

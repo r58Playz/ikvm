@@ -112,6 +112,26 @@ namespace IKVM.Runtime
             [DllImport("ikvm", SetLastError = false)]
             internal static extern int IKVM_lazy_relink_stat(int which);
 
+            /// <summary>
+            /// Invokes the native 'IKVM_park_seq' function: reads the current value of a thread's park
+            /// wakeup word. Must be read BEFORE the permit is tested; see <see cref="ParkWait"/>.
+            /// </summary>
+            [DllImport("ikvm", SetLastError = false)]
+            internal static extern int IKVM_park_seq(int key);
+
+            /// <summary>
+            /// Invokes the native 'IKVM_park_wait' function: sleeps until the word changes from
+            /// <paramref name="seq"/> or <paramref name="nanos"/> elapse. Returns 0 where unsupported.
+            /// </summary>
+            [DllImport("ikvm", SetLastError = false)]
+            internal static extern int IKVM_park_wait(int key, int seq, long nanos);
+
+            /// <summary>
+            /// Invokes the native 'IKVM_park_post' function: bumps a thread's word and notifies it.
+            /// </summary>
+            [DllImport("ikvm", SetLastError = false)]
+            internal static extern void IKVM_park_post(int key);
+
         }
 
         /// <summary>
@@ -163,6 +183,51 @@ namespace IKVM.Runtime
                 // A runtime without the entry point simply does not have the race to avoid.
             }
         }
+
+        /// <summary>
+        /// Whether this platform offers a sub-millisecond park wait, so LockSupport.parkNanos need not be
+        /// rounded up to Object.wait's millisecond floor.
+        /// </summary>
+        /// <remarks>
+        /// Probed once by asking for a zero-length wait, which the native side answers without waiting.
+        /// False everywhere except wasm, so desktop CoreCLR targets keep the Monitor path untouched.
+        /// </remarks>
+        internal static bool CanParkNanos { get; } = ProbeParkNanos();
+
+        static bool ProbeParkNanos()
+        {
+            try
+            {
+                // IKVM_PARK_NANOS=0 forces the Monitor path back on, so the fix can be A/B'd inside ONE
+                // binary. A cross-binary comparison cannot settle this one: the effect under test is a
+                // worldgen stall whose incidence clusters by batch, and two consecutive batches of a
+                // single UNCHANGED binary have differed by 31 points.
+                if (Environment.GetEnvironmentVariable("IKVM_PARK_NANOS") == "0")
+                    return false;
+
+                return Externs.IKVM_park_wait(0, 0, 0) != 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Reads the current wakeup sequence for <paramref name="key"/>.
+        /// </summary>
+        internal static int ParkSeq(int key) => Externs.IKVM_park_seq(key);
+
+        /// <summary>
+        /// Waits up to <paramref name="nanos"/> for <paramref name="key"/>'s wakeup word to leave
+        /// <paramref name="seq"/>.
+        /// </summary>
+        internal static void ParkWait(int key, int seq, long nanos) => Externs.IKVM_park_wait(key, seq, nanos);
+
+        /// <summary>
+        /// Wakes anything waiting on <paramref name="key"/>. Call only after the permit is stored.
+        /// </summary>
+        internal static void ParkPost(int key) => Externs.IKVM_park_post(key);
 
         internal static bool CanReplaceMethodBody
         {
