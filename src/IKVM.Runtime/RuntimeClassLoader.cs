@@ -23,6 +23,7 @@
 */
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
@@ -75,7 +76,17 @@ namespace IKVM.Runtime
         RuntimeJavaTypeFactory factory;
 #endif // !EXPORTER
         readonly Dictionary<string, RuntimeJavaType> types = new Dictionary<string, RuntimeJavaType>();
+        // Relink hooks run from arbitrary Java methods and therefore under arbitrary loader, type-init and
+        // application locks. They must not take `types`. Mirror only fully published, non-unloadable entries
+        // here so dependency readiness is a genuinely lock-free query.
+        readonly ConcurrentDictionary<string, byte> publishedTypes = new ConcurrentDictionary<string, byte>();
+        readonly ConcurrentDictionary<string, byte> publishedDefinedTypes = new ConcurrentDictionary<string, byte>();
         readonly Dictionary<string, Thread> defineClassInProgress = new Dictionary<string, Thread>();
+        static int activeClassDefinitions;
+        /// <summary>LinkNoLoad references rescued by an already-loaded bootstrap class. Non-zero is the
+        /// healthy reading: each one is a __dynamic_* site generation 2 would otherwise have invented.</summary>
+        internal static int NoLoadFoundInBootstrap;
+        static long classDefinitionVersion;
         List<IntPtr> nativeLibraries;
         readonly CodeGenOptions codegenoptions;
 
@@ -132,6 +143,31 @@ namespace IKVM.Runtime
             return tw ?? FindLoadedClassLazy(name);
         }
 
+        internal virtual bool IsClassPublished(string name) => publishedTypes.ContainsKey(name);
+
+        /// <summary>Tests defining-loader publication without consulting <c>types</c>.</summary>
+        internal bool IsClassPublishedBy(string name, RuntimeClassLoader definingLoader) =>
+            ReferenceEquals(this, definingLoader) && publishedDefinedTypes.ContainsKey(name);
+
+        internal void PublishClass(RuntimeJavaType tw)
+        {
+            if (tw != null && !tw.IsUnloadable)
+                publishedTypes.TryAdd(tw.Name, 0);
+        }
+
+        internal void PublishDefinedClass(RuntimeJavaType tw)
+        {
+            if (tw != null && !tw.IsUnloadable)
+            {
+                publishedTypes.TryAdd(tw.Name, 0);
+                publishedDefinedTypes.TryAdd(tw.Name, 0);
+            }
+        }
+
+        internal static bool HasActiveClassDefinitions => Volatile.Read(ref activeClassDefinitions) != 0;
+
+        internal static long ClassDefinitionVersion => Interlocked.Read(ref classDefinitionVersion);
+
         protected virtual RuntimeJavaType FindLoadedClassLazy(string name)
         {
             return null;
@@ -157,6 +193,7 @@ namespace IKVM.Runtime
 
         RuntimeJavaType RegisterInitiatingLoaderCritical(RuntimeJavaType tw)
         {
+            RuntimeJavaType result = tw;
             lock (types)
             {
                 types.TryGetValue(tw.Name, out var existing);
@@ -166,18 +203,22 @@ namespace IKVM.Runtime
                     {
                         // another thread beat us to it, discard the new TypeWrapper and
                         // return the previous one
-                        return existing;
+                        result = existing;
                     }
-                    // NOTE if types.ContainsKey(tw.Name) is true (i.e. the value is null),
-                    // we currently have a DefineClass in progress on another thread and we've
-                    // beaten that thread to the punch by loading the class from a parent class
-                    // loader instead. This is ok as DefineClass will throw a LinkageError when
-                    // it is done.
-                    types[tw.Name] = tw;
+                    else
+                    {
+                        // NOTE if types.ContainsKey(tw.Name) is true (i.e. the value is null),
+                        // we currently have a DefineClass in progress on another thread and we've
+                        // beaten that thread to the punch by loading the class from a parent class
+                        // loader instead. This is ok as DefineClass will throw a LinkageError when
+                        // it is done.
+                        types[tw.Name] = tw;
+                    }
                 }
             }
 
-            return tw;
+            PublishClass(result);
+            return result;
         }
 
         internal bool EmitSymbols => (codegenoptions & CodeGenOptions.EmitSymbols) != 0;
@@ -311,32 +352,45 @@ namespace IKVM.Runtime
 
         RuntimeJavaType DefineClassCritical(ClassFile classFile, ProtectionDomain protectionDomain)
         {
-            lock (types)
-            {
-                if (types.ContainsKey(classFile.Name))
-                    throw new LinkageError($"duplicate class definition: {classFile.Name}");
-
-                // mark the type as "loading in progress", so that we can detect circular dependencies.
-                types.Add(classFile.Name, null);
-                defineClassInProgress.Add(classFile.Name, Thread.CurrentThread);
-            }
+            // Cover the entire operation, including publication bookkeeping. Starting the count only after
+            // taking `types`, or clearing it before the cleanup lock, leaves precisely the gaps in which the
+            // relink worker can begin competing with a class definition.
+            Interlocked.Increment(ref activeClassDefinitions);
+            Interlocked.Increment(ref classDefinitionVersion);
             try
-            {
-                return GetTypeWrapperFactory().DefineClassImpl(types, null, classFile, this, protectionDomain);
-            }
-            finally
             {
                 lock (types)
                 {
-                    if (types[classFile.Name] == null)
-                    {
-                        // if loading the class fails, we remove the indicator that we're busy loading the class,
-                        // because otherwise we get a ClassCircularityError if we try to load the class again.
-                        types.Remove(classFile.Name);
-                    }
-                    defineClassInProgress.Remove(classFile.Name);
-                    Monitor.PulseAll(types);
+                    if (types.ContainsKey(classFile.Name))
+                        throw new LinkageError($"duplicate class definition: {classFile.Name}");
+
+                    // mark the type as "loading in progress", so that we can detect circular dependencies.
+                    types.Add(classFile.Name, null);
+                    defineClassInProgress.Add(classFile.Name, Thread.CurrentThread);
                 }
+                try
+                {
+                    return GetTypeWrapperFactory().DefineClassImpl(types, null, classFile, this, protectionDomain);
+                }
+                finally
+                {
+                    lock (types)
+                    {
+                        if (types[classFile.Name] == null)
+                        {
+                            // if loading the class fails, we remove the indicator that we're busy loading the class,
+                            // because otherwise we get a ClassCircularityError if we try to load the class again.
+                            types.Remove(classFile.Name);
+                        }
+                        defineClassInProgress.Remove(classFile.Name);
+                        Monitor.PulseAll(types);
+                    }
+                }
+            }
+            finally
+            {
+                Interlocked.Decrement(ref activeClassDefinitions);
+                Interlocked.Increment(ref classDefinitionVersion);
             }
         }
 
@@ -397,6 +451,32 @@ namespace IKVM.Runtime
                     javaType = TryTrustedEagerLink(name, mode);
                     if (javaType != null)
                         return javaType;
+                }
+
+                // ALREADY LOADED ELSEWHERE IS NOT "NOT LOADED". Under LinkNoLoad (no Load bit, no
+                // TrustedProbe) the only lookup above is this loader's own `types`, which implements
+                // findLoadedClass() and by Java semantics does NOT delegate. A mod class referencing
+                // java.lang.Math therefore reads UNLOADABLE even though Math is loaded by an ancestor --
+                // generation 2 then manufactures a __dynamic_invokestatic that generation 1 never had, and
+                // the body is rejected. Measured: 418 of ~4,900 candidates per run, every one
+                // declTypeUnloadable=True, led by java.lang.Math.min/max (R278).
+                //
+                // This is a pure FIND against the bootstrap loader: it cannot define a class, cannot invoke
+                // user loadClass, and cannot re-enter Knot -- the hazard LinkNoLoad exists for. It is
+                // strictly narrower than TrustedProbe, which re-enters WITH the Load bit and is correctly
+                // excluded here.
+                if ((mode & LoadMode.Load) == 0 && (mode & LoadMode.TrustedProbe) == 0)
+                {
+                    var boot = context.ClassLoaderFactory.GetBootstrapClassLoader();
+                    if (boot != null && boot != this)
+                    {
+                        var already = boot.FindLoadedClass(name);
+                        if (already != null && !already.IsUnloadable)
+                        {
+                            System.Threading.Interlocked.Increment(ref NoLoadFoundInBootstrap);
+                            return RegisterInitiatingLoader(already);
+                        }
+                    }
                 }
 
                 if (!(name.Length > 1 && name[0] == '[') && (mode & LoadMode.WarnClassNotFound) != 0 && (mode & LoadMode.TrustedProbe) == 0 || WarningLevelHigh)

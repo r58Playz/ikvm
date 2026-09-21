@@ -507,13 +507,10 @@ namespace IKVM.Runtime
         /// </summary>
         /// <remarks>
         /// Reads the analyzer-assigned opcodes (__methodhandle_invoke/__methodhandle_link), so it is only
-        /// meaningful once the method has been compiled once. The recompile path is such a caller; the
-        /// candidacy gate in FinishContext is NOT, which is why MayHaveDynamicReferences exists separately.
+        /// meaningful once the method has been compiled once.
         ///
-        /// Such a body must not be recompiled while IKVM_LAZY_MH is off. A second FinishContext pass would
-        /// Define* fresh call sites, caches and CallerID nested types rather than referencing the ones already
-        /// baked into the type, and the resulting body reads different storage than the first generation wrote.
-        /// The failure is silent data corruption, not an exception.
+        /// The legacy delegate recompile path still rejects these bodies because it has no stable owner from
+        /// which to call generation 1's state. The in-place path instead routes them through baked site bridges.
         /// </remarks>
         internal static bool HasIndyOrMethodHandleSite(ClassFile.Method m)
         {
@@ -536,11 +533,9 @@ namespace IKVM.Runtime
         }
 
         /// <summary>
-        /// True if <paramref name="m"/> may still contain references that resolve dynamically at first
-        /// execution, decided from the CONSTANT POOL rather than from analyzer output.
+        /// Returns the declaring classes whose field or method references may still resolve dynamically at
+        /// first execution, decided from the CONSTANT POOL rather than from analyzer output.
         /// </summary>
-        /// <param name="methodHandleSite">Set when the method contains an invokedynamic or MethodHandle call
-        /// site, so the caller can decline it separately from declining "nothing dynamic here".</param>
         /// <remarks>
         /// This is the pre-analysis counterpart of <see cref="HasDynamicReferences"/>, and the distinction is
         /// the whole reason it exists. The __dynamic_* opcodes it would be natural to test for are assigned by
@@ -553,35 +548,26 @@ namespace IKVM.Runtime
         /// Deliberately conservative -- a false positive costs one wasted trampoline, a false negative costs a
         /// method that keeps its dynamic stubs forever.
         /// </remarks>
-        internal static bool MayHaveDynamicReferences(ClassFile classFile, ClassFile.Method m, RuntimeByteCodeJavaType clazz, out bool methodHandleSite)
+        internal static string[] GetDynamicDependencies(ClassFile classFile, ClassFile.Method m, RuntimeByteCodeJavaType clazz)
         {
-            methodHandleSite = false;
-
             var instructions = m.Instructions;
-            if (instructions == null)
-                return false;
+            if (instructions == null || clazz.ClassLoader.DisableDynamicBinding)
+                return Array.Empty<string>();
 
-            // With dynamic binding disabled there is no __dynamic_* path to begin with, so nothing to gain.
-            if (clazz.ClassLoader.DisableDynamicBinding)
-                return false;
-
-            var result = false;
+            HashSet<string> dependencies = null;
             for (int i = 0; i < instructions.Length; i++)
             {
                 switch (instructions[i].NormalizedOpCode)
                 {
-                    case NormalizedByteCode.__invokedynamic:
-                        methodHandleSite = true;
-                        return true;
-
                     case NormalizedByteCode.__getstatic:
                     case NormalizedByteCode.__putstatic:
                     case NormalizedByteCode.__getfield:
                     case NormalizedByteCode.__putfield:
                         {
-                            var ft = classFile.GetFieldref(instructions[i].Arg1)?.GetClassType();
+                            var cpi = classFile.GetFieldref(instructions[i].Arg1);
+                            var ft = cpi?.GetClassType();
                             if (ft == null || ft.IsUnloadable)
-                                result = true;
+                                (dependencies ??= new HashSet<string>()).Add(cpi.Class);
                             break;
                         }
 
@@ -590,35 +576,32 @@ namespace IKVM.Runtime
                     case NormalizedByteCode.__invokestatic:
                     case NormalizedByteCode.__invokeinterface:
                         {
-                            // SafeGet: an unresolvable methodref is itself a reason to expect a dynamic site,
-                            // and must not throw out of a candidacy test.
+                            var cpi = classFile.GetMethodref(instructions[i].Arg1);
                             var mi = classFile.SafeGetMethodref(instructions[i].Arg1);
-                            if (mi == null)
-                            {
-                                result = true;
-                                break;
-                            }
 
                             // The polymorphic signature methods become __methodhandle_* rather than
-                            // __dynamic_*, and are matched by name because that is what the analyzer does.
-                            if (mi.Class == "java.lang.invoke.MethodHandle" &&
+                            // __dynamic_*; they are preserved through their generation-1 site bridge and
+                            // are not a reason to recompile by themselves.
+                            if (cpi.Class == "java.lang.invoke.MethodHandle" &&
                                 (instructions[i].NormalizedOpCode == NormalizedByteCode.__invokevirtual
-                                    ? mi.Name is "invoke" or "invokeExact" or "invokeBasic"
+                                    ? cpi.Name is "invoke" or "invokeExact" or "invokeBasic"
                                     : instructions[i].NormalizedOpCode == NormalizedByteCode.__invokestatic &&
-                                      mi.Name is "linkToVirtual" or "linkToStatic" or "linkToSpecial" or "linkToInterface"))
-                            {
-                                methodHandleSite = true;
-                                return true;
-                            }
+                                      cpi.Name is "linkToVirtual" or "linkToStatic" or "linkToSpecial" or "linkToInterface"))
+                                break;
 
-                            var ct = mi.GetClassType();
+                            var ct = mi?.GetClassType();
                             if (ct == null || ct.IsUnloadable)
-                                result = true;
+                                (dependencies ??= new HashSet<string>()).Add(cpi.Class);
                             break;
                         }
                 }
             }
 
+            if (dependencies == null)
+                return Array.Empty<string>();
+
+            var result = new string[dependencies.Count];
+            dependencies.CopyTo(result);
             return result;
         }
 
@@ -672,6 +655,59 @@ namespace IKVM.Runtime
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Names the first reference that is STILL dynamic after a generation-2 recompile, as
+        /// "opcode class.member". Returns null if none.
+        /// </summary>
+        /// <remarks>
+        /// The dependency gate waits until every declaring type collected by GetDynamicDependencies is
+        /// published, yet 422 bodies per run still come back dynamic and are rejected. Knowing WHICH
+        /// reference survived is the difference between fixing the gate and guessing at it: a declaring type
+        /// the collector never saw is one bug, a type that IS published while the member still fails to
+        /// resolve is a completely different one, and the counter alone cannot tell them apart.
+        /// </remarks>
+        internal static string DescribeFirstDynamicReference(ClassFile classFile, ClassFile.Method m)
+        {
+            var instructions = m.Instructions;
+            if (instructions == null)
+                return null;
+
+            for (int i = 0; i < instructions.Length; i++)
+            {
+                var op = instructions[i].NormalizedOpCode;
+                if (op < NormalizedByteCode.__dynamic_getstatic || op > NormalizedByteCode.__dynamic_invokespecial)
+                    continue;
+
+                try
+                {
+                    switch (op)
+                    {
+                        case NormalizedByteCode.__dynamic_getfield:
+                        case NormalizedByteCode.__dynamic_putfield:
+                        case NormalizedByteCode.__dynamic_getstatic:
+                        case NormalizedByteCode.__dynamic_putstatic:
+                            {
+                                var f = classFile.GetFieldref(instructions[i].Arg1);
+                                var ft = f?.GetClassType();
+                                return $"{op} {f?.Class}.{f?.Name} declTypeUnloadable={(ft == null ? "null" : ft.IsUnloadable.ToString())}";
+                            }
+                        default:
+                            {
+                                var mi = classFile.SafeGetMethodref(instructions[i].Arg1);
+                                var mt = mi?.GetClassType();
+                                return $"{op} {mi?.Class}.{mi?.Name} declTypeUnloadable={(mt == null ? "null" : mt.IsUnloadable.ToString())}";
+                            }
+                    }
+                }
+                catch
+                {
+                    return op.ToString() + " <describe threw>";
+                }
+            }
+
+            return null;
         }
 
         internal static void Compile(RuntimeByteCodeJavaType.FinishContext finish, RuntimeJavaType host, RuntimeByteCodeJavaType clazz, RuntimeJavaMethod mw, ClassFile classFile, ClassFile.Method m, CodeEmitter ilGenerator, ref bool nonleaf)
@@ -1378,9 +1414,13 @@ namespace IKVM.Runtime
                         {
                             var cpi = classFile.GetInvokeDynamic(new((ushort)instr.Arg1));
                             CastInterfaceArgs(null, cpi.GetArgTypes(), i, false);
-                            if (!LambdaMetafactory.Emit(finish, classFile, instr.Arg1, cpi, ilGenerator))
+                            if (finish.IsLazyRecompile)
                             {
-                                EmitInvokeDynamic(cpi);
+                                EmitBakedInvokeDynamic(cpi, instr.Arg1);
+                            }
+                            else if (!LambdaMetafactory.Emit(finish, classFile, instr.Arg1, cpi, ilGenerator))
+                            {
+                                EmitInvokeDynamic(cpi, instr.Arg1);
                                 EmitReturnTypeConversion(cpi.GetRetType());
                             }
                             nonleaf = true;
@@ -2894,8 +2934,9 @@ namespace IKVM.Runtime
         static class InvokeDynamicBuilder
         {
 
-            internal static void Emit(Compiler compiler, ClassFile.ConstantPoolItemInvokeDynamic cpi, Type delegateType)
+            internal static void Emit(Compiler compiler, ClassFile.ConstantPoolItemInvokeDynamic cpi, Type delegateType, CodeEmitter output)
             {
+
                 var typeofOpenIndyCallSite = compiler.finish.Context.Resolver.ResolveRuntimeType("IKVM.Runtime.IndyCallSite`1").AsReflection();
                 var methodLookup = compiler.finish.Context.ClassLoaderFactory.LoadClassCritical("java.lang.invoke.MethodHandles").GetMethod("lookup", "()Ljava.lang.invoke.MethodHandles$Lookup;", false);
                 methodLookup.Link();
@@ -2925,8 +2966,8 @@ namespace IKVM.Runtime
                 ilgen.Emit(OpCodes.Ret);
                 ilgen.DoEmit();
 
-                compiler.ilGenerator.Emit(OpCodes.Ldsfld, fb);
-                compiler.ilGenerator.Emit(OpCodes.Call, methodGetTarget);
+                output.Emit(OpCodes.Ldsfld, fb);
+                output.Emit(OpCodes.Call, methodGetTarget);
             }
 
             static MethodBuilder CreateBootstrapStub(Compiler compiler, ClassFile.ConstantPoolItemInvokeDynamic cpi, Type delegateType, TypeBuilder tb, FieldBuilder fb, MethodInfo methodGetTarget)
@@ -3194,35 +3235,134 @@ namespace IKVM.Runtime
 
         }
 
-        void EmitInvokeDynamic(ClassFile.ConstantPoolItemInvokeDynamic cpi)
+        sealed class InvokeDynamicSite
         {
-            var ilgen = ilGenerator;
-            var args = cpi.GetArgTypes();
-            var temps = new CodeEmitterLocal[args.Length];
-            for (int i = args.Length - 1; i >= 0; i--)
+            internal MethodInfo Bridge;
+        }
+
+        void EmitBakedInvokeDynamic(ClassFile.ConstantPoolItemInvokeDynamic cpi, int siteKey)
+        {
+            // Generation 1's emitted bridge is the source of truth. Reparse + LinkNoLoad can leave the
+            // LambdaMetafactory bootstrap member unresolved even when LinkLazy's trusted probe resolved it
+            // for generation 1. Re-running recognition would then change a lambda$ bridge into an indy$
+            // request for the same constant-pool site -- a bridge generation 1 correctly never emitted.
+            var bridge = finish.TryGetBakedLazySiteBridge("lambda", siteKey, null);
+            if (bridge != null)
             {
-                temps[i] = ilgen.DeclareLocal(args[i].TypeAsSignatureType);
-                ilgen.Emit(OpCodes.Stloc, temps[i]);
+                System.Threading.Interlocked.Increment(ref LazyBodyStats.Gen2BakedLambdaSite);
+            }
+            else
+            {
+                bridge = finish.GetBakedLazySiteBridge("indy", siteKey, null);
             }
 
-            var delegateType = finish.Context.MethodHandleUtil.CreateMethodHandleDelegateType(args, cpi.GetRetType());
-            InvokeDynamicBuilder.Emit(this, cpi, delegateType);
-            for (int i = 0; i < args.Length; i++)
-                ilgen.Emit(OpCodes.Ldloc, temps[i]);
+            ilGenerator.Emit(OpCodes.Call, bridge);
+            EmitBakedBridgeReturnConversion(ilGenerator, bridge, cpi.GetRetType());
+        }
 
-            finish.Context.MethodHandleUtil.EmitCallDelegateInvokeMethod(ilgen, delegateType);
+        void EmitInvokeDynamic(ClassFile.ConstantPoolItemInvokeDynamic cpi, int siteKey)
+        {
+            Debug.Assert(!finish.IsLazyRecompile);
+
+            if (!finish.UseLazySiteBridges)
+            {
+                var args = cpi.GetArgTypes();
+                var temps = new CodeEmitterLocal[args.Length];
+                for (int i = args.Length - 1; i >= 0; i--)
+                {
+                    temps[i] = ilGenerator.DeclareLocal(args[i].TypeAsSignatureType);
+                    ilGenerator.Emit(OpCodes.Stloc, temps[i]);
+                }
+
+                var delegateType = finish.Context.MethodHandleUtil.CreateMethodHandleDelegateType(args, cpi.GetRetType());
+                InvokeDynamicBuilder.Emit(this, cpi, delegateType, ilGenerator);
+                for (int i = 0; i < args.Length; i++)
+                    ilGenerator.Emit(OpCodes.Ldloc, temps[i]);
+                finish.Context.MethodHandleUtil.EmitCallDelegateInvokeMethod(ilGenerator, delegateType);
+                return;
+            }
+
+            var site = finish.GetValue<InvokeDynamicSite>(siteKey);
+            if (site.Bridge == null)
+            {
+                var args = cpi.GetArgTypes();
+                var parameterTypes = Array.ConvertAll(args, t => t.TypeAsSignatureType);
+                var bridge = finish.DefineLazySiteBridge("indy", siteKey, cpi.GetRetType().TypeAsSignatureType, parameterTypes);
+                var body = finish.Context.CodeEmitterFactory.Create(bridge);
+                var delegateType = finish.Context.MethodHandleUtil.CreateMethodHandleDelegateType(args, cpi.GetRetType());
+                InvokeDynamicBuilder.Emit(this, cpi, delegateType, body);
+                for (int i = 0; i < args.Length; i++)
+                    body.EmitLdarg(i);
+                finish.Context.MethodHandleUtil.EmitCallDelegateInvokeMethod(body, delegateType);
+                body.Emit(OpCodes.Ret);
+                body.DoEmit();
+                site.Bridge = bridge;
+            }
+
+            ilGenerator.Emit(OpCodes.Call, site.Bridge);
+        }
+
+        static void EmitBakedBridgeReturnConversion(CodeEmitter ilgen, MethodInfo bridge, RuntimeJavaType returnType)
+        {
+            // Generation 1 erases an unloadable reference in a bridge signature to object. Generation 2's
+            // reparsed constant pool USUALLY names the real type, so restore the concrete stack type after
+            // calling the baked bridge. Primitive and void signatures never undergo unloadable erasure.
+            //
+            // "USUALLY" is the point: the reparse links with LoadMode.LinkNoLoad, which resolves only what is
+            // ALREADY LOADED, so a type generation 2 has not yet loaded stays unloadable -- and
+            // EmitCheckcast on an unloadable wrapper throws InvalidOperationException. Measured: 7 failures
+            // per run, every one a functional interface reached through a lambda bridge
+            // (java.util.function.Function, BiPredicate, BooleanSupplier, ToDoubleFunction), i.e. exactly the
+            // return types indy sites carry.
+            //
+            // When it is still unloadable, do what GENERATION 1 did and leave the value as `object`. That is
+            // consistent by construction: an unloadable type here means the rest of this body also compiles
+            // its uses through the dynamic path, which is the erased shape generation 1 already ran.
+            if (!returnType.IsPrimitive && !returnType.IsUnloadable
+                && bridge.ReturnType != returnType.TypeAsSignatureType)
+                returnType.EmitCheckcast(ilgen);
         }
 
         sealed class MethodHandleConstant
         {
 
             FieldBuilder field;
+            MethodInfo bridge;
 
             internal void Emit(Compiler compiler, CodeEmitter ilgen, MethodHandleConstantHandle handle)
             {
-                if (field == null)
-                    field = compiler.finish.DefineDynamicMethodHandleCacheField();
+                if (!compiler.finish.UseLazySiteBridges)
+                {
+                    field ??= compiler.finish.DefineDynamicMethodHandleCacheField();
+                    EmitLoad(compiler, ilgen, handle);
+                    return;
+                }
 
+                if (bridge == null)
+                {
+                    if (compiler.finish.IsLazyRecompile)
+                    {
+                        bridge = compiler.finish.GetBakedLazySiteBridge("mhc", handle.Slot, Type.EmptyTypes);
+                    }
+                    else
+                    {
+                        field ??= compiler.finish.DefineDynamicMethodHandleCacheField();
+                        var mb = compiler.finish.DefineLazySiteBridge("mhc", handle.Slot,
+                            compiler.finish.Context.JavaBase.TypeOfJavaLangInvokeMethodHandle.TypeAsSignatureType,
+                            Type.EmptyTypes);
+                        var body = compiler.finish.Context.CodeEmitterFactory.Create(mb);
+                        EmitLoad(compiler, body, handle);
+                        body.Emit(OpCodes.Ret);
+                        body.DoEmit();
+                        bridge = mb;
+                    }
+                }
+
+                ilgen.Emit(OpCodes.Call, bridge);
+            }
+
+            void EmitLoad(Compiler compiler, CodeEmitter ilgen, MethodHandleConstantHandle handle)
+            {
                 var mh = compiler.classFile.GetConstantPoolConstantMethodHandle(handle);
                 ilgen.Emit(OpCodes.Ldsflda, field);
                 ilgen.EmitLdc_I4((int)mh.Kind);
@@ -3240,12 +3380,42 @@ namespace IKVM.Runtime
 
             FieldBuilder field;
             bool dynamic;
+            MethodInfo bridge;
 
             internal void Emit(Compiler compiler, CodeEmitter ilgen, MethodTypeConstantHandle handle)
             {
-                if (field == null)
-                    field = CreateField(compiler, handle, ref dynamic);
+                if (!compiler.finish.UseLazySiteBridges)
+                {
+                    field ??= CreateField(compiler, handle, ref dynamic);
+                    EmitLoad(compiler, ilgen, handle);
+                    return;
+                }
 
+                if (bridge == null)
+                {
+                    if (compiler.finish.IsLazyRecompile)
+                    {
+                        bridge = compiler.finish.GetBakedLazySiteBridge("mtc", handle.Slot, Type.EmptyTypes);
+                    }
+                    else
+                    {
+                        field ??= CreateField(compiler, handle, ref dynamic);
+                        var mb = compiler.finish.DefineLazySiteBridge("mtc", handle.Slot,
+                            compiler.finish.Context.JavaBase.TypeOfJavaLangInvokeMethodType.TypeAsSignatureType,
+                            Type.EmptyTypes);
+                        var body = compiler.finish.Context.CodeEmitterFactory.Create(mb);
+                        EmitLoad(compiler, body, handle);
+                        body.Emit(OpCodes.Ret);
+                        body.DoEmit();
+                        bridge = mb;
+                    }
+                }
+
+                ilgen.Emit(OpCodes.Call, bridge);
+            }
+
+            void EmitLoad(Compiler compiler, CodeEmitter ilgen, MethodTypeConstantHandle handle)
+            {
                 if (dynamic)
                 {
                     ilgen.Emit(OpCodes.Ldsflda, field);
@@ -3566,13 +3736,20 @@ namespace IKVM.Runtime
             private readonly Compiler compiler;
             private readonly RuntimeJavaType wrapper;
             private readonly ClassFile.ConstantPoolItemMI cpi;
+            private readonly int siteKey;
 
-            internal MethodHandleMethodWrapper(Compiler compiler, RuntimeJavaType wrapper, ClassFile.ConstantPoolItemMI cpi)
+            sealed class Site
+            {
+                internal MethodInfo Bridge;
+            }
+
+            internal MethodHandleMethodWrapper(Compiler compiler, RuntimeJavaType wrapper, ClassFile.ConstantPoolItemMI cpi, int siteKey)
                 : base(compiler.finish.Context.JavaBase.TypeOfJavaLangInvokeMethodHandle, cpi.Name, cpi.Signature, null, cpi.GetRetType(), cpi.GetArgTypes(), Modifiers.Public, MemberFlags.None)
             {
                 this.compiler = compiler;
                 this.wrapper = wrapper;
                 this.cpi = cpi;
+                this.siteKey = siteKey;
             }
 
             private static void ToBasic(RuntimeJavaType tw, CodeEmitter ilgen)
@@ -3606,7 +3783,45 @@ namespace IKVM.Runtime
             internal override void EmitCall(CodeEmitter ilgen)
             {
                 Debug.Assert(cpi.Name == "linkToVirtual" || cpi.Name == "linkToStatic" || cpi.Name == "linkToSpecial" || cpi.Name == "linkToInterface");
-                EmitLinkToCall(ilgen.Context, ilgen, cpi.GetArgTypes(), cpi.GetRetType());
+                if (compiler.finish.UseLazySiteBridges)
+                    EmitThroughBridge(ilgen, false);
+                else
+                    EmitLinkToCall(ilgen.Context, ilgen, cpi.GetArgTypes(), cpi.GetRetType());
+            }
+
+            void EmitThroughBridge(CodeEmitter ilgen, bool virtualCall)
+            {
+                var args = virtualCall
+                    ? ArrayUtil.Concat(compiler.finish.Context.JavaBase.TypeOfJavaLangInvokeMethodHandle, cpi.GetArgTypes())
+                    : cpi.GetArgTypes();
+                var parameterTypes = Array.ConvertAll(args, t => t.TypeAsSignatureType);
+                var key = siteKey | (virtualCall ? 1 << 24 : 2 << 24);
+
+                if (compiler.finish.IsLazyRecompile)
+                {
+                    var bridge = compiler.finish.GetBakedLazySiteBridge("mhcall", key, null);
+                    ilgen.Emit(OpCodes.Call, bridge);
+                    EmitBakedBridgeReturnConversion(ilgen, bridge, cpi.GetRetType());
+                    return;
+                }
+
+                var site = compiler.finish.GetValue<Site>(key);
+                if (site.Bridge == null)
+                {
+                    var bridge = compiler.finish.DefineLazySiteBridge("mhcall", key, cpi.GetRetType().TypeAsSignatureType, parameterTypes);
+                    var body = compiler.finish.Context.CodeEmitterFactory.Create(bridge);
+                    for (int i = 0; i < parameterTypes.Length; i++)
+                        body.EmitLdarg(i);
+                    if (virtualCall)
+                        EmitCallvirtCore(body);
+                    else
+                        EmitLinkToCall(body.Context, body, cpi.GetArgTypes(), cpi.GetRetType());
+                    body.Emit(OpCodes.Ret);
+                    body.DoEmit();
+                    site.Bridge = bridge;
+                }
+
+                ilgen.Emit(OpCodes.Call, site.Bridge);
             }
 
             internal static void EmitLinkToCall(RuntimeContext context, CodeEmitter ilgen, RuntimeJavaType[] args, RuntimeJavaType retType)
@@ -3799,6 +4014,14 @@ namespace IKVM.Runtime
             }
 
             internal override void EmitCallvirt(CodeEmitter ilgen)
+            {
+                if (compiler.finish.UseLazySiteBridges)
+                    EmitThroughBridge(ilgen, true);
+                else
+                    EmitCallvirtCore(ilgen);
+            }
+
+            void EmitCallvirtCore(CodeEmitter ilgen)
             {
                 switch (cpi.Name)
                 {
@@ -4017,7 +4240,7 @@ namespace IKVM.Runtime
                     return GetDynamicMethodWrapper(constantPoolIndex, invoke, cpi);
                 case NormalizedByteCode.__methodhandle_invoke:
                 case NormalizedByteCode.__methodhandle_link:
-                    return new MethodHandleMethodWrapper(this, clazz, cpi);
+                    return new MethodHandleMethodWrapper(this, clazz, cpi, constantPoolIndex);
                 default:
                     throw new InvalidOperationException();
             }

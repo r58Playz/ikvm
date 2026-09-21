@@ -74,6 +74,23 @@ namespace IKVM.Runtime
             return null;
         }
 
+        /// <summary>
+        /// Mirrors <see cref="FindLoadedClassLazy"/>'s delegate lookup without entering any loader lock.
+        /// A delegate hit only counts when that delegate defines the class; merely initiating a load from
+        /// somewhere else does not satisfy the generic loader's existing lookup semantics.
+        /// </summary>
+        internal override bool IsClassPublished(string name)
+        {
+            if (base.IsClassPublished(name))
+                return true;
+
+            foreach (var loader in delegates)
+                if (loader.IsClassPublishedBy(name, loader))
+                    return true;
+
+            return false;
+        }
+
         internal string GetName()
         {
             var sb = new ValueStringBuilder();

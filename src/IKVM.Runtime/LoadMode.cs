@@ -50,7 +50,7 @@ namespace IKVM.Runtime
         // with LoadMode.Link: 189 re-entrance errors per run against 0-1 in the control, which silently
         // changed the workload and voided the timing. Not loading at all removes the whole class of bug
         // rather than guarding each path into it -- and it costs only the references that genuinely are
-        // not loaded yet, which stay __dynamic_* and are counted as Gen2StillDynamic.
+        // not loaded yet; dependency-gated Gen2 emission refuses such a body rather than installing it.
         LinkNoLoad = ReturnUnloadable | SuppressExceptions,
 
         // call into Java class loader

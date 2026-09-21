@@ -49,6 +49,7 @@ namespace IKVM.Runtime
     {
 
         MethodBuilder getInstance;
+        MethodInfo lazySiteBridge;
 
         /// <summary>
         /// Emits the required IL for the invokedynamic constant item.
@@ -67,6 +68,11 @@ namespace IKVM.Runtime
             if (!IsLambdaMetafactory(classFile, bsm) && !IsLambdaAltMetafactory(classFile, bsm))
                 return false;
 
+            // Lazy recompiles select the bridge generation 1 actually emitted before entering here. This
+            // routine must not re-decide lambda versus general indy from Gen2's LinkNoLoad state.
+            System.Diagnostics.Debug.Assert(!context.IsLazyRecompile);
+            var parameterTypes = Array.ConvertAll(cpi.GetArgTypes(), t => t.TypeAsSignatureType);
+
             // we associate a single LambdaMetafactory instance for each dynamic invoke constant
             var lmf = context.GetValue<LambdaMetafactory>(constantPoolIndex);
             if (lmf.getInstance == null && !lmf.EmitImpl(context, classFile, cpi, bsm, ilgen))
@@ -78,8 +84,27 @@ namespace IKVM.Runtime
                 return false;
             }
 
-            // call getInstance at the call site
-            ilgen.Emit(OpCodes.Call, lmf.getInstance);
+            if (!context.UseLazySiteBridges)
+            {
+                ilgen.Emit(OpCodes.Call, lmf.getInstance);
+                return true;
+            }
+
+            if (lmf.lazySiteBridge == null)
+            {
+                var bridge = context.DefineLazySiteBridge("lambda", constantPoolIndex, cpi.GetRetType().TypeAsBaseType, parameterTypes);
+                var bridgeIl = context.Context.CodeEmitterFactory.Create(bridge);
+                for (int i = 0; i < parameterTypes.Length; i++)
+                    bridgeIl.EmitLdarg(i);
+                bridgeIl.Emit(OpCodes.Call, lmf.getInstance);
+                bridgeIl.Emit(OpCodes.Ret);
+                bridgeIl.DoEmit();
+                lmf.lazySiteBridge = bridge;
+            }
+
+            // Call the stable owner bridge, which a later generation can reference without naming the
+            // private anonymous lambda type.
+            ilgen.Emit(OpCodes.Call, lmf.lazySiteBridge);
             return true;
         }
 

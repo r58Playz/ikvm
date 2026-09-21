@@ -58,6 +58,9 @@ namespace IKVM.Runtime
 
             internal RuntimeByteCodeJavaType Wrapper;
 
+            /// <summary>This entry's index in the registry, stamped by <see cref="Add"/>.</summary>
+            internal int Id;
+
             internal RuntimeJavaType Host;
 
             /// <summary>The already-baked TypeBuilder. Used as the DynamicMethod owner when it is usable as
@@ -65,6 +68,26 @@ namespace IKVM.Runtime
             internal TypeBuilder TypeBuilder;
 
             internal RuntimeJavaMethod Method;
+
+            /// <summary>The declaring types whose unloadability caused this method's generation-1
+            /// <c>__dynamic_*</c> field or method instructions.</summary>
+            internal string[] Dependencies = Array.Empty<string>();
+
+            /// <summary>0 = waiting for dependencies, 1 = queued for the only recompile, 2 = terminal.</summary>
+            internal int RelinkState;
+
+            /// <summary>Number of Gen1 invocations skipped between dependency probes. Grows from 1 through
+            /// 4 and 16 to a cap of 64 while a dependency remains unloaded.</summary>
+            internal int RetryDelay;
+
+            internal bool DependenciesLoaded()
+            {
+                for (int i = 0; i < Dependencies.Length; i++)
+                    if (!Wrapper.ClassLoader.IsClassPublished(Dependencies[i]))
+                        return false;
+
+                return true;
+            }
 
         }
 
@@ -78,7 +101,8 @@ namespace IKVM.Runtime
             lock (entries)
             {
                 entries.Add(entry);
-                return entries.Count - 1;
+                entry.Id = entries.Count - 1;
+                return entry.Id;
             }
         }
 
@@ -115,7 +139,6 @@ namespace IKVM.Runtime
         internal static int Seen;
         internal static int Accepted;
         internal static int RejShape;             // abstract/native/no instructions, or <init>/<clinit>
-        internal static int RejMethodHandle;      // indy or MethodHandle call site, with IKVM_LAZY_MH off
         internal static int RejNoDynamic;         // nothing dynamic to gain from a second generation
         internal static int RejArity;             // more args than the delegate types cover
         internal static int RejExceptionHandlers; // only with IKVM_LAZY_SKIP_EH=1
@@ -132,18 +155,95 @@ namespace IKVM.Runtime
         // populations agreed. A gate that accepts 4,945 methods and a recompiler that heals 2,000 of them is
         // not a contradiction, but it is only visible if both halves are counted.
         internal static int Gen2Clean;            // recompiled body verified to hold no __dynamic_* references
-        internal static int Gen2StillDynamic;     // recompiled, but STILL has dynamic refs: the types are not loaded yet
+        internal static int Gen2UnexpectedDynamic;
+
+        /// <summary>Surviving dynamic references tallied by OPCODE + whether the declaring type is still
+        /// unloadable. "declTypeUnloadable=False" means the gate did its job and the MEMBER still failed to
+        /// resolve -- a different bug from a declaring type the collector never saw.</summary>
+        static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> unexpectedDynKinds =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, int>();
+
+        internal static void RecordUnexpectedDynamic(string desc)
+        {
+            if (string.IsNullOrEmpty(desc))
+                desc = "(none described)";
+            // Key on the opcode and the unloadable flag, not the member name: the member is unbounded,
+            // the shape is what decides the fix.
+            var sp = desc.IndexOf(' ');
+            var op = sp > 0 ? desc.Substring(0, sp) : desc;
+            var unl = desc.Contains("declTypeUnloadable=True") ? "declUnloadable"
+                    : desc.Contains("declTypeUnloadable=False") ? "declLOADED-memberFailed"
+                    : "declNull";
+            unexpectedDynKinds.AddOrUpdate($"{op}/{unl}", 1, (_, v) => v + 1);
+        }
+
+        internal static string UnexpectedDynamicSummary()
+        {
+            if (unexpectedDynKinds.IsEmpty) return "(none)";
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (var kv in unexpectedDynKinds) parts.Add($"{kv.Key}={kv.Value}");
+            parts.Sort();
+            return string.Join("  ", parts);
+        }// dependency extraction/linking defect; body is not installed
         internal static int Gen2CallerID;         // declined: the body needs a CallerID the baked type cannot supply
+        internal static int DependencyWaits;      // generation-1 entries that ran before every dependency loaded
+        internal static int MissingBakedSite;     // indy/MH site whose generation-1 bridge could not be found
+        internal static int Gen2BakedLambdaSite;  // Gen2 selected Gen1's lambda bridge without reclassification
+
+        // The two CallerID limbs, counted SEPARATELY. Phase 1a changed both at once and shipped with a
+        // count for neither, so when it regressed the boot there was no way to say which limb ran -- the
+        // decline counter only ever saw the `else` arm. An arm with no counter cannot be cleared OR
+        // blamed. These paths are part of Gen2 correctness rather than separately configurable behavior.
+        internal static int Gen2CallerIDReal;     // limb (a): took the InternalsVisibleTo arm, Ldtoken of the real type
+        internal static int Gen2CallerIDReused;   // limb (b): constructed generation 1's already-baked nested CallerID
+        internal static int Gen2CallerIDForeign;  // limb (b) REFUSED: the factory found did not belong to this type
+        internal static int Gen2ScratchShared;   // a recompile scratch already carried another context's CallerID field
 
         // IN-PLACE outcomes. Split from the gen2 counters because the question they answer is different:
         // gen2* says whether the recompile produced a clean body, these say whether it got INSTALLED.
         internal static int InPlaceOk;            // body swapped, or swapped-before-first-transform
         internal static int InPlaceLate;          // runtime refused: already tiered up or already wasm-JITted
-        internal static int InPlaceDeclined;      // we refused: no reparse, an indy site, or a CallerID
-        internal static int InPlaceFailed;        // threw, or the runtime rejected the shape
+        internal static int InPlaceDeclined;      // we refused: no reparse, residual dynamic refs, or CallerID
+        internal static int InPlaceFailed;
+        /// <summary>Orphaned MethodBuilders given a stub body so one failed member cannot fail the whole
+        /// batch at CreateType. Non-zero is the healthy reading: each one is a batch that survived.</summary>
+        internal static int InPlaceStubbed;
+        internal static int InPlaceStubFailed;
+
+        /// <summary>In-place failures by exception type and phase. Bounded LOGGING (first 8) left 1,905 of
+        /// 1,913 failures with no recorded reason at all (R276) -- a 47% failure rate that could not be
+        /// attributed. A tally is O(1) per failure, covers every one of them, and is what turns "47% fail"
+        /// into "47% fail, for these reasons".</summary>
+        static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> inPlaceFailKinds =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, int>();
+
+        internal static void RecordInPlaceFailure(string phase, System.Exception e)
+        {
+            // The message's leading token distinguishes causes that share a type -- a MissingMethodException
+            // for a lazySite bridge is a different bug from one for an ordinary member.
+            var msg = e.Message ?? "";
+            var cut = msg.IndexOf(',');
+            var head = cut > 0 ? msg.Substring(0, cut) : msg;
+            if (head.Length > 40) head = head.Substring(0, 40);
+            var site = msg.Contains("__<>lazySite$") ? " lazySite" : "";
+            inPlaceFailKinds.AddOrUpdate($"{phase}/{e.GetType().Name}/{head}{site}", 1, (_, v) => v + 1);
+        }
+
+        internal static string InPlaceFailureSummary()
+        {
+            if (inPlaceFailKinds.IsEmpty)
+                return "(none)";
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (var kv in inPlaceFailKinds)
+                parts.Add($"{kv.Key}={kv.Value}");
+            parts.Sort();
+            return string.Join("  ", parts);
+        }        // threw, or the runtime rejected the shape
         internal static int InPlaceUnsupported;   // runtime cannot swap bodies at all (CoreCLR)
         internal static int InPlaceBatches;       // scratch types created, i.e. CreateType() calls paid
         internal static int InPlaceQueued;        // hooks that enqueued a method for a later batch
+        internal static int InPlaceDeferrals;     // non-blocking quiet-window retries during class definition
+        internal static int InPlaceForced;        // batches run after the bounded deferral deadline
 
         internal static bool Reject(ref int bucket)
         {
@@ -170,10 +270,13 @@ namespace IKVM.Runtime
 
         internal static void Report()
         {
-            Console.WriteLine($"[IKVM lazybody] eval seen={Seen} accepted={Accepted} rej: shape={RejShape} mh={RejMethodHandle} nodyn={RejNoDynamic} arity={RejArity} sigAwkward={RejSigAwkward} sigUnloadable={RejSigUnloadable} eh={RejExceptionHandlers}");
-            Console.WriteLine($"[IKVM lazybody] gen2 clean={Gen2Clean} stillDynamic={Gen2StillDynamic} callerID={Gen2CallerID}");
+            Console.WriteLine($"[IKVM lazybody] eval seen={Seen} accepted={Accepted} rej: shape={RejShape} nodyn={RejNoDynamic} arity={RejArity} sigAwkward={RejSigAwkward} sigUnloadable={RejSigUnloadable} eh={RejExceptionHandlers}");
+            Console.WriteLine($"[IKVM lazybody] gen2 clean={Gen2Clean} unexpectedDynamic={Gen2UnexpectedDynamic} callerID={Gen2CallerID} depWaits={DependencyWaits} missingSite={MissingBakedSite} bakedLambda={Gen2BakedLambdaSite} cidReal={Gen2CallerIDReal} cidReused={Gen2CallerIDReused} cidForeign={Gen2CallerIDForeign} scratchShared={Gen2ScratchShared}");
             if (JVM.LazyInPlace)
-                Console.WriteLine($"[IKVM lazybody] inplace ok={InPlaceOk} late={InPlaceLate} declined={InPlaceDeclined} failed={InPlaceFailed} unsupported={InPlaceUnsupported} queued={InPlaceQueued} batches={InPlaceBatches}");
+                Console.WriteLine($"[IKVM lazybody] inplace ok={InPlaceOk} late={InPlaceLate} declined={InPlaceDeclined} failed={InPlaceFailed} unsupported={InPlaceUnsupported} queued={InPlaceQueued} batches={InPlaceBatches} deferrals={InPlaceDeferrals} forced={InPlaceForced}");
+            Console.WriteLine($"[IKVM lazybody] inplaceFail stubbed={InPlaceStubbed} stubFailed={InPlaceStubFailed} {InPlaceFailureSummary()}");
+            Console.WriteLine($"[IKVM lazybody] unexpDyn {UnexpectedDynamicSummary()}");
+            Console.WriteLine($"[IKVM lazybody] noLoadBootstrapFinds={RuntimeClassLoader.NoLoadFoundInBootstrap}");
         }
 
     }

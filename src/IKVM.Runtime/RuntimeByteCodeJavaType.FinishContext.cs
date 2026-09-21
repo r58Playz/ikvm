@@ -120,6 +120,63 @@ namespace IKVM.Runtime
             /// </remarks>
             internal bool IsLazyRecompile { get; set; }
 
+            /// <summary>True only while generation 1 is emitting an in-place candidate. Ordinary methods keep
+            /// their original direct indy/MethodHandle emission and pay no bridge call.</summary>
+            internal bool EmitLazySiteBridges { get; set; }
+
+            internal bool UseLazySiteBridges => IsLazyRecompile || EmitLazySiteBridges;
+
+            /// <summary>Defines an assembly-visible, content-keyed entry point around generation-1 indy or
+            /// MethodHandle state. Generation 2 is emitted on another type and can call this method without
+            /// naming the private nested type or cache that implements the site.</summary>
+            internal MethodBuilder DefineLazySiteBridge(string kind, int siteKey, Type returnType, Type[] parameterTypes)
+            {
+                // Paired with the miss log in GetBakedLazySiteBridge. 344 generation-2 recompiles fail asking
+                // for a bridge generation 1 did not emit, and every reading of the source says it should
+                // have; diffing defined-vs-wanted is what settles which assumption is wrong.
+                if (JVM.TraceLazyBodies)
+                    Console.WriteLine($"[IKVM lazybody] bridgeDef {wrapper.Name} {kind}${siteKey:x} on={typeBuilder.Name}");
+                return typeBuilder.DefineMethod(LazySiteBridgeName(kind, siteKey),
+                    MethodAttributes.Assembly | MethodAttributes.Static | MethodAttributes.HideBySig,
+                    returnType, parameterTypes);
+            }
+
+            /// <summary>Returns generation 1's baked site bridge. Missing state is a safe Gen2 refusal, never
+            /// permission to mint a second call site.</summary>
+            internal MethodInfo GetBakedLazySiteBridge(string kind, int siteKey, Type[] parameterTypes)
+            {
+                var method = TryGetBakedLazySiteBridge(kind, siteKey, parameterTypes);
+                if (method != null)
+                    return method;
+
+                System.Threading.Interlocked.Increment(ref LazyBodyStats.MissingBakedSite);
+                if (JVM.TraceLazyBodies)
+                    Console.WriteLine($"[IKVM lazybody] bridgeMiss {wrapper.Name} {kind}${siteKey:x} realType={(wrapper.TypeAsTBD != null ? wrapper.TypeAsTBD.Name : "null")}");
+                throw new MissingMethodException(wrapper.Name, LazySiteBridgeName(kind, siteKey));
+            }
+
+            internal MethodInfo TryGetBakedLazySiteBridge(string kind, int siteKey, Type[] parameterTypes)
+            {
+                if (!IsLazyRecompile)
+                    return null;
+
+                try
+                {
+                    var real = wrapper.TypeAsTBD;
+                    var flags = BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.DeclaredOnly;
+                    var method = parameterTypes == null
+                        ? real?.GetMethod(LazySiteBridgeName(kind, siteKey), flags)
+                        : real?.GetMethod(LazySiteBridgeName(kind, siteKey), flags, null, parameterTypes, null);
+                    if (method != null && method.DeclaringType == real)
+                        return method;
+                }
+                catch { }
+
+                return null;
+            }
+
+            static string LazySiteBridgeName(string kind, int siteKey) => "__<>lazySite$" + kind + "$" + siteKey.ToString("x");
+
             internal RuntimeByteCodeJavaType TypeWrapper
             {
                 get { return wrapper; }
@@ -202,10 +259,29 @@ namespace IKVM.Runtime
                 ilgen.Emit(OpCodes.Call, callerIDMethod);
             }
 
+            /// <summary>Scratch TypeBuilders that have already had a CallerID field defined on them by some
+            /// OTHER FinishContext. Measures how often a recompile scratch is shared, which is the fact that
+            /// made the old hard-coded field name unsafe. Only touched under a lazy recompile.</summary>
+            static readonly HashSet<TypeBuilder> callerIDScratchSeen = new HashSet<TypeBuilder>();
+
             private void CreateGetCallerID()
             {
                 RuntimeJavaType tw = context.JavaBase.TypeOfIkvmInternalCallerID;
-                FieldBuilder callerIDField = typeBuilder.DefineField("__<callerID>", tw.TypeAsSignatureType, FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.SpecialName);
+                /* SCOPED like the nested types are. Under a lazy recompile `typeBuilder` is a scratch SHARED
+                 * by every pending method in one MODULE (ByteCodeHelper: `foreach (var kv in byModule)`), and
+                 * those methods come from many different classes -- each with its own FinishContext, each
+                 * reaching here. The name was hard-coded, so every context defined `__<callerID>` on the one
+                 * type: not PrivateScope (which is what makes duplicate HELPER-METHOD names harmless, since
+                 * CompilerControlled members are referenced by token, never by name) and not routed through
+                 * NestedName. `nestedNamePrefix` is empty for ordinary compilation, so this is a no-op there.
+                 * Counted below rather than assumed -- see Gen2ScratchShared. */
+                FieldBuilder callerIDField = typeBuilder.DefineField(NestedName("__<callerID>"), tw.TypeAsSignatureType, FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.SpecialName);
+                if (IsLazyRecompile)
+                {
+                    lock (callerIDScratchSeen)
+                        if (!callerIDScratchSeen.Add(typeBuilder))
+                            System.Threading.Interlocked.Increment(ref LazyBodyStats.Gen2ScratchShared);
+                }
                 MethodBuilder mb = DefineHelperMethod("__<GetCallerID>", tw.TypeAsSignatureType, Type.EmptyTypes);
                 callerIDMethod = mb;
                 CodeEmitter ilgen = context.CodeEmitterFactory.Create(mb);
@@ -342,24 +418,27 @@ namespace IKVM.Runtime
             /// Every rejection is counted by reason (see LazyBodyStats): a gate that rejects everything looks
             /// exactly like a gate that never ran, and that has already happened once here.
             /// </remarks>
-            private bool IsLazyBodyCandidate(RuntimeJavaMethod mw, ClassFile.Method m)
+            private bool IsLazyBodyCandidate(RuntimeJavaMethod mw, ClassFile.Method m, out string[] dependencies, bool inPlace = false)
             {
+                dependencies = Array.Empty<string>();
                 // No body to move, or a body that must run exactly where it is: a constructor's trampoline
                 // would run before the object is initialised, and a static initialiser's before the type is.
                 if (m.IsAbstract || m.IsNative || m.Instructions == null)
                     return LazyBodyStats.Reject(ref LazyBodyStats.RejShape);
-                if (ReferenceEquals(m.Name, StringConstants.INIT) || ReferenceEquals(m.Name, StringConstants.CLINIT))
+                // <clinit> is excluded unconditionally: it runs once, so a relink buys no steady state.
+                if (ReferenceEquals(m.Name, StringConstants.CLINIT))
+                    return LazyBodyStats.Reject(ref LazyBodyStats.RejShape);
+                // <init> only when the IN-PLACE path is the one asking -- the trampoline objection is the
+                // delegate path's, not this one's. See JVM.LazyInPlaceCtors.
+                if (ReferenceEquals(m.Name, StringConstants.INIT)
+                    && !(inPlace && JVM.LazyInPlaceCtors))
                     return LazyBodyStats.Reject(ref LazyBodyStats.RejShape);
 
                 // Decided from the constant pool, NOT from __dynamic_* opcodes: those are assigned by the
                 // analyzer, which has not run yet at this point in FinishContext.
-                if (!Compiler.MayHaveDynamicReferences(classFile, m, wrapper, out var methodHandleSite) && !JVM.LazyAll)
+                dependencies = Compiler.GetDynamicDependencies(classFile, m, wrapper);
+                if (dependencies.Length == 0 && !JVM.LazyAll)
                     return LazyBodyStats.Reject(ref LazyBodyStats.RejNoDynamic);
-
-                // Recompiling an indy/MethodHandle body corrupts data unless FinishContext can reference the
-                // already-baked call sites instead of defining new ones.
-                if (methodHandleSite && !JVM.LazyMethodHandles)
-                    return LazyBodyStats.Reject(ref LazyBodyStats.RejMethodHandle);
 
                 if (JVM.LazySkipExceptionHandlers && m.ExceptionTable.Length != 0)
                     return LazyBodyStats.Reject(ref LazyBodyStats.RejExceptionHandlers);
@@ -420,7 +499,7 @@ namespace IKVM.Runtime
             /// </summary>
             private LazyBody TryMoveBodyToHelper(RuntimeJavaMethod mw, ClassFile.Method m, int index, RuntimeJavaType host, ref bool nonleaf)
             {
-                if (IsLazyBodyCandidate(mw, m) == false)
+                if (IsLazyBodyCandidate(mw, m, out var dependencies) == false)
                     return null;
 
                 var parameters = mw.GetParameters();
@@ -448,6 +527,7 @@ namespace IKVM.Runtime
                     Host = host,
                     TypeBuilder = typeBuilder,
                     Method = mw,
+                    Dependencies = dependencies,
                 });
 
                 return new LazyBody
@@ -489,7 +569,7 @@ namespace IKVM.Runtime
             /// </remarks>
             private FieldBuilder TryPrepareInPlaceRelink(RuntimeJavaMethod mw, ClassFile.Method m, int index, RuntimeJavaType host)
             {
-                if (IsLazyBodyCandidate(mw, m) == false)
+                if (IsLazyBodyCandidate(mw, m, out var dependencies, inPlace: true) == false)
                     return null;
 
                 // Same side table as the delegate path: the hook is emitted code and can only carry an
@@ -502,6 +582,7 @@ namespace IKVM.Runtime
                     Host = host,
                     TypeBuilder = typeBuilder,
                     Method = mw,
+                    Dependencies = dependencies,
                 });
 
                 var flag = typeBuilder.DefineField("__<>relinked" + registryId, context.Types.Int32, FieldAttributes.Static | FieldAttributes.PrivateScope);
@@ -513,29 +594,49 @@ namespace IKVM.Runtime
             private int inPlaceRelinkId;
 
             /// <summary>
-            /// Emits the one-shot relink hook that precedes an in-place first-generation body.
+            /// Emits the dependency-gated relink hook that precedes an in-place first-generation body.
             /// </summary>
             /// <remarks>
             /// Shape: test a flag, SET IT, then call. Setting before calling is not an optimisation -- it is
-            /// what stops unbounded recursion, because RelinkBody runs the IKVM compiler, which can run a
-            /// class initialiser, which can re-enter this very method. The flag is written non-atomically on
-            /// purpose: two threads racing here both call RelinkBody, and the second one's swap is a no-op
-            /// against an identical body, which is cheaper than a lock on a path that runs once per method.
+            /// what stops re-entry while RelinkBody performs its lock-free dependency probe and queues the
+            /// background drain. The flag is written non-atomically on
+            /// purpose: two threads racing here may both call RelinkBody, while the registry admits the method
+            /// to its one recompile exactly once. The helper replaces the guard with either a retry countdown
+            /// or the permanent -1 state before the body continues.
             ///
-            /// After a successful swap the method's IL is generation 2, which contains no hook at all -- so
-            /// this costs three instructions on exactly one invocation and then ceases to exist, rather than
-            /// a delegate hop on every invocation forever.
+            /// Waiting and queued methods therefore reach the helper only periodically; after a successful swap
+            /// the method's generation-2 IL contains no hook at all.
             /// </remarks>
             private void EmitInPlaceRelinkHook(CodeEmitter ilgen, FieldBuilder flag, int registryId)
             {
+                var probe = ilgen.DefineLabel();
                 var skip = ilgen.DefineLabel();
+                ilgen.Emit(OpCodes.Volatile);
                 ilgen.Emit(OpCodes.Ldsfld, flag);
-                ilgen.EmitBrtrue(skip);
+                ilgen.Emit(OpCodes.Dup);
+                ilgen.EmitBrfalse(probe);
+                ilgen.EmitLdc_I4(0);
+                ilgen.EmitBlt(skip); // -1 means probing/terminal: never re-enter or retry
+
+                // Positive values are a cheap Gen1 countdown. This avoids the helper call, registry lock and
+                // dependency scan until the selected retry invocation.
+                ilgen.Emit(OpCodes.Volatile);
+                ilgen.Emit(OpCodes.Ldsfld, flag);
                 ilgen.EmitLdc_I4(1);
+                ilgen.Emit(OpCodes.Sub);
+                ilgen.Emit(OpCodes.Volatile);
+                ilgen.Emit(OpCodes.Stsfld, flag);
+                ilgen.EmitBr(skip);
+
+                ilgen.MarkLabel(probe);
+                ilgen.Emit(OpCodes.Pop);
+                ilgen.EmitLdc_I4(-1); // recursion guard during the dependency probe and queue operation
                 ilgen.Emit(OpCodes.Volatile);
                 ilgen.Emit(OpCodes.Stsfld, flag);
                 ilgen.EmitLdc_I4(registryId);
                 ilgen.Emit(OpCodes.Call, context.ByteCodeHelperMethods.RelinkBody);
+                ilgen.Emit(OpCodes.Volatile);
+                ilgen.Emit(OpCodes.Stsfld, flag);
                 ilgen.MarkLabel(skip);
             }
 
@@ -692,7 +793,47 @@ namespace IKVM.Runtime
                     {
                         hasConstructor = true;
                         var ilGenerator = context.CodeEmitterFactory.Create(mb);
-                        CompileConstructorBody(this, ilGenerator, i);
+
+                        // RELINK CONSTRUCTORS TOO, under IKVM_LAZY_CTORS.
+                        //
+                        // Constructors are emitted on this branch and never reached TryPrepareInPlaceRelink,
+                        // so they were silently exempt -- which is why `rej: shape=` reads 0 and why lifting
+                        // the candidacy gate alone measured nothing (R279). The cost is real: the largest
+                        // surviving lazy-link binder in the plateau is
+                        // VoxelShapeSimpleCube:__<>DynamicBinder__...__<init> at 3.06 M instr/tick, and
+                        // constructors run per allocation.
+                        //
+                        // The hook is emitted BEFORE the body and is static-only IL -- a volatile static
+                        // field read, a branch, and a static call. It never touches `this`, so it is legal
+                        // ahead of the base constructor call, which is the only ordering rule that binds
+                        // here. The emitter buffers, so hook ops simply precede the body's in the same
+                        // stream and CompileConstructorBody's own DoEmit flushes both.
+                        //
+                        // Hooked at the CALL SITE, not inside CompileConstructorBody: that helper also
+                        // compiles <clinit> (the clinitIndex call below), and <clinit> must stay exempt --
+                        // it runs once, so a relink buys no steady state, and the hook would fire inside
+                        // type initialisation.
+                        FieldBuilder ctorFlag = null;
+                        if (JVM.LazyBodies && JVM.LazyInPlace && JVM.LazyInPlaceCtors)
+                            ctorFlag = TryPrepareInPlaceRelink(methods[i], m, i, host);
+
+                        if (ctorFlag != null)
+                        {
+                            EmitInPlaceRelinkHook(ilGenerator, ctorFlag, inPlaceRelinkId);
+                            EmitLazySiteBridges = true;
+                            try
+                            {
+                                CompileConstructorBody(this, ilGenerator, i);
+                            }
+                            finally
+                            {
+                                EmitLazySiteBridges = false;
+                            }
+                        }
+                        else
+                        {
+                            CompileConstructorBody(this, ilGenerator, i);
+                        }
                     }
                     else
                     {
@@ -928,7 +1069,15 @@ namespace IKVM.Runtime
                             if (inPlaceFlag != null)
                             {
                                 EmitInPlaceRelinkHook(ilGenerator, inPlaceFlag, inPlaceRelinkId);
-                                Compiler.Compile(this, host, wrapper, methods[i], classFile, m, ilGenerator, ref nonleaf);
+                                EmitLazySiteBridges = true;
+                                try
+                                {
+                                    Compiler.Compile(this, host, wrapper, methods[i], classFile, m, ilGenerator, ref nonleaf);
+                                }
+                                finally
+                                {
+                                    EmitLazySiteBridges = false;
+                                }
                             }
                             else if (lazyBody != null)
                                 EmitLazyBodyTrampoline(ilGenerator, lazyBody, methods[i], m);
@@ -2579,9 +2728,21 @@ namespace IKVM.Runtime
                 if (tw.InternalsVisibleTo(wrapper))
                 {
                     var create = tw.GetMethod("create", "(Lcli.System.RuntimeTypeHandle;)Likvm.internal.CallerID;", false);
-                    ilGenerator.Emit(OpCodes.Ldtoken, this.typeBuilder);
+                    // A CallerID identifies the CALLING class. Under a lazy recompile `typeBuilder` is the
+                    // shared SCRATCH type, so taking its token mints the wrong identity -- silently, since
+                    // nothing here throws. Use the real, already-baked type instead.
+                    //
+                    ilGenerator.Emit(OpCodes.Ldtoken,
+                        IsLazyRecompile ? (Type)wrapper.TypeAsTBD : (Type)this.typeBuilder);
                     create.Link();
                     create.EmitCall(ilGenerator);
+                    if (IsLazyRecompile)
+                        System.Threading.Interlocked.Increment(ref LazyBodyStats.Gen2CallerIDReal);
+                }
+                else if (IsLazyRecompile && TryEmitBakedCallerID(ilGenerator))
+                {
+                    // Reused generation 1's nested CallerID; nothing defined, nothing declined.
+                    System.Threading.Interlocked.Increment(ref LazyBodyStats.Gen2CallerIDReused);
                 }
                 else
                 {
@@ -2591,10 +2752,86 @@ namespace IKVM.Runtime
                 ilGenerator.Emit(OpCodes.Stsfld, callerIDField);
             }
 
+            /// <summary>
+            /// Under a lazy recompile, obtain generation 1's ALREADY-BAKED CallerID instead of minting a new
+            /// one, by calling the assembly-visible factory generation 1 emitted alongside it. Returns false
+            /// if there is no factory, leaving the caller on its old path (decline).
+            /// </summary>
+            /// <remarks>
+            /// This is what `Gen2CallerID` was counting. `EmitCreateCallerID` calls `DefineNestedType` on the
+            /// context's type builder, which under a recompile is the shared scratch type -- so the CallerID
+            /// it produces identifies the scratch, not the method's real declaring class. Rather than ship a
+            /// wrong identity, `FlushRelinkBatch` declined the whole method and kept generation 1, measured at
+            /// **1,039 declines per run** (2026-09-19) against ~4,560 queued candidates.
+            ///
+            /// Generation 1 compiled the same body against the same class, so if a CallerID is needed now one
+            /// was needed then and is baked on the real type under the UNPREFIXED name (`nestedNamePrefix` is
+            /// empty for ordinary compilation and only set for the scratch). Referencing it gives exactly the
+            /// identity the decline existed to protect.
+            ///
+            /// It must be reached through the FACTORY. The first version of this Newobj'd the nested type's
+            /// constructor directly and regressed the boot with `IllegalAccessError`: the nested type is
+            /// NestedPrivate, so the scratch type cannot name it. The ctor's Assembly visibility is a red
+            /// herring -- the TYPE is the binding constraint.
+            ///
+            /// Falls back rather than throwing: a body whose shape changed between generations might not have
+            /// one, and declining that method is the pre-existing, safe behaviour.
+            /// </remarks>
+            bool TryEmitBakedCallerID(CodeEmitter ilGenerator)
+            {
+                try
+                {
+                    var real = wrapper.TypeAsTBD;
+                    if (real == null)
+                        return false;
+
+                    /* CALL the factory; do NOT Newobj the nested type. It is NestedPrivate, so the scratch
+                     * type this is emitted on cannot legally name it -- that is the bug this replaced.
+                     *
+                     * DeclaredOnly IS LOAD-BEARING. Static methods ARE inherited for lookup, so without it a
+                     * class with no CallerID of its own silently resolves its SUPERCLASS's factory and gets
+                     * the superclass's identity. That does not throw; it surfaces later as
+                     * `IllegalAccessError: Try to access class X from class Y` naming a Y that never made the
+                     * access -- measured, 6/6 boots. The DeclaringType check below is belt and braces: if the
+                     * two ever disagree, DECLINE rather than ship a wrong caller. */
+                    var factory = real.GetMethod(CallerIDFactoryName,
+                                                 BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public
+                                                     | BindingFlags.DeclaredOnly,
+                                                 null, Type.EmptyTypes, null);
+                    if (factory == null)
+                        return false;   /* no CallerID of its own, or baked before the factory existed (AOT) */
+                    if (factory.DeclaringType != real)
+                    {
+                        System.Threading.Interlocked.Increment(ref LazyBodyStats.Gen2CallerIDForeign);
+                        return false;
+                    }
+
+                    ilGenerator.Emit(OpCodes.Call, factory);
+                    /* NAME THE POPULATION. These are the only classes whose behaviour the knob changes, so
+                     * this list is what any remaining generation-2 fault has to be correlated against --
+                     * the crash names a CALLER class and the question is whether it is in here. */
+                    if (JVM.TraceLazyBodies)
+                        Console.WriteLine($"[IKVM lazybody] cidReuse {real.FullName}");
+                    return true;
+                }
+                catch
+                {
+                    // Any reflection failure here means "not reusable"; the caller's old path still applies.
+                    return false;
+                }
+            }
+
             /// <param name="nestedPrefix">Scopes the nested type's name; see FinishContext.NestedName. Empty
             /// for ordinary compilation. Passed explicitly because this is static -- and CallerID is the
             /// nested name that MOST needs scoping, since it carries no per-site suffix at all and so
             /// collides between any two contexts sharing a batched scratch type.</param>
+            /// <summary>
+            /// Assembly-visible factory for a type's nested <c>__&lt;CallerID&gt;</c>. A method, not a nested
+            /// type, precisely so that code emitted on ANOTHER type can reach it -- the nested type itself is
+            /// NestedPrivate and cannot be named from outside its enclosing type.
+            /// </summary>
+            internal const string CallerIDFactoryName = "__<>newCallerID";
+
             internal static TypeBuilder EmitCreateCallerID(RuntimeContext context, TypeBuilder typeBuilder, CodeEmitter ilGenerator, string nestedPrefix = "")
             {
                 var tw = context.JavaBase.TypeOfIkvmInternalCallerID;
@@ -2608,6 +2845,27 @@ namespace IKVM.Runtime
                 ctorIlgen.Emit(OpCodes.Ret);
                 ctorIlgen.DoEmit();
                 ilGenerator.Emit(OpCodes.Newobj, cb);
+
+                /* An ASSEMBLY-VISIBLE factory for the nested type, so a later LAZY RECOMPILE can obtain
+                 * this exact CallerID. It cannot do so directly: the nested type is NestedPrivate, i.e.
+                 * nameable only by THIS type, while generation 2 is emitted on a shared scratch type.
+                 * `Newobj` on the ctor from there is an illegal type access, which IKVM surfaces far away
+                 * as `IllegalAccessError` -- it regressed the boot before this factory existed.
+                 * Emitted unconditionally rather than under the recompile knob: whether a class will be
+                 * recompiled is not known when it is first compiled. One static method per class that has
+                 * a CallerID. */
+                /* PREFIXED like the nested type itself. Without this, two methods sharing one scratch type
+                 * would each try to define `__<>newCallerID` on it and the second would collide -- the same
+                 * reason `nestedPrefix` exists for the type. On the real type the prefix is empty, which is
+                 * the name the recompile consumer looks up. */
+                var fb = typeBuilder.DefineMethod(nestedPrefix + CallerIDFactoryName,
+                    MethodAttributes.Assembly | MethodAttributes.Static | MethodAttributes.HideBySig,
+                    tw.TypeAsBaseType, Type.EmptyTypes);
+                var fIlgen = context.CodeEmitterFactory.Create(fb);
+                fIlgen.Emit(OpCodes.Newobj, cb);
+                fIlgen.Emit(OpCodes.Ret);
+                fIlgen.DoEmit();
+
                 return typeCallerID;
             }
 
@@ -2802,15 +3060,11 @@ namespace IKVM.Runtime
                 return typeBuilder.DefineMethod(name + helperNameCounter++, MethodAttributes.PrivateScope | MethodAttributes.Static, returnType, parameterTypes);
             }
 
-            internal MethodBuilder DefineMethodHandleDispatchStub(Type returnType, Type[] parameterTypes)
-            {
-                return DefineHelperMethod("__<>MHC", returnType, parameterTypes);
-            }
+            internal MethodBuilder DefineMethodHandleDispatchStub(Type returnType, Type[] parameterTypes) =>
+                DefineHelperMethod("__<>MHC", returnType, parameterTypes);
 
-            internal FieldBuilder DefineMethodHandleInvokeCacheField(Type fieldType)
-            {
-                return typeBuilder.DefineField("__<>invokeCache" + helperNameCounter++, fieldType, FieldAttributes.Static | FieldAttributes.PrivateScope);
-            }
+            internal FieldBuilder DefineMethodHandleInvokeCacheField(Type fieldType) =>
+                typeBuilder.DefineField("__<>invokeCache" + helperNameCounter++, fieldType, FieldAttributes.Static | FieldAttributes.PrivateScope);
 
             /// <summary>
             /// Defines the per-call-site cache holding the resolved <see cref="Type"/> a dynamic instanceof or cast

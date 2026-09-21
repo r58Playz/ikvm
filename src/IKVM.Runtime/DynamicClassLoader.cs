@@ -114,6 +114,7 @@ namespace IKVM.Runtime
             var type = new RuntimeImportByteCodeJavaType(f, (ImportClassLoader)classLoader);
             type.CreateStep1();
             types[f.Name] = type;
+            classLoader.PublishDefinedClass(type);
             return type;
 #elif FIRST_PASS
             return null;
@@ -149,6 +150,8 @@ namespace IKVM.Runtime
                     throw new LinkageError("duplicate class definition: " + f.Name);
                 }
             }
+
+            classLoader.PublishDefinedClass(type);
 
             return type;
 #endif

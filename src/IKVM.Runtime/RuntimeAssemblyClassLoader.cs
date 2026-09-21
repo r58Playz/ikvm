@@ -588,7 +588,10 @@ namespace IKVM.Runtime
         {
             var tw = assemblyLoader.DoLoad(name);
             if (tw != null)
+            {
+                PublishDefinedClass(tw);
                 return RegisterInitiatingLoader(tw);
+            }
 
             LazyInitExports();
 

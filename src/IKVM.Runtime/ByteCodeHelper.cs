@@ -486,6 +486,10 @@ namespace IKVM.Runtime
 
         static long lazyRecompiled;
         static long lazyFellBack;
+        /* Times the direct-binder fast path threw a NullReferenceException and fell through to the
+         * MethodHandle path. See the catch in DynamicBinderMemberLookup for why this is a fall-through
+         * rather than a crash, and why it must stay visible rather than silent. */
+        static long directBinderNre;
 
         /// <summary>
         /// Prints the generational-body totals: how many method bodies were successfully recompiled versus how
@@ -499,33 +503,38 @@ namespace IKVM.Runtime
 #endif
 
         /// <summary>
-        /// Called once per in-place generational method, from the hook at the top of its first-generation
-        /// body, to recompile the body now that the once-unloadable types are resolved and INSTALL IT AS THE
-        /// METHOD'S OWN IL.
+        /// Called from the hook at the top of an in-place first-generation body. Returns false while any
+        /// dynamic-member dependency is still unloaded. The return value is the number of subsequent Gen1
+        /// invocations the hook should skip, or -1 once it may disable itself permanently.
         /// </summary>
         /// <remarks>
         /// The difference from BuildLazyBody is the whole feature. That one returns a delegate the method
-        /// tails into forever; this one replaces the method's body and returns nothing, so a relinked method
-        /// costs a normal call. R226 measured the delegate at 3x what the recompile saves.
+        /// tails into forever; this one replaces the method's body in place, so a relinked method costs a
+        /// normal call. R226 measured the delegate at 3x what the recompile saves.
         ///
         /// Never throws, and every refusal is counted. The body that is already executing is a correct
         /// first generation, so the only cost of declining is that it stays -- which is precisely the
         /// behaviour with the feature off. Declared unconditionally with only the body compiled out, for the
         /// same reason BuildLazyBody is: ikvmc binds it by name against the FIRST_PASS reference assembly.
         /// </remarks>
-        public static void RelinkBody(int id)
+        public static int RelinkBody(int id)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
             if (JVM.LazyRecompile == false)
-                return;
+                return -1;
+
+            var entry = LazyBodyRegistry.Get(id);
+            if (entry == null)
+                return -1;
 
             // Ask the runtime once, not once per method: on CoreCLR there is no body swap at all.
             if (LibIkvm.CanReplaceMethodBody == false)
             {
                 Interlocked.Increment(ref LazyBodyStats.InPlaceUnsupported);
-                return;
+                Volatile.Write(ref entry.RelinkState, 2);
+                return -1;
             }
 
             // ENQUEUE, do not relink here. Generation 1 is a correct body, so deferral is free -- and it is
@@ -543,63 +552,45 @@ namespace IKVM.Runtime
             // a boot that the delegate path completed with 1,550), essentially all of it DefineType +
             // CreateType, whose metadata finalization also degrades as the module grows. So pay CreateType
             // once per BATCH instead of once per method.
-            // Tell the runtime this method is awaiting a replacement, BEFORE queuing it. Batching means a
-            // real window between the hook and the swap, and a hot method crosses MONO_WASM_JIT_THRESHOLD
-            // inside it -- 736 of 3,538 candidates were lost that way, and the swap can only refuse them
-            // because an f-slot other modules may have baked cannot be invalidated after the fact.
-            //
-            // Resolving the target here is not extra work: the flush needs the same resolution, and
-            // ResolveMethod caches it. It is only wasted for a method that is never flushed.
-            try
+            // Do not even queue the method until every declaring type that caused a dynamic member access is
+            // already loaded. This is a non-loading probe: Gen2 must be the only re-emission, and it must be
+            // able to replace every __dynamic_* member instruction with a direct access.
+            var newlyQueued = false;
+
+            // This path must be lock-free with respect to class loading: it runs at arbitrary Java method
+            // entry and can therefore inherit any loader, type-initializer, or application monitor. The
+            // readiness test consults RuntimeClassLoader's concurrently published name set, never `types`.
+            if (Volatile.Read(ref entry.RelinkState) == 2)
+                return -1;
+
+            if (Volatile.Read(ref entry.RelinkState) == 0 && entry.DependenciesLoaded() == false)
             {
-                var e0 = LazyBodyRegistry.Get(id);
-                if (e0 != null)
-                {
-                    e0.Method.DeclaringType.Finish();
-                    e0.Method.ResolveMethod();
-                    var t0 = e0.Method.GetMethod();
-                    if (t0 != null)
-                        LibIkvm.MarkRelinkPending(t0.MethodHandle.Value, true);
-                }
-            }
-            catch
-            {
-                // Not fatal: without the mark the method simply keeps its chance of losing the race.
+                Interlocked.Increment(ref LazyBodyStats.DependencyWaits);
+                return IncreaseRelinkRetryDelay(entry);
             }
 
-            List<int> batch = null;
+            if (Interlocked.CompareExchange(ref entry.RelinkState, 1, 0) == 0)
+            {
+                newlyQueued = true;
+            }
+
+            if (Volatile.Read(ref entry.RelinkState) == 2)
+                return -1;
+
+            // The hook only enqueues. Finish/ResolveMethod, Reflection.Emit, CreateType and body replacement
+            // run on the single background drain, never on the caller's class-loading stack.
             lock (relinkPendingLock)
             {
-                relinkPending.Add(id);
-                Interlocked.Increment(ref LazyBodyStats.InPlaceQueued);
-                relinkHooksSinceFlush++;
-                // Flush on size, or on staleness: a queue that never fills would leave its methods on
-                // generation 1 forever, which is a silent loss rather than a visible one.
-                // inRelinkFlush is the re-entrancy guard, and it is not theoretical: a flush performs an
-                // eager LoadMode.Link over each class's whole constant pool, which loads classes, which can
-                // run static initialisers, which can execute a hooked method and land right back here. A
-                // nested hook must only ENQUEUE -- its methods get picked up by the next top-level flush --
-                // otherwise one first execution can drive an unbounded stack of nested batches.
-                if (inRelinkFlush == false && (relinkPending.Count >= RelinkBatchSize || relinkHooksSinceFlush >= RelinkStaleFlush))
+                if (newlyQueued)
                 {
-                    batch = relinkPending;
-                    relinkPending = new List<int>();
-                    relinkHooksSinceFlush = 0;
+                    relinkPending.Add(id);
+                    Interlocked.Increment(ref LazyBodyStats.InPlaceQueued);
                 }
             }
 
-            if (batch != null)
-            {
-                inRelinkFlush = true;
-                try
-                {
-                    FlushRelinkBatch(batch);
-                }
-                finally
-                {
-                    inRelinkFlush = false;
-                }
-            }
+            ScheduleRelinkDrain();
+
+            return Volatile.Read(ref entry.RelinkState) == 2 ? -1 : RelinkQueuedRetryDelay;
 #endif
         }
 
@@ -608,16 +599,148 @@ namespace IKVM.Runtime
         /// <summary>Methods per scratch type. Amortises the one cost that made per-method relinking unaffordable.</summary>
         const int RelinkBatchSize = 48;
 
-        /// <summary>Flush even a short queue after this many hooks, so a tail cannot sit on generation 1 forever.</summary>
-        const int RelinkStaleFlush = 512;
+        const int RelinkQueuedRetryDelay = 15;
+
+        const int RelinkQuietPeriodMilliseconds = 25;
+
+        const int RelinkMaximumDeferralMilliseconds = 250;
 
         static readonly object relinkPendingLock = new object();
         static List<int> relinkPending = new List<int>();
-        static int relinkHooksSinceFlush;
+        static int relinkDrainScheduled;
+        static readonly WaitCallback relinkDrainCallback = _ => DrainRelinkQueue();
+        static readonly Timer relinkDrainTimer = new Timer(_ => DrainRelinkQueue(), null, Timeout.Infinite, Timeout.Infinite);
+        static int relinkDeferralStarted;
+        static long relinkObservedDefinitionVersion = -1;
 
-        /// <summary>Set while this thread is inside a flush; see the guard in RelinkBody.</summary>
-        [ThreadStatic]
-        static bool inRelinkFlush;
+        static int IncreaseRelinkRetryDelay(LazyBodyRegistry.Entry entry)
+        {
+            while (true)
+            {
+                var old = Volatile.Read(ref entry.RetryDelay);
+                var value = old switch
+                {
+                    < 1 => 1,
+                    < 4 => 4,
+                    < 16 => 16,
+                    _ => 64,
+                };
+                if (Interlocked.CompareExchange(ref entry.RetryDelay, value, old) == old)
+                    return value;
+            }
+        }
+
+        static void ScheduleRelinkDrain()
+        {
+            if (Interlocked.CompareExchange(ref relinkDrainScheduled, 1, 0) != 0)
+                return;
+
+            Interlocked.Exchange(ref relinkDeferralStarted, Environment.TickCount);
+            Interlocked.Exchange(ref relinkObservedDefinitionVersion, -1);
+
+            if (!ThreadPool.QueueUserWorkItem(relinkDrainCallback) &&
+                !relinkDrainTimer.Change(1, Timeout.Infinite))
+                ReleaseRelinkDrain();
+        }
+
+        static void DrainRelinkQueue()
+        {
+            var deferred = false;
+            try
+            {
+                // Establish a quiet interval without parking this ThreadPool thread. A one-shot timer retains
+                // drain ownership while it waits, so hooks can continue to enqueue without creating workers.
+                // The deadline makes the quiet interval an optimisation rather than a liveness condition.
+                var definitionVersion = RuntimeClassLoader.ClassDefinitionVersion;
+                var observedVersion = Interlocked.Read(ref relinkObservedDefinitionVersion);
+                var definitionsActive = RuntimeClassLoader.HasActiveClassDefinitions;
+                var elapsed = unchecked((uint)(Environment.TickCount - Volatile.Read(ref relinkDeferralStarted)));
+                var unsettled = definitionsActive || observedVersion != definitionVersion;
+                if (unsettled && elapsed < (uint)RelinkMaximumDeferralMilliseconds)
+                {
+                    Interlocked.Exchange(ref relinkObservedDefinitionVersion, definitionVersion);
+                    Interlocked.Increment(ref LazyBodyStats.InPlaceDeferrals);
+                    if (relinkDrainTimer.Change(RelinkQuietPeriodMilliseconds, Timeout.Infinite))
+                    {
+                        deferred = true;
+                        return;
+                    }
+                }
+                else if (unsettled)
+                {
+                    var forced = Interlocked.Increment(ref LazyBodyStats.InPlaceForced);
+                    if (forced <= 8 || JVM.TraceLazyBodies)
+                        Console.WriteLine($"[IKVM lazybody] forcing one relink batch after {elapsed} ms of continuous class-definition activity");
+                }
+
+                List<int> batch;
+                lock (relinkPendingLock)
+                {
+                    if (relinkPending.Count == 0)
+                        return;
+
+                    var count = Math.Min(RelinkBatchSize, relinkPending.Count);
+                    batch = relinkPending.GetRange(0, count);
+                    relinkPending.RemoveRange(0, count);
+                }
+
+                // Process at most one batch per ownership period. A remaining tail gets a fresh quiet window
+                // and deadline, preventing a large queue from monopolising startup after one forced drain.
+                try
+                {
+                    PrepareRelinkBatch(batch);
+                    FlushRelinkBatch(batch);
+                }
+                catch (Exception e)
+                {
+                    var n = Interlocked.Add(ref LazyBodyStats.InPlaceFailed, batch.Count);
+                    if (n < 16 || JVM.TraceLazyBodies)
+                        Console.WriteLine($"[IKVM lazybody] batch FAILED ({batch.Count} members): {e.GetType().Name}: {e.Message}");
+                }
+                finally
+                {
+                    FinishRelinkBatch(batch);
+                }
+            }
+            finally
+            {
+                if (!deferred)
+                    ReleaseRelinkDrain();
+            }
+        }
+
+        static void ReleaseRelinkDrain()
+        {
+            var reschedule = false;
+            lock (relinkPendingLock)
+            {
+                Volatile.Write(ref relinkDrainScheduled, 0);
+                reschedule = relinkPending.Count != 0;
+            }
+
+            if (reschedule)
+                ScheduleRelinkDrain();
+        }
+
+        static void PrepareRelinkBatch(List<int> ids)
+        {
+            foreach (var id in ids)
+            {
+                var entry = LazyBodyRegistry.Get(id);
+                if (entry == null)
+                    continue;
+
+                try
+                {
+                    entry.Method.DeclaringType.Finish();
+                    entry.Method.ResolveMethod();
+                    var method = entry.Method.GetMethod();
+                    if (method != null)
+                        LibIkvm.MarkRelinkPending(method.MethodHandle.Value, true);
+                }
+                catch { }
+            }
+        }
 
         /// <summary>
         /// Recompiles a batch of registered methods and installs each body in place.
@@ -680,6 +803,9 @@ namespace IKVM.Runtime
 
                 foreach (var entry in kv.Value)
                 {
+                    // Held outside the try so the catch can repair a MethodBuilder that was defined and then
+                    // orphaned by a throw in Compile -- see the repair note in the catch.
+                    MethodBuilder mbForRepair = null;
                     try
                     {
                         if (reparsed.TryGetValue(entry.ClassFile, out var classFile) == false)
@@ -698,8 +824,8 @@ namespace IKVM.Runtime
                                 //
                                 // Resolving only what is already loaded is enough for the premise here (by
                                 // first execution most references are loaded) and cannot trigger a load, so
-                                // it cannot re-enter. What is still unresolved stays __dynamic_* and shows
-                                // up as Gen2StillDynamic.
+                                // it cannot re-enter. What is still unresolved stays __dynamic_* and is
+                                // rejected by the post-compile Gen2 invariant below.
                                 classFile.Link(entry.Wrapper, LoadMode.LinkNoLoad);
                             }
                             reparsed[entry.ClassFile] = classFile;
@@ -712,12 +838,6 @@ namespace IKVM.Runtime
                         }
 
                         var m = classFile.Methods[entry.MethodIndex];
-                        if (Compiler.HasIndyOrMethodHandleSite(m) && JVM.LazyMethodHandles == false)
-                        {
-                            Interlocked.Increment(ref LazyBodyStats.InPlaceDeclined);
-                            continue;
-                        }
-
                         var mw = entry.Method;
                         var parameterTypesForDefine = mw.GetParametersForDefineMethod();
                         var parameterTypes = m.IsStatic
@@ -730,7 +850,9 @@ namespace IKVM.Runtime
                         // next entry the same name -- and GetMethod then reports
                         // AmbiguousMatchException on __<>body3 rather than anything about duplicates.
                         var name = "__<>body" + (nameSeq++);
+                        mbForRepair = null;
                         var mb = scratch.DefineMethod(name, MethodAttributes.Public | MethodAttributes.Static, mw.ReturnTypeForDefineMethod, parameterTypes);
+                        mbForRepair = mb;
                         var ilgen = context.CodeEmitterFactory.Create(mb);
                         var finish = new RuntimeByteCodeJavaType.FinishContext(context, entry.Host, classFile, entry.Wrapper, scratch);
                         finish.IsLazyRecompile = true;
@@ -745,9 +867,17 @@ namespace IKVM.Runtime
                         ilgen.DoEmit();
 
                         if (Compiler.HasDynamicReferences(m))
-                            Interlocked.Increment(ref LazyBodyStats.Gen2StillDynamic);
-                        else
-                            Interlocked.Increment(ref LazyBodyStats.Gen2Clean);
+                        {
+                            Interlocked.Increment(ref LazyBodyStats.Gen2UnexpectedDynamic);
+                            // Tally by the SURVIVING REFERENCE, not by the method: 422 per run is a
+                            // population, and only the reference says which gate assumption is wrong.
+                            LazyBodyStats.RecordUnexpectedDynamic(Compiler.DescribeFirstDynamicReference(classFile, m));
+                            if (JVM.TraceLazyBodies)
+                                Console.WriteLine($"[IKVM lazybody] unexpected dynamic Gen2 {entry.Wrapper.Name}:{m.Name}{m.Signature} -> {Compiler.DescribeFirstDynamicReference(classFile, m)}");
+                            Interlocked.Increment(ref LazyBodyStats.InPlaceDeclined);
+                            continue;
+                        }
+                        Interlocked.Increment(ref LazyBodyStats.Gen2Clean);
 
                         if (finish.DefinedCallerID)
                         {
@@ -762,8 +892,38 @@ namespace IKVM.Runtime
                     catch (Exception e)
                     {
                         var n = Interlocked.Increment(ref LazyBodyStats.InPlaceFailed);
+                        LazyBodyStats.RecordInPlaceFailure("emit", e);
                         if (n < 8 || JVM.TraceLazyBodies)
                             Console.WriteLine($"[IKVM lazybody] inplace emit FAILED: {e.GetType().Name}: {e.Message}");
+
+                        // GIVE THE ORPHANED MethodBuilder A BODY, or it takes the whole batch with it.
+                        //
+                        // DefineMethod happens before Compile, and CodeEmitter BUFFERS -- nothing reaches the
+                        // builder until DoEmit(). So a throw inside Compile leaves a defined method with no
+                        // IL at all, and `scratch.CreateType()` then fails the ENTIRE type with
+                        // `InvalidOperation_BadEmptyMethodBody`, reverting every other member of the batch to
+                        // generation 1. Measured (R276): 336 individual emit failures amplified into 1,978
+                        // total, i.e. ~1,642 methods lost to batches killed by someone else's failure.
+                        //
+                        // The stub is never called -- this entry is not added to `built`, so nothing installs
+                        // or references it. `ldnull; throw` is valid for ANY signature, which matters because
+                        // the return type here is arbitrary.
+                        try
+                        {
+                            if (mbForRepair != null)
+                            {
+                                var rg = context.CodeEmitterFactory.Create(mbForRepair);
+                                rg.Emit(OpCodes.Ldnull);
+                                rg.Emit(OpCodes.Throw);
+                                rg.DoEmit();
+                                Interlocked.Increment(ref LazyBodyStats.InPlaceStubbed);
+                            }
+                        }
+                        catch
+                        {
+                            // If even the stub will not emit, the batch is lost as before -- counted, not hidden.
+                            Interlocked.Increment(ref LazyBodyStats.InPlaceStubFailed);
+                        }
                     }
                 }
 
@@ -847,6 +1007,7 @@ namespace IKVM.Runtime
                     catch (Exception e)
                     {
                         var n = Interlocked.Increment(ref LazyBodyStats.InPlaceFailed);
+                        LazyBodyStats.RecordInPlaceFailure("install", e);
                         if (n < 8 || JVM.TraceLazyBodies)
                             Console.WriteLine($"[IKVM lazybody] inplace install FAILED: {e.GetType().Name}: {e.Message}");
                     }
@@ -866,6 +1027,28 @@ namespace IKVM.Runtime
                         LibIkvm.MarkRelinkPending(t.MethodHandle.Value, false);
                 }
                 catch { }
+            }
+        }
+
+        /// <summary>Marks every detached entry terminal and clears any pending-JIT suppression even when an
+        /// unexpected batch-level exception bypassed the normal cleanup paths.</summary>
+        static void FinishRelinkBatch(List<int> ids)
+        {
+            foreach (var id in ids)
+            {
+                var entry = LazyBodyRegistry.Get(id);
+                if (entry == null)
+                    continue;
+
+                try
+                {
+                    var method = entry.Method.GetMethod();
+                    if (method != null)
+                        LibIkvm.MarkRelinkPending(method.MethodHandle.Value, false);
+                }
+                catch { }
+
+                Volatile.Write(ref entry.RelinkState, 2);
             }
         }
 
@@ -999,7 +1182,7 @@ namespace IKVM.Runtime
 
             // Re-checked here and not only at candidacy: the analyzer has now run, so this is the authoritative
             // test, and the candidacy gate could only guess from the constant pool.
-            if (Compiler.HasIndyOrMethodHandleSite(m) && JVM.LazyMethodHandles == false)
+            if (Compiler.HasIndyOrMethodHandleSite(m))
                 return null;
 
             var mw = entry.Method;
@@ -1029,17 +1212,6 @@ namespace IKVM.Runtime
             // accept because it has been baked. Give it a scratch type to define them on instead. Only needed
             // for the MethodHandle path, which is off by default.
             TypeBuilder scratch = null;
-            if (JVM.LazyMethodHandles)
-            {
-                try
-                {
-                    scratch = entry.Wrapper.ClassLoader.GetTypeWrapperFactory().ModuleBuilder.DefineType("__<>lazyscratch_" + id, TypeAttributes.Public);
-                }
-                catch
-                {
-                    scratch = null;
-                }
-            }
 
             var finish = new RuntimeByteCodeJavaType.FinishContext(context, entry.Host, classFile, entry.Wrapper, scratch ?? entry.TypeBuilder);
             // Tells the emitter that typeBuilder is baked and that once-unloadable types are now
@@ -1057,7 +1229,7 @@ namespace IKVM.Runtime
             // and answers "clean" for every method -- the exact bug that once made the candidacy gate reject
             // everything while looking healthy.
             if (Compiler.HasDynamicReferences(m))
-                Interlocked.Increment(ref LazyBodyStats.Gen2StillDynamic);
+                Interlocked.Increment(ref LazyBodyStats.Gen2UnexpectedDynamic);
             else
                 Interlocked.Increment(ref LazyBodyStats.Gen2Clean);
 
@@ -1162,6 +1334,38 @@ namespace IKVM.Runtime
             catch (RetargetableJavaException e)
             {
                 throw e.ToJava();
+            }
+            catch (NullReferenceException e)
+            {
+                // FALL THROUGH, DO NOT PROPAGATE. The fast path's contract, stated above, is that any
+                // shape it cannot handle returns null and defers to the MethodHandle path below, "which
+                // also produces the correct linkage errors". It honours that with ~15 explicit `return
+                // null` arms -- and then lets a NullReferenceException escape, which breaks the contract
+                // in the one case nobody anticipated: a shape whose wrappers are not fully populated
+                // (a null FieldTypeWrapper/ReturnType/DeclaringType reaching one of the .Finish() or
+                // .IsUnloadable derefs below the switch).
+                //
+                // An NRE here is always a gap in this method's shape handling, never a Java-level signal
+                // -- the Java-level signals are RetargetableJavaException above and the linkage errors the
+                // slow path raises -- so deferring is strictly the behaviour the comment already promises.
+                //
+                // OBSERVED, TWICE, A MONTH APART: 2026-08-11 and 2026-09-12, both
+                //   DynamicBinderMemberLookup <- ChunkBuildBuffers.init(ChunkBuildBuffers.java:64)
+                //       <- ChunkRenderRebuildTask.performBuild <- ChunkBuilder$WorkerRunnable.run
+                // i.e. it killed a Sodium chunk-build worker, surfacing as a CompletionException NPE out
+                // of FutureDequeDrain.next on the render thread -- a fatal, three frames from anything
+                // that names this method. The slow path handles this site fine; it simply never ran.
+                //
+                // LOGGED, NOT SWALLOWED, and bounded the same way lazyFellBack is: a masked bug nobody can
+                // see is worse than the crash it replaces. The member being bound is printed because that
+                // is what this failure has never had -- both occurrences took a full log archaeology pass
+                // to attribute, and neither said which member was being resolved.
+                if (Interlocked.Increment(ref directBinderNre) <= 8 || JVM.TraceLazyBodies)
+                {
+                    var frames = (e.StackTrace ?? "").Split('\n');
+                    var where = frames.Length > 0 ? frames[0].Trim() : "?";
+                    Console.WriteLine($"[IKVM dynbinder] direct-path NRE, deferring to MethodHandle: kind={kind} {clazz}.{name}{sig} at {where}");
+                }
             }
 #endif
 

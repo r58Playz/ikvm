@@ -74,6 +74,38 @@ namespace IKVM.Runtime
         // generation 1, i.e. exactly the behaviour it has with this off.
         internal static readonly bool LazyInPlace = SafeGetEnvironmentVariable("IKVM_LAZY_INPLACE") == "1";
 
+        // Allow <init> to be relinked IN PLACE. DEFAULT OFF until measured.
+        //
+        // The shared candidacy gate rejects <init>/<clinit> because "a constructor's TRAMPOLINE would run
+        // before the object is initialised" -- which is correct for TryMoveBodyToHelper, where the body is
+        // moved into a static helper reached through a delegate. The in-place path has no trampoline: its
+        // hook is `volatile ldsfld flag; dup; brfalse; ldc.i4.0; blt` plus a static call, touching no `this`,
+        // and the body is later swapped wholesale by mono_interp_replace_method_body. The restriction is
+        // inherited from the other path, not derived from this one.
+        //
+        // Worth measuring because constructors run per allocation and the largest surviving lazy-link
+        // binder in the plateau is one: VoxelShapeSimpleCube.<init> at 3.06 M instr/tick (R279).
+        // <clinit> stays excluded unconditionally -- it runs once, so relinking buys no steady state, and
+        // the hook would fire inside type initialisation.
+        //
+        // WORKS, AND REQUIRES A RUNTIME FIX THAT SHIPPED WITH IT (R280). Enabling this alone against a
+        // runtime without mono's `clause_is_dead` guard in compute_bb_regions aborts the process at
+        // `method-to-ir.c:805, condition 'bb' not met` during world generation -- not a fault in this
+        // hook. A generation-2 constructor commonly loads a field of an unloadable type, mono answers
+        // that by replacing the whole body with a throw and marking every EH clause dead, and
+        // compute_bb_regions then walked the clause table anyway. If a constructor arm ever asserts
+        // there again, check the RUNTIME before this file.
+        //
+        // Measured within one binary, this knob as the only variable: `gen2 clean` 4293 -> 4501
+        // (+208 bodies), faults [] on 2/2, `failed`/`declined`/`unexpectedDynamic` all 0, and the
+        // runtime's `[wasm-jit badeh] bad_offsets` 0 on BOTH arms.
+        //
+        // The hook is emitted at the CALL SITE of CompileConstructorBody, not inside it: that helper
+        // also compiles <clinit>, which must stay exempt. It is static-only IL -- a volatile static
+        // read, a branch and a static call -- so it never touches `this` and is legal ahead of the
+        // base-constructor call.
+        internal static readonly bool LazyInPlaceCtors = SafeGetEnvironmentVariable("IKVM_LAZY_CTORS") == "1";
+
         // Admit a candidate whose SIGNATURE mentions an unloadable type. Default OFF.
         //
         // The signature screen used to refuse these together with ghost/remapped/value types, and that
@@ -94,12 +126,6 @@ namespace IKVM.Runtime
         // the trampoline cost on for bodies that have nothing to gain, which is how the indirection's own cost
         // was measured.
         internal static readonly bool LazyAll = SafeGetEnvironmentVariable("IKVM_LAZY_ALL") == "1";
-
-        // Allow candidates containing invokedynamic / MethodHandle call sites. Default OFF, and not merely for
-        // caution: recompiling such a body silently corrupts data, because FinishContext would Define* fresh
-        // call sites, caches and CallerID nested types instead of REFERENCING the ones already baked into the
-        // type. Turning this on needs a "recompile mode" in FinishContext first.
-        internal static readonly bool LazyMethodHandles = SafeGetEnvironmentVariable("IKVM_LAZY_MH") == "1";
 
         // Report each failing cast with its source and target type, for locating an intermittent
         // Arg_InvalidCastException that lives in the MethodHandle PairwiseConvert/castReference path.
