@@ -96,6 +96,10 @@ namespace IKVM.Runtime
             intrinsics.Add(new IntrinsicKey("java.lang.Float", "intBitsToFloat", "(I)F"), Float_intBitsToFloat);
             intrinsics.Add(new IntrinsicKey("java.lang.Double", "doubleToRawLongBits", "(D)J"), Double_doubleToRawLongBits);
             intrinsics.Add(new IntrinsicKey("java.lang.Double", "longBitsToDouble", "(J)D"), Double_longBitsToDouble);
+            intrinsics.Add(new IntrinsicKey("java.lang.Math", "max", "(DD)D"), Math_max_double);
+            intrinsics.Add(new IntrinsicKey("java.lang.Math", "min", "(DD)D"), Math_min_double);
+            intrinsics.Add(new IntrinsicKey("java.lang.Math", "max", "(FF)F"), Math_max_float);
+            intrinsics.Add(new IntrinsicKey("java.lang.Math", "min", "(FF)F"), Math_min_float);
             intrinsics.Add(new IntrinsicKey("java.lang.System", "arraycopy", "(Ljava.lang.Object;ILjava.lang.Object;II)V"), System_arraycopy);
             intrinsics.Add(new IntrinsicKey("java.util.concurrent.atomic.AtomicReferenceFieldUpdater", "newUpdater", "(Ljava.lang.Class;Ljava.lang.Class;Ljava.lang.String;)Ljava.util.concurrent.atomic.AtomicReferenceFieldUpdater;"), AtomicReferenceFieldUpdater_newUpdater);
 #if IMPORTER
@@ -276,6 +280,25 @@ namespace IKVM.Runtime
         {
             ilgen.Emit(OpCodes.Call, converterType.GetMethod(method));
         }
+
+        // java.lang.Math.max/min(double|float) -> System.Math.Max/Min. Same semantics -- NaN if either operand is NaN,
+        // and -0.0 orders below +0.0 -- since .NET Core 3.0's IEEE 754:2019 maximum/minimum, and the runtime lowers
+        // them to one f64.max/f32.min instruction. OpenJDK's Java implementation spells both rules out with
+        // Double.doubleToRawLongBits compares, which costs a call and several branches per use.
+        static bool EmitMathMinMax(EmitIntrinsicContext eic, string name, Type operand)
+        {
+            var math = eic.Method.DeclaringType.Context.Resolver.ResolveCoreType(typeof(System.Math).FullName).AsReflection();
+            var m = math.GetMethod(name, new[] { operand, operand });
+            if (m == null)
+                return false;
+            eic.Emitter.Emit(OpCodes.Call, m);
+            return true;
+        }
+
+        static bool Math_max_double(EmitIntrinsicContext eic) => EmitMathMinMax(eic, "Max", eic.Method.DeclaringType.Context.Types.Double);
+        static bool Math_min_double(EmitIntrinsicContext eic) => EmitMathMinMax(eic, "Min", eic.Method.DeclaringType.Context.Types.Double);
+        static bool Math_max_float(EmitIntrinsicContext eic) => EmitMathMinMax(eic, "Max", eic.Method.DeclaringType.Context.Types.Single);
+        static bool Math_min_float(EmitIntrinsicContext eic) => EmitMathMinMax(eic, "Min", eic.Method.DeclaringType.Context.Types.Single);
 
         /// <summary>
         /// Calls to System.arraycopy can be replaced with directly optimized versions.

@@ -2654,17 +2654,19 @@ namespace IKVM.Runtime
                     case NormalizedByteCode.__l2i:
                         ilGenerator.Emit(OpCodes.Conv_I4);
                         break;
+                    // Java's float->int/long rule is SATURATING: truncate toward zero, clamp to the target range, NaN -> 0.
+                    // ECMA leaves conv.i4/conv.i8 unspecified out of range, which is why these used to call
+                    // ByteCodeHelper.f2i/d2i/f2l/d2l. The runtime this fork ships makes every tier saturate --
+                    // interpreter and jiterpreter (built with -mnontrapping-fptoint), the wasm JIT (trunc_sat) and the AOT
+                    // image (llvm.fpto*i.sat) -- which is also what .NET 9 made CoreCLR do. So the plain opcode IS the Java
+                    // conversion, one wasm instruction instead of a call. The helpers stay for already-compiled callers.
                     case NormalizedByteCode.__f2i:
-                        ilGenerator.Emit(OpCodes.Call, finish.Context.ByteCodeHelperMethods.f2i);
-                        break;
                     case NormalizedByteCode.__d2i:
-                        ilGenerator.Emit(OpCodes.Call, finish.Context.ByteCodeHelperMethods.d2i);
+                        ilGenerator.Emit(OpCodes.Conv_I4);
                         break;
                     case NormalizedByteCode.__f2l:
-                        ilGenerator.Emit(OpCodes.Call, finish.Context.ByteCodeHelperMethods.f2l);
-                        break;
                     case NormalizedByteCode.__d2l:
-                        ilGenerator.Emit(OpCodes.Call, finish.Context.ByteCodeHelperMethods.d2l);
+                        ilGenerator.Emit(OpCodes.Conv_I8);
                         break;
                     case NormalizedByteCode.__i2l:
                         ilGenerator.Emit(OpCodes.Conv_I8);

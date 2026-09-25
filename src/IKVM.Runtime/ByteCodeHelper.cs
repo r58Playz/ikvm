@@ -338,6 +338,10 @@ namespace IKVM.Runtime
         /// stack operands, in the same order, so the call sites needed no reordering.
         /// </remarks>
         [DebuggerStepThrough]
+        // No EH clause and a two-instruction body, so the JIT can fold it into the call site: one call level less on
+        // every resolved dynamic instanceof/checkcast, and the virtual IsInstanceOf becomes visible to the caller's
+        // devirtualization. Generated code cannot name the internal InstanceCheck type itself, so the helper stays.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool InstanceCheckIsInstanceOf(object check, object obj)
         {
 #if FIRST_PASS
@@ -2281,7 +2285,10 @@ namespace IKVM.Runtime
 #else
             try
             {
-                return Interlocked.CompareExchange(ref location, 0, 0);
+                // Volatile.Read is atomic for 64-bit values on every platform .NET runs on, and a Java volatile read
+                // needs acquire only (the fence lives on the write, which stays Interlocked.Exchange). The CAS this
+                // replaced turned every read into a locked read-modify-write.
+                return Volatile.Read(ref location);
             }
             catch (SEHException e)
             {
@@ -2365,7 +2372,8 @@ namespace IKVM.Runtime
 #else
             try
             {
-                return Interlocked.CompareExchange(ref location, 0, 0);
+                // See VolatileRead(ref long).
+                return Volatile.Read(ref location);
             }
             catch (SEHException e)
             {
