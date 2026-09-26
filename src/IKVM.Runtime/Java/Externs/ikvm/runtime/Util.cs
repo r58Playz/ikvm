@@ -50,19 +50,52 @@ namespace IKVM.Java.Externs.ikvm.runtime
 #endif
         }
 
+        /// <summary>
+        /// An immutable (key, value) pair published into a direct-mapped cache slot with one reference write, so a
+        /// reader sees either a whole old entry or a whole new one.
+        /// </summary>
+        sealed class DirectCacheEntry<TKey, TValue> where TKey : class where TValue : class
+        {
+            internal readonly TKey Key;
+            internal readonly TValue Value;
+            internal DirectCacheEntry(TKey key, TValue value) { Key = key; Value = value; }
+        }
+
+        const int DirectCacheMask = 1023;
+
+        // concrete CLR type -> RuntimeJavaType, in front of wrapperByConcreteType (R314/I1: the ConcurrentDictionary
+        // lookup was most of Object.getClass()'s cost on the server tick)
+        static readonly DirectCacheEntry<Type, RuntimeJavaType>[] wrapperByConcreteTypeFast = new DirectCacheEntry<Type, RuntimeJavaType>[DirectCacheMask + 1];
+
+        static int DirectCacheIndex(IntPtr handle) => (int)(((long)handle >> 3) & DirectCacheMask);
+
         internal static RuntimeJavaType GetTypeWrapperFromObject(RuntimeContext context, object o)
         {
-            // ghost tags are attached per-object (side table), so this must stay uncached and first
-            var ghostType = GhostTag.GetTag(o);
-            if (ghostType != null)
-                return ghostType;
+            // Ghost tags are attached per-object (side table), so this must stay uncached and first -- but only
+            // ARRAYS are ever tagged (every GhostTag.SetTag site tags a new array: multianewarray_ghost,
+            // anewarray_ghost, DynamicMultianewarray, DynamicNewarray, reflect.Array), so a non-array never has one
+            // and skips the ConditionalWeakTable lookup (R314/I1).
+            if (o is Array)
+            {
+                var ghostType = GhostTag.GetTag(o);
+                if (ghostType != null)
+                    return ghostType;
+            }
 
             var t = o.GetType();
-            if (wrapperByConcreteType.TryGetValue(t, out var cached))
-                return cached;
+            ref var slot = ref wrapperByConcreteTypeFast[DirectCacheIndex(t.TypeHandle.Value)];
+            var e = System.Threading.Volatile.Read(ref slot);
+            if (e != null && ReferenceEquals(e.Key, t))
+                return e.Value;
 
-            var resolved = ResolveTypeWrapperFromType(context, t);
-            wrapperByConcreteType[t] = resolved;
+            if (!wrapperByConcreteType.TryGetValue(t, out var resolved))
+            {
+                resolved = ResolveTypeWrapperFromType(context, t);
+                wrapperByConcreteType[t] = resolved;
+            }
+
+            if (resolved != null)
+                System.Threading.Volatile.Write(ref slot, new DirectCacheEntry<Type, RuntimeJavaType>(t, resolved));
             return resolved;
         }
 
@@ -84,7 +117,42 @@ namespace IKVM.Java.Externs.ikvm.runtime
             }
         }
 
+#if !FIRST_PASS
+        // type handle -> Class for class literals (R314/I1). Every `Foo.class` in a dynamically compiled class comes
+        // here (RuntimeByteCodeJavaType is not IsFastClassLiteralSafe), and the uncached path -- GetTypeFromHandle,
+        // IsRemappedType, IsVisibleAsClass, a ConcurrentDictionary lookup -- was 2.4% of the server tick. Only
+        // non-null results are cached; all of the inputs are stable for a type (IKVM's dynamic assemblies are not
+        // collectible, so a handle is never reused for another type), and the handle is kept in the entry so a
+        // collision is a miss, never a wrong answer.
+        sealed class HandleClassEntry
+        {
+            internal readonly IntPtr Handle;
+            internal readonly global::java.lang.Class Class;
+            internal HandleClassEntry(IntPtr handle, global::java.lang.Class cls) { Handle = handle; Class = cls; }
+        }
+
+        static readonly HandleClassEntry[] classByTypeHandle = new HandleClassEntry[DirectCacheMask + 1];
+#endif
+
         public static global::java.lang.Class getClassFromTypeHandle(RuntimeTypeHandle handle)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            var key = handle.Value;
+            ref var slot = ref classByTypeHandle[DirectCacheIndex(key)];
+            var e = System.Threading.Volatile.Read(ref slot);
+            if (e != null && e.Handle == key)
+                return e.Class;
+
+            var result = getClassFromTypeHandleSlow(handle);
+            if (result != null)
+                System.Threading.Volatile.Write(ref slot, new HandleClassEntry(key, result));
+            return result;
+#endif
+        }
+
+        static global::java.lang.Class getClassFromTypeHandleSlow(RuntimeTypeHandle handle)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
