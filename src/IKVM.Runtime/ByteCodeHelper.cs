@@ -2063,24 +2063,26 @@ namespace IKVM.Runtime
 
 #endif
 
+        // wasm fork: the 20 volatile/CAS helpers below drop the try/catch (SEHException) upstream IKVM wraps them in.
+        // An SEHException cannot occur on wasm, and the clause made every one a CLAUSE METHOD, which mono's
+        // llvm-only AOT compiles in deopt mode (an LMF push, an il_state holding the address of every argument, a landing
+        // pad): ~150-175 instructions per call for one atomic operation. NoInlining keeps today's shape for JIT'd callers
+        // -- a clause method was never inlinable -- because the runtime's wasm JIT does not yet lower the atomic
+        // intrinsics these bodies expand to (OP_ATOMIC_LOAD_*, OP_ATOMIC_CAS_I4, ...), so inlining one would bail the
+        // caller. Drop the attribute once it does.
+
         /// <summary>
         /// Implements a volatile read against a reference to a bool. In Java, a volatile operation is atomic.
         /// </summary>
         /// <param name="location"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static bool VolatileRead(ref bool location)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                return Volatile.Read(ref location);
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return Volatile.Read(ref location);
 #endif
         }
 
@@ -2089,19 +2091,13 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <param name="value"></param>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static void VolatileWrite(ref bool location, bool value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                Volatile.Write(ref location, value);
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            Volatile.Write(ref location, value);
 #endif
         }
 
@@ -2110,19 +2106,13 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static byte VolatileRead(ref byte location)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                return Volatile.Read(ref location);
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return Volatile.Read(ref location);
 #endif
         }
 
@@ -2131,19 +2121,13 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <param name="value"></param>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static void VolatileWrite(ref byte location, byte value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                Volatile.Write(ref location, value);
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            Volatile.Write(ref location, value);
 #endif
         }
 
@@ -2152,19 +2136,13 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static char VolatileRead(ref char location)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                return (char)Volatile.Read(ref Unsafe.As<char, short>(ref location));
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return (char)Volatile.Read(ref Unsafe.As<char, short>(ref location));
 #endif
         }
 
@@ -2173,19 +2151,13 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <param name="value"></param>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static void VolatileWrite(ref char location, char value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                Volatile.Write(ref Unsafe.As<char, short>(ref location), (short)value);
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            Volatile.Write(ref Unsafe.As<char, short>(ref location), (short)value);
 #endif
         }
 
@@ -2194,19 +2166,13 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static short VolatileRead(ref short location)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                return Volatile.Read(ref location);
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return Volatile.Read(ref location);
 #endif
         }
 
@@ -2215,19 +2181,13 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <param name="value"></param>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static void VolatileWrite(ref short location, short value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                Volatile.Write(ref location, value);
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            Volatile.Write(ref location, value);
 #endif
         }
 
@@ -2236,19 +2196,13 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static int VolatileRead(ref int location)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                return Volatile.Read(ref location);
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return Volatile.Read(ref location);
 #endif
         }
 
@@ -2257,19 +2211,13 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <param name="value"></param>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static void VolatileWrite(ref int location, int value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                Volatile.Write(ref location, value);
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            Volatile.Write(ref location, value);
 #endif
         }
 
@@ -2278,22 +2226,16 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static long VolatileRead(ref long location)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                // Volatile.Read is atomic for 64-bit values on every platform .NET runs on, and a Java volatile read
-                // needs acquire only (the fence lives on the write, which stays Interlocked.Exchange). The CAS this
-                // replaced turned every read into a locked read-modify-write.
-                return Volatile.Read(ref location);
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            // Volatile.Read is atomic for 64-bit values on every platform .NET runs on, and a Java volatile read
+            // needs acquire only (the fence lives on the write, which stays Interlocked.Exchange). The CAS this
+            // replaced turned every read into a locked read-modify-write.
+            return Volatile.Read(ref location);
 #endif
         }
 
@@ -2302,19 +2244,13 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <param name="value"></param>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static void VolatileWrite(ref long location, long value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                Interlocked.Exchange(ref location, value);
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            Interlocked.Exchange(ref location, value);
 #endif
         }
 
@@ -2323,19 +2259,13 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static float VolatileRead(ref float location)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                return Volatile.Read(ref location);
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return Volatile.Read(ref location);
 #endif
         }
 
@@ -2344,19 +2274,13 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <param name="value"></param>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static void VolatileWrite(ref float location, float value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                Volatile.Write(ref location, value);
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            Volatile.Write(ref location, value);
 #endif
         }
 
@@ -2365,20 +2289,14 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static double VolatileRead(ref double location)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                // See VolatileRead(ref long).
-                return Volatile.Read(ref location);
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            // See VolatileRead(ref long).
+            return Volatile.Read(ref location);
 #endif
         }
 
@@ -2387,19 +2305,13 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <param name="value"></param>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static void VolatileWrite(ref double location, double value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                Interlocked.Exchange(ref location, value);
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            Interlocked.Exchange(ref location, value);
 #endif
         }
 
@@ -2410,19 +2322,13 @@ namespace IKVM.Runtime
         /// <param name="expected"></param>
         /// <param name="value"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static bool CompareAndSwap(ref object location, object expected, object value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                return Interlocked.CompareExchange(ref location, value, expected) == expected;
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return Interlocked.CompareExchange(ref location, value, expected) == expected;
 #endif
         }
 
@@ -2433,19 +2339,13 @@ namespace IKVM.Runtime
         /// <param name="expected"></param>
         /// <param name="value"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static bool CompareAndSwap(ref int location, int expected, int value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                return Interlocked.CompareExchange(ref location, value, expected) == expected;
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return Interlocked.CompareExchange(ref location, value, expected) == expected;
 #endif
         }
 
@@ -2456,19 +2356,13 @@ namespace IKVM.Runtime
         /// <param name="expected"></param>
         /// <param name="value"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static bool CompareAndSwap(ref long location, long expected, long value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                return Interlocked.CompareExchange(ref location, value, expected) == expected;
-            }
-            catch (SEHException e)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return Interlocked.CompareExchange(ref location, value, expected) == expected;
 #endif
         }
 
@@ -2479,19 +2373,13 @@ namespace IKVM.Runtime
         /// <param name="expected"></param>
         /// <param name="value"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static bool CompareAndSwap(ref double location, double expected, double value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            try
-            {
-                return Interlocked.CompareExchange(ref location, value, expected) == expected;
-            }
-            catch (SEHException)
-            {
-                throw new global::java.lang.InternalError();
-            }
+            return Interlocked.CompareExchange(ref location, value, expected) == expected;
 #endif
         }
 
