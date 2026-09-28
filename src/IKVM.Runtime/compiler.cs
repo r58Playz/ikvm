@@ -555,6 +555,8 @@ namespace IKVM.Runtime
                 return Array.Empty<string>();
 
             HashSet<string> dependencies = null;
+            var operandDependency = false;
+            var memberDependency = false;
             for (int i = 0; i < instructions.Length; i++)
             {
                 switch (instructions[i].NormalizedOpCode)
@@ -567,7 +569,10 @@ namespace IKVM.Runtime
                             var cpi = classFile.GetFieldref(instructions[i].Arg1);
                             var ft = cpi?.GetClassType();
                             if (ft == null || ft.IsUnloadable)
+                            {
                                 (dependencies ??= new HashSet<string>()).Add(cpi.Class);
+                                memberDependency = true;
+                            }
                             break;
                         }
 
@@ -591,7 +596,41 @@ namespace IKVM.Runtime
 
                             var ct = mi?.GetClassType();
                             if (ct == null || ct.IsUnloadable)
+                            {
                                 (dependencies ??= new HashSet<string>()).Add(cpi.Class);
+                                memberDependency = true;
+                            }
+                            break;
+                        }
+
+                    // wasm fork: a class OPERAND that was unloadable at link time compiles to the dynamic form too --
+                    // a checkcast/instanceof becomes DynamicCastResolve + InstanceCheck.IsInstanceOf on every
+                    // execution (EmitDynamicCast), an anewarray a dynamic array creation -- and used to make no method a
+                    // candidate. World.getProfiler() is `Supplier.get(); checkcast Profiler`, never relinked, and alone
+                    // 0.52 M instr/server tick of IsInstanceOf (R354). Generation 2 reparses the class, so its
+                    // constant pool links the now-loaded type and emits a plain castclass. (A `new` needs no case: its
+                    // <init> methodref already names the class.)
+                    case NormalizedByteCode.__checkcast:
+                    case NormalizedByteCode.__instanceof:
+                    case NormalizedByteCode.__anewarray:
+                    case NormalizedByteCode.__multianewarray:
+                        {
+                            var tw = JVM.LazyOperandDeps ? classFile.GetConstantPoolClassType(instructions[i].Arg1) : null;
+                            if (tw != null && tw.IsUnloadable)
+                            {
+                                // the loader publishes element classes, never array classes: wait for the element
+                                var name = tw.Name;
+                                var start = 0;
+                                while (start < name.Length && name[start] == '[')
+                                    start++;
+                                if (start > 0)
+                                    name = start < name.Length && name[start] == 'L' && name[name.Length - 1] == ';' ? name.Substring(start + 1, name.Length - start - 2) : null;
+                                if (!string.IsNullOrEmpty(name))
+                                {
+                                    (dependencies ??= new HashSet<string>()).Add(name);
+                                    operandDependency = true;
+                                }
+                            }
                             break;
                         }
                 }
@@ -599,6 +638,10 @@ namespace IKVM.Runtime
 
             if (dependencies == null)
                 return Array.Empty<string>();
+
+            // the population the operand cases add: no member reference would have made this a candidate
+            if (operandDependency && !memberDependency)
+                System.Threading.Interlocked.Increment(ref LazyBodyStats.OperandOnly);
 
             var result = new string[dependencies.Count];
             dependencies.CopyTo(result);

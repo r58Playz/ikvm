@@ -122,6 +122,11 @@ namespace IKVM.Runtime
         // __<>DynamicBinder__ dispatch pool (itself 11.673% of the client render thread).
         internal static readonly bool LazyUnloadableSig = SafeGetEnvironmentVariable("IKVM_LAZY_SIG") == "1";
 
+        // wasm fork (R354): count an unloadable class OPERAND (checkcast/instanceof/anewarray/multianewarray) as a
+        // dynamic dependency, so the method gets a generation 2 that binds it. Default ON; "0" restores the old
+        // candidacy, for the A/B.
+        internal static readonly bool LazyOperandDeps = SafeGetEnvironmentVariable("IKVM_LAZY_OPERANDS") != "0";
+
         // Make every eligible method a candidate, not just those with dynamic references. Diagnostic: it turns
         // the trampoline cost on for bodies that have nothing to gain, which is how the indirection's own cost
         // was measured.

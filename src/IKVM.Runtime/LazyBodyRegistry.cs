@@ -140,6 +140,7 @@ namespace IKVM.Runtime
         internal static int Accepted;
         internal static int RejShape;             // abstract/native/no instructions, or <init>/<clinit>
         internal static int RejNoDynamic;         // nothing dynamic to gain from a second generation
+        internal static int OperandOnly;          // wasm fork (R354): candidates ONLY because of an unloadable class operand
         internal static int RejArity;             // more args than the delegate types cover
         internal static int RejExceptionHandlers; // only with IKVM_LAZY_SKIP_EH=1
 
@@ -270,7 +271,7 @@ namespace IKVM.Runtime
 
         internal static void Report()
         {
-            Console.WriteLine($"[IKVM lazybody] eval seen={Seen} accepted={Accepted} rej: shape={RejShape} nodyn={RejNoDynamic} arity={RejArity} sigAwkward={RejSigAwkward} sigUnloadable={RejSigUnloadable} eh={RejExceptionHandlers}");
+            Console.WriteLine($"[IKVM lazybody] eval seen={Seen} accepted={Accepted} opOnly={OperandOnly} rej: shape={RejShape} nodyn={RejNoDynamic} arity={RejArity} sigAwkward={RejSigAwkward} sigUnloadable={RejSigUnloadable} eh={RejExceptionHandlers}");
             Console.WriteLine($"[IKVM lazybody] gen2 clean={Gen2Clean} unexpectedDynamic={Gen2UnexpectedDynamic} callerID={Gen2CallerID} depWaits={DependencyWaits} missingSite={MissingBakedSite} bakedLambda={Gen2BakedLambdaSite} cidReal={Gen2CallerIDReal} cidReused={Gen2CallerIDReused} cidForeign={Gen2CallerIDForeign} scratchShared={Gen2ScratchShared}");
             if (JVM.LazyInPlace)
                 Console.WriteLine($"[IKVM lazybody] inplace ok={InPlaceOk} late={InPlaceLate} declined={InPlaceDeclined} failed={InPlaceFailed} unsupported={InPlaceUnsupported} queued={InPlaceQueued} batches={InPlaceBatches} deferrals={InPlaceDeferrals} forced={InPlaceForced}");
