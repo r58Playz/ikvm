@@ -570,6 +570,11 @@ namespace IKVM.Runtime
             if (Volatile.Read(ref entry.RelinkState) == 0 && entry.DependenciesLoaded() == false)
             {
                 Interlocked.Increment(ref LazyBodyStats.DependencyWaits);
+                // wasm fork (R357): name the methods that keep waiting. 64 probes at the capped retry delay is
+                // thousands of generation-1 calls, i.e. a hot method whose dependency never reads as published
+                // -- which would pin it to its dynamic stubs for the whole run. Bounded to the first 48.
+                if (Interlocked.Increment(ref entry.Waits) == 64 && Interlocked.Increment(ref LazyBodyStats.StuckNamed) <= 48)
+                    Console.WriteLine($"[IKVM lazybody] stuck #{LazyBodyStats.StuckNamed}: {entry.Wrapper?.Name}.{entry.Method?.Name}{entry.Method?.Signature} waits on {entry.FirstUnpublished() ?? "(none now)"} ({entry.Dependencies.Length} deps, loader {entry.Wrapper?.ClassLoader?.GetType().Name})");
                 return IncreaseRelinkRetryDelay(entry);
             }
 

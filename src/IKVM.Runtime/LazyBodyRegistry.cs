@@ -80,6 +80,19 @@ namespace IKVM.Runtime
             /// 4 and 16 to a cap of 64 while a dependency remains unloaded.</summary>
             internal int RetryDelay;
 
+            /// <summary>wasm fork (R357): dependency probes that found a dependency unpublished.</summary>
+            internal int Waits;
+
+            /// <summary>The first dependency the loader does not report as published, or null.</summary>
+            internal string FirstUnpublished()
+            {
+                for (int i = 0; i < Dependencies.Length; i++)
+                    if (!Wrapper.ClassLoader.IsClassPublished(Dependencies[i]))
+                        return Dependencies[i];
+
+                return null;
+            }
+
             internal bool DependenciesLoaded()
             {
                 for (int i = 0; i < Dependencies.Length; i++)
@@ -141,6 +154,7 @@ namespace IKVM.Runtime
         internal static int RejShape;             // abstract/native/no instructions, or <init>/<clinit>
         internal static int RejNoDynamic;         // nothing dynamic to gain from a second generation
         internal static int OperandOnly;          // wasm fork (R354): candidates ONLY because of an unloadable class operand
+        internal static int StuckNamed;           // wasm fork (R357): entries named for 64 unanswered dependency probes
         internal static int RejArity;             // more args than the delegate types cover
         internal static int RejExceptionHandlers; // only with IKVM_LAZY_SKIP_EH=1
 
