@@ -146,6 +146,16 @@ namespace IKVM.Runtime
             intrinsics.Add(new IntrinsicKey("sun.misc.Unsafe", "putShort", "(JS)V"), Unsafe_putShortAbs);
             intrinsics.Add(new IntrinsicKey("sun.misc.Unsafe", "putInt", "(JI)V"), Unsafe_putIntAbs);
             intrinsics.Add(new IntrinsicKey("sun.misc.Unsafe", "putLong", "(JJ)V"), Unsafe_putLongAbs);
+            // wasm fork: the float/double forms too. Sodium's vertex writers call putFloat(long, float) directly (five
+            // per glyph vertex), and each went through the IKVM.Java stub and the extern (R352).
+            intrinsics.Add(new IntrinsicKey("sun.misc.Unsafe", "getFloat", "(Ljava.lang.Object;J)F"), Unsafe_getFloatOffHeap);
+            intrinsics.Add(new IntrinsicKey("sun.misc.Unsafe", "getDouble", "(Ljava.lang.Object;J)D"), Unsafe_getDoubleOffHeap);
+            intrinsics.Add(new IntrinsicKey("sun.misc.Unsafe", "putFloat", "(Ljava.lang.Object;JF)V"), Unsafe_putFloatOffHeap);
+            intrinsics.Add(new IntrinsicKey("sun.misc.Unsafe", "putDouble", "(Ljava.lang.Object;JD)V"), Unsafe_putDoubleOffHeap);
+            intrinsics.Add(new IntrinsicKey("sun.misc.Unsafe", "getFloat", "(J)F"), Unsafe_getFloatAbs);
+            intrinsics.Add(new IntrinsicKey("sun.misc.Unsafe", "getDouble", "(J)D"), Unsafe_getDoubleAbs);
+            intrinsics.Add(new IntrinsicKey("sun.misc.Unsafe", "putFloat", "(JF)V"), Unsafe_putFloatAbs);
+            intrinsics.Add(new IntrinsicKey("sun.misc.Unsafe", "putDouble", "(JD)V"), Unsafe_putDoubleAbs);
             return intrinsics;
         }
 
@@ -713,13 +723,13 @@ namespace IKVM.Runtime
         }
 
         // put<T>(Object o, long address, T value): stack [this(3)][o(2)][address(1)][value(0)].
-        static bool EmitUnsafeOffHeapPut(EmitIntrinsicContext eic, bool longValue, OpCode stind)
+        static bool EmitUnsafeOffHeapPut(EmitIntrinsicContext eic, Type valueType, OpCode stind)
         {
             if (eic.GetStackTypeWrapper(0, 3) == eic.Context.Context.VerifierJavaTypeFactory.Null)
                 return false;
             if (eic.GetStackTypeWrapper(0, 2) != eic.Context.Context.VerifierJavaTypeFactory.Null)
                 return false;
-            var val = eic.Emitter.AllocTempLocal(longValue ? eic.Method.DeclaringType.Context.Types.Int64 : eic.Method.DeclaringType.Context.Types.Int32);
+            var val = eic.Emitter.AllocTempLocal(valueType);
             var addr = eic.Emitter.AllocTempLocal(eic.Method.DeclaringType.Context.Types.Int64);
             eic.Emitter.Emit(OpCodes.Stloc, val);   // pop value
             eic.Emitter.Emit(OpCodes.Stloc, addr);  // pop address
@@ -736,11 +746,11 @@ namespace IKVM.Runtime
         }
 
         // put<T>(long address, T value): stack [this(2)][address(1)][value(0)] -- always off-heap.
-        static bool EmitUnsafeAbsPut(EmitIntrinsicContext eic, bool longValue, OpCode stind)
+        static bool EmitUnsafeAbsPut(EmitIntrinsicContext eic, Type valueType, OpCode stind)
         {
             if (eic.GetStackTypeWrapper(0, 2) == eic.Context.Context.VerifierJavaTypeFactory.Null)
                 return false;
-            var val = eic.Emitter.AllocTempLocal(longValue ? eic.Method.DeclaringType.Context.Types.Int64 : eic.Method.DeclaringType.Context.Types.Int32);
+            var val = eic.Emitter.AllocTempLocal(valueType);
             var addr = eic.Emitter.AllocTempLocal(eic.Method.DeclaringType.Context.Types.Int64);
             eic.Emitter.Emit(OpCodes.Stloc, val);
             eic.Emitter.Emit(OpCodes.Stloc, addr);
@@ -759,19 +769,28 @@ namespace IKVM.Runtime
         static bool Unsafe_getShortOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapGet(eic, OpCodes.Ldind_I2);
         static bool Unsafe_getIntOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapGet(eic, OpCodes.Ldind_I4);
         static bool Unsafe_getLongOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapGet(eic, OpCodes.Ldind_I8);
-        static bool Unsafe_putByteOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, false, OpCodes.Stind_I1);
-        static bool Unsafe_putShortOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, false, OpCodes.Stind_I2);
-        static bool Unsafe_putIntOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, false, OpCodes.Stind_I4);
-        static bool Unsafe_putLongOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, true, OpCodes.Stind_I8);
+        static bool Unsafe_putByteOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Int32, OpCodes.Stind_I1);
+        static bool Unsafe_putShortOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Int32, OpCodes.Stind_I2);
+        static bool Unsafe_putIntOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Int32, OpCodes.Stind_I4);
+        static bool Unsafe_putLongOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Int64, OpCodes.Stind_I8);
 
         static bool Unsafe_getByteAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsGet(eic, OpCodes.Ldind_I1);
         static bool Unsafe_getShortAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsGet(eic, OpCodes.Ldind_I2);
         static bool Unsafe_getIntAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsGet(eic, OpCodes.Ldind_I4);
         static bool Unsafe_getLongAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsGet(eic, OpCodes.Ldind_I8);
-        static bool Unsafe_putByteAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsPut(eic, false, OpCodes.Stind_I1);
-        static bool Unsafe_putShortAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsPut(eic, false, OpCodes.Stind_I2);
-        static bool Unsafe_putIntAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsPut(eic, false, OpCodes.Stind_I4);
-        static bool Unsafe_putLongAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsPut(eic, true, OpCodes.Stind_I8);
+        static bool Unsafe_putByteAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsPut(eic, eic.Method.DeclaringType.Context.Types.Int32, OpCodes.Stind_I1);
+        static bool Unsafe_putShortAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsPut(eic, eic.Method.DeclaringType.Context.Types.Int32, OpCodes.Stind_I2);
+        static bool Unsafe_putIntAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsPut(eic, eic.Method.DeclaringType.Context.Types.Int32, OpCodes.Stind_I4);
+        static bool Unsafe_putLongAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsPut(eic, eic.Method.DeclaringType.Context.Types.Int64, OpCodes.Stind_I8);
+
+        static bool Unsafe_getFloatOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapGet(eic, OpCodes.Ldind_R4);
+        static bool Unsafe_getDoubleOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapGet(eic, OpCodes.Ldind_R8);
+        static bool Unsafe_putFloatOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Single, OpCodes.Stind_R4);
+        static bool Unsafe_putDoubleOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Double, OpCodes.Stind_R8);
+        static bool Unsafe_getFloatAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsGet(eic, OpCodes.Ldind_R4);
+        static bool Unsafe_getDoubleAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsGet(eic, OpCodes.Ldind_R8);
+        static bool Unsafe_putFloatAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsPut(eic, eic.Method.DeclaringType.Context.Types.Single, OpCodes.Stind_R4);
+        static bool Unsafe_putDoubleAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsPut(eic, eic.Method.DeclaringType.Context.Types.Double, OpCodes.Stind_R8);
 
         /// <summary>
         /// Replaces a call to Unsafe.compareAndSwapObject with IL that directly conducts the operation.

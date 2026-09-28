@@ -45,6 +45,7 @@ namespace IKVM.Runtime
         Type typeOfType;
         Type typeOfString;
         Type typeOfException;
+        Type typeOfNullReferenceException;
         Type typeOfArray;
         Type typeOfAttribute;
         Type typeOfDelegate;
@@ -99,6 +100,8 @@ namespace IKVM.Runtime
         public Type String => typeOfString ??= Import(typeof(System.String));
 
         public Type Exception => typeOfException ??= Import(typeof(System.Exception));
+
+        public Type NullReferenceException => typeOfNullReferenceException ??= Import(typeof(System.NullReferenceException));
 
         public Type Array => typeOfArray ??= Import(typeof(System.Array));
 

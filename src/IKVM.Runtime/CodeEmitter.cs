@@ -2457,9 +2457,18 @@ namespace IKVM.Runtime
 
         internal void EmitNullCheck()
         {
-            // I think this is the most efficient way to generate a NullReferenceException if the reference is null
-            Emit(OpCodes.Ldvirtftn, context.CodeEmitterFactory.ObjectToStringMethod);
-            Emit(OpCodes.Pop);
+            // wasm fork: upstream emits `ldvirtftn Object::ToString; pop` here, which throws the same
+            // NullReferenceException and is cheap on CoreCLR. On mono an ldvirtftn that does not feed a delegate
+            // constructor becomes a mono_ldvirtfn icall -- a full virtual-method resolution -- per null check, and
+            // this emitter runs for every Unsafe intrinsic on a non-core-library receiver (Sodium's vertex writers
+            // do nine per quad), javac's getClass()/pop idiom and default-interface wrappers. An explicit test is a
+            // compare and a branch. Like the ldvirtftn form it consumes the reference and leaves the stack below it
+            // untouched; only the taken branch reaches `ok`.
+            var ok = DefineLabel();
+            EmitBrtrue(ok);
+            Emit(OpCodes.Newobj, context.Types.NullReferenceException.GetConstructor(Type.EmptyTypes));
+            Emit(OpCodes.Throw);
+            MarkLabel(ok);
         }
 
         internal void EmitCastclass(Type type)

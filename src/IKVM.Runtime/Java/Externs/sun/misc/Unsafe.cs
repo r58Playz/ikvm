@@ -14,6 +14,8 @@ using System.Threading;
 using IKVM.ByteCode;
 using IKVM.Runtime;
 
+using SysUnsafe = System.Runtime.CompilerServices.Unsafe;
+
 namespace IKVM.Java.Externs.sun.misc
 {
 
@@ -86,6 +88,8 @@ namespace IKVM.Java.Externs.sun.misc
             readonly Dictionary<int, RuntimeJavaField> offsetFields;
             readonly int[] fieldStartOffsets;
             readonly int[] fieldSizes;
+            readonly byte[] fieldKinds;
+            readonly int[] rawOffsets;
 
             /// <summary>
             /// Initializes a new instance.
@@ -103,6 +107,8 @@ namespace IKVM.Java.Externs.sun.misc
                 var offset = 0;
                 fieldStartOffsets = new int[fields.Length];
                 fieldSizes = new int[fields.Length];
+                fieldKinds = new byte[fields.Length];
+                rawOffsets = new int[fields.Length];
                 for (var i = 0; i < fields.Length; i++)
                 {
                     var field = fields[i];
@@ -114,6 +120,8 @@ namespace IKVM.Java.Externs.sun.misc
                     offsetFields[offset] = field;
                     fieldStartOffsets[i] = offset;
                     fieldSizes[i] = size;
+                    fieldKinds[i] = GetFieldKind(field);
+                    rawOffsets[i] = RawOffsetUnresolved;
                     offset = checked(offset + size);
                 }
             }
@@ -167,6 +175,59 @@ namespace IKVM.Java.Externs.sun.misc
                 return false;
             }
 
+#if !FIRST_PASS
+
+            /// <summary>
+            /// Gets the offset of the field that starts exactly at <paramref name="offset"/>, relative to the start of the
+            /// instance data of <paramref name="target"/>, if that field is of kind <paramref name="kind"/> and can be
+            /// addressed directly. Returns -1 otherwise, and the caller takes the general path.
+            /// </summary>
+            /// <param name="target"></param>
+            /// <param name="offset"></param>
+            /// <param name="kind"></param>
+            /// <returns></returns>
+            public int GetRawOffset(object target, int offset, byte kind)
+            {
+                var starts = fieldStartOffsets;
+                var lo = 0;
+                var hi = starts.Length - 1;
+
+                while (lo <= hi)
+                {
+                    var mid = lo + ((hi - lo) >> 1);
+                    var start = starts[mid];
+
+                    if (offset == start)
+                    {
+                        if (fieldKinds[mid] != kind)
+                            return -1;
+
+                        var raw = rawOffsets[mid];
+                        return raw != RawOffsetUnresolved ? raw : ResolveRawOffset(mid, target);
+                    }
+
+                    if (offset < start)
+                        hi = mid - 1;
+                    else
+                        lo = mid + 1;
+                }
+
+                return -1;
+            }
+
+            int ResolveRawOffset(int index, object target)
+            {
+                var raw = ComputeRawOffset(Fields[index], fieldSizes[index], target);
+                if (raw == RawOffsetUnresolved)
+                    return -1;
+
+                // every thread computes the same value, so the unsynchronized store is benign
+                rawOffsets[index] = raw;
+                return raw;
+            }
+
+#endif
+
             int FindFieldSegmentIndex(int offset)
             {
                 var lo = 0;
@@ -217,6 +278,148 @@ namespace IKVM.Java.Externs.sun.misc
 
             return (((int)offset) & ObjectFieldOffsetTagMask) == ObjectFieldOffsetTag;
         }
+
+        // wasm fork: typed fast path for the object form of get/put<T>(Object, long). Before it, every access to an
+        // encoded field offset went through TryRead/WriteEncodedObjectPrimitive: a binary search, two or three
+        // RuntimeJavaField.Link() calls (each a monitor enter/exit), a read-modify-write through stackalloc'd bytes
+        // and two delegate calls into DynamicMethods, all inside a try/catch filter. LWJGL's buffer wrapping
+        // (allocateInstance + putLong/putInt of Buffer.address/mark/limit/capacity) and memAddress (getLong of
+        // Buffer.address) put ~14 M instructions per client frame there (R352). When the access starts exactly at a
+        // plain, non-volatile CLR field of the same primitive kind, the field is now read or written in place, at an
+        // offset resolved once per field. Anything else (partial or cross-field access, static fields, volatile or
+        // property-backed fields, value types, a mismatched kind) takes the old path unchanged. Like the delegates it
+        // replaces, the fast path does not check the receiver's type; the offset is resolved on a receiver that is an
+        // instance of the declaring type and then verified against the reference path.
+
+        const byte FieldKindNone = 0;
+        const byte FieldKindShort = 1;
+        const byte FieldKindChar = 2;
+        const byte FieldKindInt = 3;
+        const byte FieldKindFloat = 4;
+        const byte FieldKindLong = 5;
+        const byte FieldKindDouble = 6;
+
+        const int RawOffsetNone = -1;
+        const int RawOffsetUnresolved = -2;
+
+        static byte GetFieldKind(RuntimeJavaField field)
+        {
+            if (field.IsStatic || field.IsVolatile)
+                return FieldKindNone;
+
+            var ft = field.FieldTypeWrapper;
+            var p = field.DeclaringType.Context.PrimitiveJavaTypeFactory;
+
+            if (ft == p.SHORT)
+                return FieldKindShort;
+            if (ft == p.CHAR)
+                return FieldKindChar;
+            if (ft == p.INT)
+                return FieldKindInt;
+            if (ft == p.FLOAT)
+                return FieldKindFloat;
+            if (ft == p.LONG)
+                return FieldKindLong;
+            if (ft == p.DOUBLE)
+                return FieldKindDouble;
+
+            return FieldKindNone;
+        }
+
+#if !FIRST_PASS
+
+        /// <summary>
+        /// Stand-in for any object, used to reach the start of its instance data (the same device as mono's own
+        /// Array.RawData and CoreCLR's RuntimeHelpers.GetRawData).
+        /// </summary>
+        sealed class RawData
+        {
+            public byte Data;
+        }
+
+        delegate ref byte FieldRefGetter(object o);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static ref T RawField<T>(object o, int raw) where T : unmanaged
+        {
+            return ref SysUnsafe.As<byte, T>(ref SysUnsafe.AddByteOffset(ref SysUnsafe.As<RawData>(o).Data, (IntPtr)raw));
+        }
+
+#if NET6_0_OR_GREATER
+        /// <summary>
+        /// Array offsets are relative to the first element (<see cref="arrayBaseOffset"/> returns 0), as with the
+        /// pinned-handle path they replace; there is no bounds check, as there is none there.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static ref byte ArrayByteRef(Array array, long offset)
+        {
+            return ref SysUnsafe.AddByteOffset(ref MemoryMarshal.GetArrayDataReference(array), (IntPtr)offset);
+        }
+#endif
+
+        /// <summary>
+        /// Returns the in-object offset for an encoded field offset (see <see cref="ObjectFieldOffsetInfo.GetRawOffset"/>),
+        /// or -1. The caller has already tested <see cref="IsEncodedObjectFieldOffset"/>.
+        /// </summary>
+        static int EncodedFieldRawOffset(object o, long offset, byte kind)
+        {
+            var value = (int)offset;
+            var info = objectFieldOffsetsByTypeId[(value >> ObjectFieldOffsetTypeIdShift) & ObjectFieldOffsetTypeIdMask];
+            return info != null ? info.GetRawOffset(o, value & ObjectFieldOffsetValueMask, kind) : -1;
+        }
+
+        /// <summary>
+        /// Resolves where <paramref name="field"/> lives inside an instance, using <paramref name="target"/>. Returns the
+        /// offset, <see cref="RawOffsetNone"/> if the field cannot be addressed directly, or <see cref="RawOffsetUnresolved"/>
+        /// if <paramref name="target"/> is not an instance of the declaring type (the next receiver tries again).
+        /// </summary>
+        static int ComputeRawOffset(RuntimeJavaField field, int size, object target)
+        {
+            try
+            {
+                if (field is not RuntimeSimpleJavaField || field.DeclaringType.IsNonPrimitiveValueType)
+                    return RawOffsetNone;
+
+                field.DeclaringType.Finish();
+                field.ResolveField();
+
+                var fi = field.GetField();
+                if (fi == null || fi.IsStatic || fi.DeclaringType == null || fi.DeclaringType.IsValueType || fi.FieldType != field.FieldTypeWrapper.TypeAsSignatureType)
+                    return RawOffsetNone;
+                if (fi.DeclaringType.IsInstanceOfType(target) == false)
+                    return RawOffsetUnresolved;
+
+                var dm = DynamicMethodUtil.Create($"__<UnsafeFieldRef>__{field.DeclaringType.Name.Replace(".", "_")}__{field.Name}", field.DeclaringType.TypeAsTBD, true, typeof(byte).MakeByRefType(), new[] { typeof(object) });
+                var il = dm.GetILGenerator();
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Castclass, fi.DeclaringType);
+                il.Emit(OpCodes.Ldflda, fi);
+                il.Emit(OpCodes.Ret);
+                var getter = (FieldRefGetter)dm.CreateDelegate(typeof(FieldRefGetter));
+
+                // the field reference is taken first and held; the base is taken after, with no call in between
+                ref var fieldRef = ref getter(target);
+                var raw = (long)SysUnsafe.ByteOffset(ref SysUnsafe.As<RawData>(target).Data, ref fieldRef);
+                if (raw < 0 || raw > int.MaxValue - 8)
+                    return RawOffsetNone;
+
+                // check the resolved location against the reference implementation before trusting it
+                Span<byte> expect = stackalloc byte[8];
+                GetPrimitiveFieldBytes(field, target, expect.Slice(0, size));
+                ref var actual = ref RawField<byte>(target, (int)raw);
+                for (var i = 0; i < size; i++)
+                    if (SysUnsafe.Add(ref actual, i) != expect[i])
+                        return RawOffsetNone;
+
+                return (int)raw;
+            }
+            catch (Exception)
+            {
+                return RawOffsetNone;
+            }
+        }
+
+#endif
 
         static ObjectFieldOffsetInfo GetObjectFieldOffsetInfo(RuntimeJavaType type)
         {
@@ -830,13 +1033,38 @@ namespace IKVM.Java.Externs.sun.misc
         }
 
         /// <summary>
-        /// Implementation of native method 'getShort'.
+        /// Implementation of native method 'getShort'. The fast path is described above the FieldKind constants.
         /// </summary>
         /// <param name="self"></param>
         /// <param name="o"></param>
         /// <param name="offset"></param>
         /// <returns></returns>
-        public static short getShort(object self, object o, long offset)
+        public static unsafe short getShort(object self, object o, long offset)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            if (o == null)
+                return SysUnsafe.ReadUnaligned<short>((void*)JLongAddressToIntPtr(offset));
+
+            if (IsEncodedObjectFieldOffset(offset))
+            {
+                var raw = EncodedFieldRawOffset(o, offset, FieldKindShort);
+                if (raw >= 0)
+                    return RawField<short>(o, raw);
+            }
+#if NET6_0_OR_GREATER
+            else if (o is Array array)
+            {
+                return SysUnsafe.ReadUnaligned<short>(ref ArrayByteRef(array, offset));
+            }
+#endif
+
+            return getShortSlow(self, o, offset);
+#endif
+        }
+
+        static short getShortSlow(object self, object o, long offset)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -866,13 +1094,45 @@ namespace IKVM.Java.Externs.sun.misc
         }
 
         /// <summary>
-        /// Implementation of native method 'putShort'.
+        /// Implementation of native method 'putShort'. The fast path is described above the FieldKind constants.
         /// </summary>
         /// <param name="self"></param>
         /// <param name="o"></param>
         /// <param name="offset"></param>
         /// <param name="x"></param>
-        public static void putShort(object self, object o, long offset, short x)
+        public static unsafe void putShort(object self, object o, long offset, short x)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            if (o == null)
+            {
+                SysUnsafe.WriteUnaligned((void*)JLongAddressToIntPtr(offset), x);
+                return;
+            }
+
+            if (IsEncodedObjectFieldOffset(offset))
+            {
+                var raw = EncodedFieldRawOffset(o, offset, FieldKindShort);
+                if (raw >= 0)
+                {
+                    RawField<short>(o, raw) = x;
+                    return;
+                }
+            }
+#if NET6_0_OR_GREATER
+            else if (o is Array array)
+            {
+                SysUnsafe.WriteUnaligned(ref ArrayByteRef(array, offset), x);
+                return;
+            }
+#endif
+
+            putShortSlow(self, o, offset, x);
+#endif
+        }
+
+        static void putShortSlow(object self, object o, long offset, short x)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -915,13 +1175,38 @@ namespace IKVM.Java.Externs.sun.misc
         }
 
         /// <summary>
-        /// Implementation of native method 'getChar'.
+        /// Implementation of native method 'getChar'. The fast path is described above the FieldKind constants.
         /// </summary>
         /// <param name="self"></param>
         /// <param name="o"></param>
         /// <param name="offset"></param>
         /// <returns></returns>
-        public static char getChar(object self, object o, long offset)
+        public static unsafe char getChar(object self, object o, long offset)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            if (o == null)
+                return SysUnsafe.ReadUnaligned<char>((void*)JLongAddressToIntPtr(offset));
+
+            if (IsEncodedObjectFieldOffset(offset))
+            {
+                var raw = EncodedFieldRawOffset(o, offset, FieldKindChar);
+                if (raw >= 0)
+                    return RawField<char>(o, raw);
+            }
+#if NET6_0_OR_GREATER
+            else if (o is Array array)
+            {
+                return SysUnsafe.ReadUnaligned<char>(ref ArrayByteRef(array, offset));
+            }
+#endif
+
+            return getCharSlow(self, o, offset);
+#endif
+        }
+
+        static char getCharSlow(object self, object o, long offset)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -954,13 +1239,45 @@ namespace IKVM.Java.Externs.sun.misc
         }
 
         /// <summary>
-        /// Implementation of native method 'putChar'.
+        /// Implementation of native method 'putChar'. The fast path is described above the FieldKind constants.
         /// </summary>
         /// <param name="self"></param>
         /// <param name="o"></param>
         /// <param name="offset"></param>
         /// <param name="x"></param>
-        public static void putChar(object self, object o, long offset, char x)
+        public static unsafe void putChar(object self, object o, long offset, char x)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            if (o == null)
+            {
+                SysUnsafe.WriteUnaligned((void*)JLongAddressToIntPtr(offset), x);
+                return;
+            }
+
+            if (IsEncodedObjectFieldOffset(offset))
+            {
+                var raw = EncodedFieldRawOffset(o, offset, FieldKindChar);
+                if (raw >= 0)
+                {
+                    RawField<char>(o, raw) = x;
+                    return;
+                }
+            }
+#if NET6_0_OR_GREATER
+            else if (o is Array array)
+            {
+                SysUnsafe.WriteUnaligned(ref ArrayByteRef(array, offset), x);
+                return;
+            }
+#endif
+
+            putCharSlow(self, o, offset, x);
+#endif
+        }
+
+        static void putCharSlow(object self, object o, long offset, char x)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -1003,13 +1320,38 @@ namespace IKVM.Java.Externs.sun.misc
         }
 
         /// <summary>
-        /// Implementation of native method 'getInt'.
+        /// Implementation of native method 'getInt'. The fast path is described above the FieldKind constants.
         /// </summary>
         /// <param name="self"></param>
         /// <param name="o"></param>
         /// <param name="offset"></param>
         /// <returns></returns>
-        public static int getInt(object self, object o, long offset)
+        public static unsafe int getInt(object self, object o, long offset)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            if (o == null)
+                return SysUnsafe.ReadUnaligned<int>((void*)JLongAddressToIntPtr(offset));
+
+            if (IsEncodedObjectFieldOffset(offset))
+            {
+                var raw = EncodedFieldRawOffset(o, offset, FieldKindInt);
+                if (raw >= 0)
+                    return RawField<int>(o, raw);
+            }
+#if NET6_0_OR_GREATER
+            else if (o is Array array)
+            {
+                return SysUnsafe.ReadUnaligned<int>(ref ArrayByteRef(array, offset));
+            }
+#endif
+
+            return getIntSlow(self, o, offset);
+#endif
+        }
+
+        static int getIntSlow(object self, object o, long offset)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -1039,13 +1381,45 @@ namespace IKVM.Java.Externs.sun.misc
         }
 
         /// <summary>
-        /// Implementation of native method 'putInt'.
+        /// Implementation of native method 'putInt'. The fast path is described above the FieldKind constants.
         /// </summary>
         /// <param name="self"></param>
         /// <param name="o"></param>
         /// <param name="offset"></param>
         /// <param name="x"></param>
-        public static void putInt(object self, object o, long offset, int x)
+        public static unsafe void putInt(object self, object o, long offset, int x)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            if (o == null)
+            {
+                SysUnsafe.WriteUnaligned((void*)JLongAddressToIntPtr(offset), x);
+                return;
+            }
+
+            if (IsEncodedObjectFieldOffset(offset))
+            {
+                var raw = EncodedFieldRawOffset(o, offset, FieldKindInt);
+                if (raw >= 0)
+                {
+                    RawField<int>(o, raw) = x;
+                    return;
+                }
+            }
+#if NET6_0_OR_GREATER
+            else if (o is Array array)
+            {
+                SysUnsafe.WriteUnaligned(ref ArrayByteRef(array, offset), x);
+                return;
+            }
+#endif
+
+            putIntSlow(self, o, offset, x);
+#endif
+        }
+
+        static void putIntSlow(object self, object o, long offset, int x)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -1088,13 +1462,38 @@ namespace IKVM.Java.Externs.sun.misc
         }
 
         /// <summary>
-        /// Implementation of native method 'getLong'.
+        /// Implementation of native method 'getLong'. The fast path is described above the FieldKind constants.
         /// </summary>
         /// <param name="self"></param>
         /// <param name="o"></param>
         /// <param name="offset"></param>
         /// <returns></returns>
-        public static long getLong(object self, object o, long offset)
+        public static unsafe long getLong(object self, object o, long offset)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            if (o == null)
+                return SysUnsafe.ReadUnaligned<long>((void*)JLongAddressToIntPtr(offset));
+
+            if (IsEncodedObjectFieldOffset(offset))
+            {
+                var raw = EncodedFieldRawOffset(o, offset, FieldKindLong);
+                if (raw >= 0)
+                    return RawField<long>(o, raw);
+            }
+#if NET6_0_OR_GREATER
+            else if (o is Array array)
+            {
+                return SysUnsafe.ReadUnaligned<long>(ref ArrayByteRef(array, offset));
+            }
+#endif
+
+            return getLongSlow(self, o, offset);
+#endif
+        }
+
+        static long getLongSlow(object self, object o, long offset)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -1124,13 +1523,45 @@ namespace IKVM.Java.Externs.sun.misc
         }
 
         /// <summary>
-        /// Implementation of native method 'putLong'.
+        /// Implementation of native method 'putLong'. The fast path is described above the FieldKind constants.
         /// </summary>
         /// <param name="self"></param>
         /// <param name="o"></param>
         /// <param name="offset"></param>
         /// <param name="x"></param>
-        public static void putLong(object self, object o, long offset, long x)
+        public static unsafe void putLong(object self, object o, long offset, long x)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            if (o == null)
+            {
+                SysUnsafe.WriteUnaligned((void*)JLongAddressToIntPtr(offset), x);
+                return;
+            }
+
+            if (IsEncodedObjectFieldOffset(offset))
+            {
+                var raw = EncodedFieldRawOffset(o, offset, FieldKindLong);
+                if (raw >= 0)
+                {
+                    RawField<long>(o, raw) = x;
+                    return;
+                }
+            }
+#if NET6_0_OR_GREATER
+            else if (o is Array array)
+            {
+                SysUnsafe.WriteUnaligned(ref ArrayByteRef(array, offset), x);
+                return;
+            }
+#endif
+
+            putLongSlow(self, o, offset, x);
+#endif
+        }
+
+        static void putLongSlow(object self, object o, long offset, long x)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -1173,13 +1604,38 @@ namespace IKVM.Java.Externs.sun.misc
         }
 
         /// <summary>
-        /// Implementation of native method 'getFloat'.
+        /// Implementation of native method 'getFloat'. The fast path is described above the FieldKind constants.
         /// </summary>
         /// <param name="self"></param>
         /// <param name="o"></param>
         /// <param name="offset"></param>
         /// <returns></returns>
-        public static float getFloat(object self, object o, long offset)
+        public static unsafe float getFloat(object self, object o, long offset)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            if (o == null)
+                return SysUnsafe.ReadUnaligned<float>((void*)JLongAddressToIntPtr(offset));
+
+            if (IsEncodedObjectFieldOffset(offset))
+            {
+                var raw = EncodedFieldRawOffset(o, offset, FieldKindFloat);
+                if (raw >= 0)
+                    return RawField<float>(o, raw);
+            }
+#if NET6_0_OR_GREATER
+            else if (o is Array array)
+            {
+                return SysUnsafe.ReadUnaligned<float>(ref ArrayByteRef(array, offset));
+            }
+#endif
+
+            return getFloatSlow(self, o, offset);
+#endif
+        }
+
+        static float getFloatSlow(object self, object o, long offset)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -1212,13 +1668,45 @@ namespace IKVM.Java.Externs.sun.misc
         }
 
         /// <summary>
-        /// Implementation of native method 'putFloat'.
+        /// Implementation of native method 'putFloat'. The fast path is described above the FieldKind constants.
         /// </summary>
         /// <param name="self"></param>
         /// <param name="o"></param>
         /// <param name="offset"></param>
         /// <param name="x"></param>
-        public static void putFloat(object self, object o, long offset, float x)
+        public static unsafe void putFloat(object self, object o, long offset, float x)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            if (o == null)
+            {
+                SysUnsafe.WriteUnaligned((void*)JLongAddressToIntPtr(offset), x);
+                return;
+            }
+
+            if (IsEncodedObjectFieldOffset(offset))
+            {
+                var raw = EncodedFieldRawOffset(o, offset, FieldKindFloat);
+                if (raw >= 0)
+                {
+                    RawField<float>(o, raw) = x;
+                    return;
+                }
+            }
+#if NET6_0_OR_GREATER
+            else if (o is Array array)
+            {
+                SysUnsafe.WriteUnaligned(ref ArrayByteRef(array, offset), x);
+                return;
+            }
+#endif
+
+            putFloatSlow(self, o, offset, x);
+#endif
+        }
+
+        static void putFloatSlow(object self, object o, long offset, float x)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -1262,13 +1750,38 @@ namespace IKVM.Java.Externs.sun.misc
         }
 
         /// <summary>
-        /// Implementation of native method 'getDouble'.
+        /// Implementation of native method 'getDouble'. The fast path is described above the FieldKind constants.
         /// </summary>
         /// <param name="self"></param>
         /// <param name="o"></param>
         /// <param name="offset"></param>
         /// <returns></returns>
-        public static double getDouble(object self, object o, long offset)
+        public static unsafe double getDouble(object self, object o, long offset)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            if (o == null)
+                return SysUnsafe.ReadUnaligned<double>((void*)JLongAddressToIntPtr(offset));
+
+            if (IsEncodedObjectFieldOffset(offset))
+            {
+                var raw = EncodedFieldRawOffset(o, offset, FieldKindDouble);
+                if (raw >= 0)
+                    return RawField<double>(o, raw);
+            }
+#if NET6_0_OR_GREATER
+            else if (o is Array array)
+            {
+                return SysUnsafe.ReadUnaligned<double>(ref ArrayByteRef(array, offset));
+            }
+#endif
+
+            return getDoubleSlow(self, o, offset);
+#endif
+        }
+
+        static double getDoubleSlow(object self, object o, long offset)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -1301,13 +1814,45 @@ namespace IKVM.Java.Externs.sun.misc
         }
 
         /// <summary>
-        /// Implementation of native method 'putDouble'.
+        /// Implementation of native method 'putDouble'. The fast path is described above the FieldKind constants.
         /// </summary>
         /// <param name="self"></param>
         /// <param name="o"></param>
         /// <param name="offset"></param>
         /// <param name="x"></param>
-        public static void putDouble(object self, object o, long offset, double x)
+        public static unsafe void putDouble(object self, object o, long offset, double x)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            if (o == null)
+            {
+                SysUnsafe.WriteUnaligned((void*)JLongAddressToIntPtr(offset), x);
+                return;
+            }
+
+            if (IsEncodedObjectFieldOffset(offset))
+            {
+                var raw = EncodedFieldRawOffset(o, offset, FieldKindDouble);
+                if (raw >= 0)
+                {
+                    RawField<double>(o, raw) = x;
+                    return;
+                }
+            }
+#if NET6_0_OR_GREATER
+            else if (o is Array array)
+            {
+                SysUnsafe.WriteUnaligned(ref ArrayByteRef(array, offset), x);
+                return;
+            }
+#endif
+
+            putDoubleSlow(self, o, offset, x);
+#endif
+        }
+
+        static void putDoubleSlow(object self, object o, long offset, double x)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -1350,25 +1895,24 @@ namespace IKVM.Java.Externs.sun.misc
 #endif
         }
 
+        // wasm fork: the raw-address accessors below carry no try/catch and do not go through Marshal. On wasm an invalid
+        // address traps; it is never a managed exception, so the `catch ... when` never caught anything and only made
+        // each accessor an llvm-only deopt method (the ByteCodeHelper pattern, R328). Marshal.Read/Write* carry a clause
+        // of their own. Float and double are stored by their raw bits, as HotSpot does: putFloat/putDouble used to go
+        // through floatToIntBits/doubleToLongBits, which canonicalize NaN.
+
         /// <summary>
         /// Implementation of native method 'getByte'.
         /// </summary>
         /// <param name="self"></param>
         /// <param name="address"></param>
         /// <returns></returns>
-        public static byte getByte(object self, long address)
+        public static unsafe byte getByte(object self, long address)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            try
-            {
-                return Marshal.ReadByte(JLongAddressToIntPtr(address));
-            }
-            catch (Exception e) when (e is not global::java.lang.Throwable)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return SysUnsafe.ReadUnaligned<byte>((void*)JLongAddressToIntPtr(address));
 #endif
         }
 
@@ -1378,19 +1922,12 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="self"></param>
         /// <param name="address"></param>
         /// <param name="x"></param>
-        public static void putByte(object self, long address, byte x)
+        public static unsafe void putByte(object self, long address, byte x)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            try
-            {
-                Marshal.WriteByte(JLongAddressToIntPtr(address), x);
-            }
-            catch (Exception e) when (e is not global::java.lang.Throwable)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            SysUnsafe.WriteUnaligned((void*)JLongAddressToIntPtr(address), x);
 #endif
         }
 
@@ -1400,19 +1937,12 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="self"></param>
         /// <param name="address"></param>
         /// <returns></returns>
-        public static short getShort(object self, long address)
+        public static unsafe short getShort(object self, long address)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            try
-            {
-                return Marshal.ReadInt16(JLongAddressToIntPtr(address));
-            }
-            catch (Exception e) when (e is not global::java.lang.Throwable)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return SysUnsafe.ReadUnaligned<short>((void*)JLongAddressToIntPtr(address));
 #endif
         }
 
@@ -1422,19 +1952,12 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="self"></param>
         /// <param name="address"></param>
         /// <param name="x"></param>
-        public static void putShort(object self, long address, short x)
+        public static unsafe void putShort(object self, long address, short x)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            try
-            {
-                Marshal.WriteInt16(JLongAddressToIntPtr(address), x);
-            }
-            catch (Exception e) when (e is not global::java.lang.Throwable)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            SysUnsafe.WriteUnaligned((void*)JLongAddressToIntPtr(address), x);
 #endif
         }
 
@@ -1444,19 +1967,12 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="self"></param>
         /// <param name="address"></param>
         /// <returns></returns>
-        public static char getChar(object self, long address)
+        public static unsafe char getChar(object self, long address)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            try
-            {
-                return (char)Marshal.ReadInt16(JLongAddressToIntPtr(address));
-            }
-            catch (Exception e) when (e is not global::java.lang.Throwable)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return SysUnsafe.ReadUnaligned<char>((void*)JLongAddressToIntPtr(address));
 #endif
         }
 
@@ -1466,19 +1982,12 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="self"></param>
         /// <param name="address"></param>
         /// <param name="x"></param>
-        public static void putChar(object self, long address, char x)
+        public static unsafe void putChar(object self, long address, char x)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            try
-            {
-                Marshal.WriteInt16(JLongAddressToIntPtr(address), (short)x);
-            }
-            catch (Exception e) when (e is not global::java.lang.Throwable)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            SysUnsafe.WriteUnaligned((void*)JLongAddressToIntPtr(address), x);
 #endif
         }
 
@@ -1488,19 +1997,12 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="self"></param>
         /// <param name="address"></param>
         /// <returns></returns>
-        public static int getInt(object self, long address)
+        public static unsafe int getInt(object self, long address)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            try
-            {
-                return Marshal.ReadInt32(JLongAddressToIntPtr(address));
-            }
-            catch (Exception e) when (e is not global::java.lang.Throwable)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return SysUnsafe.ReadUnaligned<int>((void*)JLongAddressToIntPtr(address));
 #endif
         }
 
@@ -1510,19 +2012,12 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="self"></param>
         /// <param name="address"></param>
         /// <param name="x"></param>
-        public static void putInt(object self, long address, int x)
+        public static unsafe void putInt(object self, long address, int x)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            try
-            {
-                Marshal.WriteInt32(JLongAddressToIntPtr(address), x);
-            }
-            catch (Exception e) when (e is not global::java.lang.Throwable)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            SysUnsafe.WriteUnaligned((void*)JLongAddressToIntPtr(address), x);
 #endif
         }
 
@@ -1532,19 +2027,12 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="self"></param>
         /// <param name="address"></param>
         /// <returns></returns>
-        public static long getLong(object self, long address)
+        public static unsafe long getLong(object self, long address)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            try
-            {
-                return Marshal.ReadInt64(JLongAddressToIntPtr(address));
-            }
-            catch (Exception e) when (e is not global::java.lang.Throwable)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return SysUnsafe.ReadUnaligned<long>((void*)JLongAddressToIntPtr(address));
 #endif
         }
 
@@ -1554,19 +2042,12 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="self"></param>
         /// <param name="address"></param>
         /// <param name="x"></param>
-        public static void putLong(object self, long address, long x)
+        public static unsafe void putLong(object self, long address, long x)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            try
-            {
-                Marshal.WriteInt64(JLongAddressToIntPtr(address), x);
-            }
-            catch (Exception e) when (e is not global::java.lang.Throwable)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            SysUnsafe.WriteUnaligned((void*)JLongAddressToIntPtr(address), x);
 #endif
         }
 
@@ -1576,19 +2057,12 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="self"></param>
         /// <param name="address"></param>
         /// <returns></returns>
-        public static float getFloat(object self, long address)
+        public static unsafe float getFloat(object self, long address)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            try
-            {
-                return global::java.lang.Float.intBitsToFloat(getInt(self, address));
-            }
-            catch (Exception e) when (e is not global::java.lang.Throwable)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return SysUnsafe.ReadUnaligned<float>((void*)JLongAddressToIntPtr(address));
 #endif
         }
 
@@ -1598,12 +2072,12 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="self"></param>
         /// <param name="address"></param>
         /// <param name="x"></param>
-        public static void putFloat(object self, long address, float x)
+        public static unsafe void putFloat(object self, long address, float x)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            putInt(self, address, global::java.lang.Float.floatToIntBits(x));
+            SysUnsafe.WriteUnaligned((void*)JLongAddressToIntPtr(address), x);
 #endif
         }
 
@@ -1613,19 +2087,12 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="self"></param>
         /// <param name="address"></param>
         /// <returns></returns>
-        public static double getDouble(object self, long address)
+        public static unsafe double getDouble(object self, long address)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            try
-            {
-                return global::java.lang.Double.longBitsToDouble(getLong(self, address));
-            }
-            catch (Exception e) when (e is not global::java.lang.Throwable)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return SysUnsafe.ReadUnaligned<double>((void*)JLongAddressToIntPtr(address));
 #endif
         }
 
@@ -1635,12 +2102,12 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="self"></param>
         /// <param name="address"></param>
         /// <param name="x"></param>
-        public static void putDouble(object self, long address, double x)
+        public static unsafe void putDouble(object self, long address, double x)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            putLong(self, address, global::java.lang.Double.doubleToLongBits(x));
+            SysUnsafe.WriteUnaligned((void*)JLongAddressToIntPtr(address), x);
 #endif
         }
 
@@ -1650,19 +2117,12 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="self"></param>
         /// <param name="address"></param>
         /// <returns></returns>
-        public static long getAddress(object self, long address)
+        public static unsafe long getAddress(object self, long address)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            try
-            {
-                return IntPtrToJLongAddress(Marshal.ReadIntPtr(JLongAddressToIntPtr(address)));
-            }
-            catch (Exception e) when (e is not global::java.lang.Throwable)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            return IntPtrToJLongAddress(SysUnsafe.ReadUnaligned<IntPtr>((void*)JLongAddressToIntPtr(address)));
 #endif
         }
 
@@ -1672,19 +2132,12 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="self"></param>
         /// <param name="address"></param>
         /// <param name="x"></param>
-        public static void putAddress(object self, long address, long x)
+        public static unsafe void putAddress(object self, long address, long x)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            try
-            {
-                Marshal.WriteIntPtr(JLongAddressToIntPtr(address), JLongAddressToIntPtr(x));
-            }
-            catch (Exception e) when (e is not global::java.lang.Throwable)
-            {
-                throw new global::java.lang.InternalError(e);
-            }
+            SysUnsafe.WriteUnaligned((void*)JLongAddressToIntPtr(address), JLongAddressToIntPtr(x));
 #endif
         }
 

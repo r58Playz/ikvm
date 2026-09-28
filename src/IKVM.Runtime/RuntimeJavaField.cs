@@ -49,6 +49,8 @@ namespace IKVM.Runtime
 #endif
         FieldInfo field;
         RuntimeJavaType fieldType;
+        bool linked;    // set once linking has completed; read lock-free by Link()
+        bool linking;   // LinkField is running on the thread holding the lock
 
         /// <summary>
         /// Initializes a new instance.
@@ -373,9 +375,21 @@ namespace IKVM.Runtime
 
         internal void Link(LoadMode mode)
         {
+            // wasm fork: lock-free once linked. Link() is called on every Unsafe field access that takes the general
+            // path and on every reflective one, and the monitor it took each time was most of the client thread's lock
+            // traffic (R352). Under the lock, fieldType != null means linked unless LinkField is still running (it can
+            // re-enter Link on the same thread) -- a failed LinkField resets fieldType -- hence the linking flag.
+            if (Volatile.Read(ref linked))
+                return;
+
             lock (this)
                 if (fieldType != null)
+                {
+                    if (linking == false)
+                        Volatile.Write(ref linked, true);
+
                     return;
+                }
 
             var fld = DeclaringType.ClassLoader.FieldTypeWrapperFromSig(Signature, mode);
 
@@ -388,6 +402,7 @@ namespace IKVM.Runtime
                         fieldType = fld;
                         UpdateNonPublicTypeInSignatureFlag();
 
+                        linking = true;
                         try
                         {
                             field = this.DeclaringType.LinkField(this);
@@ -399,7 +414,13 @@ namespace IKVM.Runtime
                             fieldType = null;
                             throw;
                         }
+                        finally
+                        {
+                            linking = false;
+                        }
                     }
+
+                    Volatile.Write(ref linked, true);
             }
         }
 
