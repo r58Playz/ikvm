@@ -50,6 +50,20 @@ namespace IKVM.Runtime
         // "did the recompile buy anything".
         internal static readonly bool LazyRecompile = SafeGetEnvironmentVariable("IKVM_LAZY_RECOMPILE") != "0";
 
+        /// <summary>
+        /// IKVM_ARRAYCOPY_OBJ (R429/R430/R435): System.arraycopy between reference arrays is copied inside
+        /// ByteCodeHelper.arraycopy -- a ref-store loop (or Span.CopyTo past IKVM_ARRAYCOPY_LOOP elements) when no
+        /// element can need a store check, otherwise a loop that store-checks only on a change of element class. "0"
+        /// restores Array.Copy and the per-element loop.
+        /// </summary>
+        internal static readonly bool ArraycopyObj = SafeGetEnvironmentVariable("IKVM_ARRAYCOPY_OBJ") != "0";
+
+        /// <summary>
+        /// IKVM_ARRAYCOPY_LOOP (R437): the longest unchecked reference copy done by ByteCodeHelper.arraycopy's ref-store
+        /// loop; longer ones go to Span.CopyTo (the runtime's bulk array-ref copy).
+        /// </summary>
+        internal static readonly int ArraycopyLoop = ParseInt(SafeGetEnvironmentVariable("IKVM_ARRAYCOPY_LOOP"), 64);
+
         // Cap on successful recompiles (0 = unlimited). Used to bisect a recompile-induced fault down to the
         // first N methods.
         internal static readonly int LazyRecompileLimit = ParseInt(SafeGetEnvironmentVariable("IKVM_LAZY_RECOMPILE_LIMIT"), 0);
@@ -126,6 +140,36 @@ namespace IKVM.Runtime
         // dynamic dependency, so the method gets a generation 2 that binds it. Default ON; "0" restores the old
         // candidacy, for the A/B.
         internal static readonly bool LazyOperandDeps = SafeGetEnvironmentVariable("IKVM_LAZY_OPERANDS") != "0";
+
+        // wasm fork (plan2x F7a): count an unloadable PARAMETER type as a relink dependency. A method whose only
+        // unloadable is its own signature was refused as `nodyn`, and so kept generation 1's entry check -- the full
+        // dynamic cast chain (DynamicCastResolve + InstanceCheckOf.IsInstanceOf) on every unloadable parameter on
+        // EVERY call -- for the life of the process, while generation 2 emits one checkcast (Compiler,
+        // TryResolveForEntryCheck). The population is 2,744 of 34,497 nodyn methods (b2 g1); all admit, and clean
+        // generation-2 bodies rise 4,148 -> 4,892. Shipped with the runtime's wave-1 set (-5.3% server-tick cycles
+        // as one set, R382); "0" is the A/B. LazyBodyStats.NoDynSig counts the population either way.
+        internal static readonly bool LazySigDeps = SafeGetEnvironmentVariable("IKVM_LAZY_SIGDEPS") != "0";
+
+        // wasm fork (plan2x F7e): drop the 8-parameter candidacy cap for the IN-PLACE path. The cap exists for the
+        // delegate path's fixed-arity delegate types; the in-place scratch method takes the real method's signature.
+        // 265 in-place rejections per run -> 0 (b2 g1). Shipped with the runtime's wave-1 set (R382); "0" is the A/B.
+        internal static readonly bool LazyInPlaceArity = SafeGetEnvironmentVariable("IKVM_LAZY_ARITY") != "0";
+
+        // wasm fork (W3, R408): a PRIVILEGED invoke -- an anonymous class (the stock InnerClassLambdaMetafactory's
+        // `X$$Lambda$N`, built when IKVM's own LambdaMetafactory.Emit refuses) calling its HOST's private member, rewritten
+        // by MethodAnalyzer.PatchInvoke -- calls the resolved method directly instead of through the dynamic binder, whose
+        // InvokeSpecial kind has no direct-delegate case (ByteCodeHelper.TryCreateDirectBinderDelegate) and so runs four
+        // delegate hops plus LambdaForm frames per lambda call. Sound ONLY because this mono fork skips method access
+        // checks (metadata/class.c mono_method_can_access_method returns TRUE); on a stock runtime the call would throw
+        // MethodAccessException. Constructors and CallerID methods keep the binder. Minecraft server tick (plan2x/py b t t b):
+        // instructions -2.6%, calls -5.0% (both disjoint), cycles -1.4% (overlapping). "0" is the A/B.
+        internal static readonly bool PrivilegedDirect = SafeGetEnvironmentVariable("IKVM_PRIVILEGED_DIRECT") != "0";
+
+        // wasm fork (R412): install a relinked interface DEFAULT method's body on its static `<default>` helper, not on the
+        // abstract interface method (ByteCodeHelper.RelinkTarget). Without it every default-method relink is counted
+        // InPlaceOk and changes nothing. Minecraft server tick (plan2x/qb b d d b): cycles -3.3%, instructions -2.3%, calls
+        // -2.3%, all disjoint. "0" is the A/B.
+        internal static readonly bool LazyDefaultImpl = SafeGetEnvironmentVariable("IKVM_LAZY_DEFAULT_IMPL") != "0";
 
         // Make every eligible method a candidate, not just those with dynamic references. Diagnostic: it turns
         // the trampoline cost on for bodies that have nothing to gain, which is how the indirection's own cost

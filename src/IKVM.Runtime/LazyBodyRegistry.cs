@@ -154,6 +154,12 @@ namespace IKVM.Runtime
         internal static int RejShape;             // abstract/native/no instructions, or <init>/<clinit>
         internal static int RejNoDynamic;         // nothing dynamic to gain from a second generation
         internal static int OperandOnly;          // wasm fork (R354): candidates ONLY because of an unloadable class operand
+        internal static int PrivilegedDirect;     // wasm fork (R408): privileged invokes compiled as a direct call (IKVM_PRIVILEGED_DIRECT=1)
+        internal static int PrivilegedBinder;
+        internal static int DefaultImplResolved;   // wasm fork (R412): relink targets resolved to a default method's `<default>` helper
+        internal static int DefaultImplUnresolved; // ... no single match (left generation 1)     // ... and through the dynamic binder (knob off, or a constructor / CallerID / unresolved target)
+        internal static int NoDynSig;             // wasm fork (plan2x F7a): no dynamic member/operand, but an unloadable PARAMETER -- counted with IKVM_LAZY_SIGDEPS on or off
+        internal static int SigOnly;              // ... and admitted on those parameters (IKVM_LAZY_SIGDEPS=1)
         internal static int StuckNamed;           // wasm fork (R357): entries named for 64 unanswered dependency probes
         internal static int RejArity;             // more args than the delegate types cover
         internal static int RejExceptionHandlers; // only with IKVM_LAZY_SKIP_EH=1
@@ -285,7 +291,8 @@ namespace IKVM.Runtime
 
         internal static void Report()
         {
-            Console.WriteLine($"[IKVM lazybody] eval seen={Seen} accepted={Accepted} opOnly={OperandOnly} rej: shape={RejShape} nodyn={RejNoDynamic} arity={RejArity} sigAwkward={RejSigAwkward} sigUnloadable={RejSigUnloadable} eh={RejExceptionHandlers}");
+            Console.WriteLine($"[IKVM lazybody] eval seen={Seen} accepted={Accepted} opOnly={OperandOnly} nodynSig={NoDynSig} sigOnly={SigOnly} rej: shape={RejShape} nodyn={RejNoDynamic} arity={RejArity} sigAwkward={RejSigAwkward} sigUnloadable={RejSigUnloadable} eh={RejExceptionHandlers}");
+            Console.WriteLine($"[IKVM privileged] direct={PrivilegedDirect} binder={PrivilegedBinder} (IKVM_PRIVILEGED_DIRECT={(JVM.PrivilegedDirect ? 1 : 0)}) | default_impl resolved={DefaultImplResolved} unresolved={DefaultImplUnresolved} (IKVM_LAZY_DEFAULT_IMPL={(JVM.LazyDefaultImpl ? 1 : 0)})");
             Console.WriteLine($"[IKVM lazybody] gen2 clean={Gen2Clean} unexpectedDynamic={Gen2UnexpectedDynamic} callerID={Gen2CallerID} depWaits={DependencyWaits} missingSite={MissingBakedSite} bakedLambda={Gen2BakedLambdaSite} cidReal={Gen2CallerIDReal} cidReused={Gen2CallerIDReused} cidForeign={Gen2CallerIDForeign} scratchShared={Gen2ScratchShared}");
             if (JVM.LazyInPlace)
                 Console.WriteLine($"[IKVM lazybody] inplace ok={InPlaceOk} late={InPlaceLate} declined={InPlaceDeclined} failed={InPlaceFailed} unsupported={InPlaceUnsupported} queued={InPlaceQueued} batches={InPlaceBatches} deferrals={InPlaceDeferrals} forced={InPlaceForced}");

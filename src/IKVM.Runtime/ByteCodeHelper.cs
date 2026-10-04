@@ -743,7 +743,7 @@ namespace IKVM.Runtime
                 {
                     entry.Method.DeclaringType.Finish();
                     entry.Method.ResolveMethod();
-                    var method = entry.Method.GetMethod();
+                    var method = RelinkTarget(entry.Method);
                     if (method != null)
                         LibIkvm.MarkRelinkPending(method.MethodHandle.Value, true);
                 }
@@ -963,7 +963,7 @@ namespace IKVM.Runtime
                 {
                     try
                     {
-                        var t = entry.Method.GetMethod();
+                        var t = RelinkTarget(entry.Method);
                         if (t != null)
                             LibIkvm.MarkRelinkPending(t.MethodHandle.Value, false);
                     }
@@ -984,7 +984,7 @@ namespace IKVM.Runtime
                         var mw = b.Entry.Method;
                         mw.DeclaringType.Finish();
                         mw.ResolveMethod();
-                        var target = mw.GetMethod();
+                        var target = RelinkTarget(mw);
                         if (target == null)
                         {
                             Interlocked.Increment(ref LazyBodyStats.InPlaceFailed);
@@ -1024,6 +1024,57 @@ namespace IKVM.Runtime
             }
         }
 
+        /// <summary>
+        /// wasm fork (R412, JVM.LazyDefaultImpl): the method whose body a relink replaces. For an interface DEFAULT method
+        /// that is not GetMethod() -- the abstract interface method the CLR dispatches through -- but the static
+        /// `<default>name` helper carrying the body (RuntimeDefaultInterfaceJavaMethod.impl, a MethodBuilder that nothing
+        /// ever resolves). Installing on the abstract method was accepted by the runtime (an SRE method, never transformed)
+        /// and counted InPlaceOk while the helper kept generation 1 for the life of the process. The baked helper is found
+        /// by name and exact parameter types (interface first, as JavaTypeImpl defines it); an ambiguous or missing match
+        /// returns null (counted), which every caller treats as "no target".
+        /// </summary>
+        static MethodBase RelinkTarget(RuntimeJavaMethod mw)
+        {
+            if (!JVM.LazyDefaultImpl || mw is not RuntimeDefaultInterfaceJavaMethod || mw.DeclaringType.IsGhost)
+                return mw.GetMethod();
+            var impl = RuntimeDefaultInterfaceJavaMethod.GetImpl(mw);
+            if (impl is not MethodBuilder mb)
+                return impl;
+            mw.DeclaringType.Finish();
+            var parameters = mw.GetParameters();
+            var types = new Type[parameters.Length + 1 + (mw.HasCallerID ? 1 : 0)];
+            types[0] = mw.DeclaringType.TypeAsTBD;
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                if (!parameters[i].IsUnloadable)
+                    parameters[i].Finish();
+                types[i + 1] = parameters[i].TypeAsSignatureType;
+            }
+            if (mw.HasCallerID)
+                types[types.Length - 1] = mw.DeclaringType.Context.JavaBase.TypeOfIkvmInternalCallerID.TypeAsSignatureType;
+            MethodInfo found = null;
+            int n = 0;
+            foreach (var m in mw.DeclaringType.TypeAsTBD.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly))
+            {
+                if (m.Name != mb.Name)
+                    continue;
+                var ps = m.GetParameters();
+                if (ps.Length != types.Length)
+                    continue;
+                var same = true;
+                for (int i = 0; i < ps.Length && same; i++)
+                    same = ps[i].ParameterType == types[i];
+                if (same) { found = m; n++; }
+            }
+            if (n != 1)
+            {
+                Interlocked.Increment(ref LazyBodyStats.DefaultImplUnresolved);
+                return null;
+            }
+            Interlocked.Increment(ref LazyBodyStats.DefaultImplResolved);
+            return found;
+        }
+
         /// <summary>Clears the relink-pending mark for a whole group, on any abandonment path.</summary>
         static void ClearPending(List<LazyBodyRegistry.Entry> entries)
         {
@@ -1031,7 +1082,7 @@ namespace IKVM.Runtime
             {
                 try
                 {
-                    var t = e.Method.GetMethod();
+                    var t = RelinkTarget(e.Method);
                     if (t != null)
                         LibIkvm.MarkRelinkPending(t.MethodHandle.Value, false);
                 }
@@ -1051,7 +1102,7 @@ namespace IKVM.Runtime
 
                 try
                 {
-                    var method = entry.Method.GetMethod();
+                    var method = RelinkTarget(entry.Method);
                     if (method != null)
                         LibIkvm.MarkRelinkPending(method.MethodHandle.Value, false);
                 }
@@ -1793,6 +1844,53 @@ namespace IKVM.Runtime
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
+#if NET
+            if (JVM.ArraycopyObj && src is object[] s && dest is object[] d)
+            {
+                // Reference arrays, any runtime element types (IKVM_ARRAYCOPY_OBJ, R429/R430/R435), in this frame: the
+                // copies TimSort makes are short and many, and each nested call (a helper, Span.CopyTo, the bulk-move
+                // icall) was a per-copy cost. Java's rules: bounds before anything is copied; an element the destination
+                // cannot hold throws ArrayStoreException with the elements before it already copied.
+                if (len < 0 || srcStart < 0 || destStart < 0 || srcStart > s.Length - len || destStart > d.Length - len)
+                    throw new global::java.lang.ArrayIndexOutOfBoundsException();
+                ref object sr = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(s), srcStart);
+                ref object dr = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(d), destStart);
+                // Every element is storable when they are one array, the same array type, or the destination is exactly
+                // object[]. A short range is a ref-store loop (each store card-marks inline; backwards when one array's
+                // ranges overlap upwards), a longer one Span.CopyTo (the runtime's bulk array-ref copy).
+                if (s == d || (object)d.GetType() == (object)typeof(object[]) || (object)s.GetType() == (object)d.GetType())
+                {
+                    if (len > JVM.ArraycopyLoop)
+                        MemoryMarshal.CreateReadOnlySpan(ref sr, len).CopyTo(MemoryMarshal.CreateSpan(ref dr, len));
+                    else if (s == d && destStart > srcStart)
+                        for (int i = len - 1; i >= 0; i--)
+                            Unsafe.Add(ref dr, i) = Unsafe.Add(ref sr, i);
+                    else
+                        for (int i = 0; i < len; i++)
+                            Unsafe.Add(ref dr, i) = Unsafe.Add(ref sr, i);
+                    return;
+                }
+                // Otherwise every element needs a store check (TimSort's object[] tmp back into the Pair[] it sorts). A
+                // checked store that succeeds proves the element's exact class storable, so later elements of that class
+                // are stored directly. Each element is loaded once and the value checked is the value stored, so a thread
+                // writing src concurrently cannot slip an unstorable object past the check. Distinct arrays never overlap.
+                object ok = null;
+                for (int i = 0; i < len; i++)
+                {
+                    object o = Unsafe.Add(ref sr, i);
+                    if (o != null && (object)o.GetType() != ok)
+                    {
+                        d[destStart + i] = o; // ArrayTypeMismatchException surfaces as ArrayStoreException
+                        ok = o.GetType();
+                    }
+                    else
+                    {
+                        Unsafe.Add(ref dr, i) = o;
+                    }
+                }
+                return;
+            }
+#endif
             // If the two arrays are the same, we can use the fast path, but we're also required to do so,
             // to get the required memmove semantics.
             if (src == dest)

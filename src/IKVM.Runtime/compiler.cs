@@ -4279,10 +4279,26 @@ namespace IKVM.Runtime
                 case NormalizedByteCode.__dynamic_invokestatic:
                 case NormalizedByteCode.__dynamic_invokevirtual:
                 case NormalizedByteCode.__dynamic_invokespecial:
+                    return GetDynamicMethodWrapper(constantPoolIndex, invoke, cpi);
                 case NormalizedByteCode.__privileged_invokestatic:
                 case NormalizedByteCode.__privileged_invokevirtual:
                 case NormalizedByteCode.__privileged_invokespecial:
-                    return GetDynamicMethodWrapper(constantPoolIndex, invoke, cpi);
+                    {
+                        // wasm fork (R408, JVM.PrivilegedDirect): the target PatchInvoke resolved, called directly; the opcode
+                        // handlers already emit call/callvirt for a privileged invoke given a real method wrapper.
+                        if (JVM.PrivilegedDirect)
+                        {
+                            var pmw = invoke == NormalizedByteCode.__privileged_invokespecial ? cpi.GetMethodForInvokespecial() : cpi.GetMethod();
+                            if (pmw != null && !pmw.IsDynamicOnly && !pmw.HasCallerID && !pmw.IsConstructor)
+                            {
+                                pmw.Link();
+                                System.Threading.Interlocked.Increment(ref LazyBodyStats.PrivilegedDirect);
+                                return pmw;
+                            }
+                        }
+                        System.Threading.Interlocked.Increment(ref LazyBodyStats.PrivilegedBinder);
+                        return GetDynamicMethodWrapper(constantPoolIndex, invoke, cpi);
+                    }
                 case NormalizedByteCode.__methodhandle_invoke:
                 case NormalizedByteCode.__methodhandle_link:
                     return new MethodHandleMethodWrapper(this, clazz, cpi, constantPoolIndex);

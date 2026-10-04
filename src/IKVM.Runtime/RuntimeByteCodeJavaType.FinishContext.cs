@@ -437,15 +437,32 @@ namespace IKVM.Runtime
                 // Decided from the constant pool, NOT from __dynamic_* opcodes: those are assigned by the
                 // analyzer, which has not run yet at this point in FinishContext.
                 dependencies = Compiler.GetDynamicDependencies(classFile, m, wrapper);
+                if (dependencies.Length == 0)
+                {
+                    // wasm fork (plan2x F7a): nothing in the constant pool, but an unloadable parameter still costs
+                    // generation 1's dynamic entry check on every call. See JVM.LazySigDeps.
+                    var sigDeps = SignatureDependencies(mw);
+                    if (sigDeps.Length != 0)
+                    {
+                        System.Threading.Interlocked.Increment(ref LazyBodyStats.NoDynSig);
+                        if (JVM.LazySigDeps)
+                        {
+                            dependencies = sigDeps;
+                            System.Threading.Interlocked.Increment(ref LazyBodyStats.SigOnly);
+                        }
+                    }
+                }
                 if (dependencies.Length == 0 && !JVM.LazyAll)
                     return LazyBodyStats.Reject(ref LazyBodyStats.RejNoDynamic);
 
                 if (JVM.LazySkipExceptionHandlers && m.ExceptionTable.Length != 0)
                     return LazyBodyStats.Reject(ref LazyBodyStats.RejExceptionHandlers);
 
-                // The delegate types only go up to a fixed arity; `this` counts against it.
+                // The delegate types only go up to a fixed arity; `this` counts against it. The IN-PLACE path builds
+                // no delegate (its scratch method takes the real method's own signature), so the cap is the delegate
+                // path's alone -- 266 in-place rejections per run (plan2x F7e, IKVM_LAZY_ARITY).
                 var parameters = mw.GetParameters();
-                if (parameters.Length + (m.IsStatic ? 0 : 1) > 8)
+                if (!(inPlace && JVM.LazyInPlaceArity) && parameters.Length + (m.IsStatic ? 0 : 1) > 8)
                     return LazyBodyStats.Reject(ref LazyBodyStats.RejArity);
 
                 // Signature screening, SPLIT BY CAUSE -- the two halves are not the same problem.
@@ -479,6 +496,33 @@ namespace IKVM.Runtime
                     return LazyBodyStats.Reject(ref LazyBodyStats.RejSigUnloadable);
 
                 return LazyBodyStats.Accept();
+            }
+
+            /// <summary>
+            /// The classes a generation 2 would need to resolve an unloadable PARAMETER's entry check: the element
+            /// class of each unloadable parameter type, since the loader publishes element classes, never arrays.
+            /// </summary>
+            private static string[] SignatureDependencies(RuntimeJavaMethod mw)
+            {
+                HashSet<string> deps = null;
+                foreach (var tw in mw.GetParameters())
+                {
+                    if (!tw.IsUnloadable)
+                        continue;
+                    var name = tw.Name;
+                    var start = 0;
+                    while (start < name.Length && name[start] == '[')
+                        start++;
+                    if (start > 0)
+                        name = start < name.Length && name[start] == 'L' && name[name.Length - 1] == ';' ? name.Substring(start + 1, name.Length - start - 2) : null;
+                    if (!string.IsNullOrEmpty(name))
+                        (deps ??= new HashSet<string>()).Add(name);
+                }
+                if (deps == null)
+                    return Array.Empty<string>();
+                var result = new string[deps.Count];
+                deps.CopyTo(result);
+                return result;
             }
 
             /// <summary>
