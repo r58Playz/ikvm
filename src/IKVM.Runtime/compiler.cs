@@ -557,6 +557,42 @@ namespace IKVM.Runtime
             HashSet<string> dependencies = null;
             var operandDependency = false;
             var memberDependency = false;
+            var typeDependency = false;
+
+            // The loader publishes element classes, never array classes, so an unloadable array type waits for its
+            // element. Returns null for a primitive array or anything without a class name.
+            static string ElementClassName(RuntimeJavaType tw)
+            {
+                var name = tw.Name;
+                var start = 0;
+                while (start < name.Length && name[start] == '[')
+                    start++;
+                if (start > 0)
+                    name = start < name.Length && name[start] == 'L' && name[name.Length - 1] == ';' ? name.Substring(start + 1, name.Length - start - 2) : null;
+                return string.IsNullOrEmpty(name) ? null : name;
+            }
+
+            // typed-spindle P1-0 (IKVM_LAZY_TYPEDEPS): a value whose static type is unloadable makes the aaload /
+            // aastore that consumes it dynamic (DynamicAaload/DynamicAastore), though no operand names it. Generation 2
+            // only sheds them because the analyzer then retypes the field load (MethodAnalyzer.GetRetypedFieldType).
+            // NOT for bridge / synthetic methods, and NOT from callee return types: the first version took both and the
+            // Minecraft gate (typed-spindle s1, 2026-10-04) died 17 s into boot with ModDiscoverer$ModScanTask.compute()
+            // calling itself without bound (js-stack). Its javac bridge `Object compute()` -- a call to the covariant
+            // `ModCandidateImpl compute()`, whose return type was unloadable -- became a candidate through the return-type
+            // rule, and its generation 2 ended up calling compute() recursively. Field types alone cover the case the rule
+            // exists for (DataTracker.getEntry's entries array).
+            var typeDepsOk = JVM.LazyTypeDeps && (m.Modifiers & (Modifiers.Bridge | Modifiers.Synthetic)) == 0;
+            void AddTypeDependency(RuntimeJavaType tw)
+            {
+                if (!typeDepsOk || tw == null || !tw.IsUnloadable)
+                    return;
+                var name = ElementClassName(tw);
+                if (name != null)
+                {
+                    (dependencies ??= new HashSet<string>()).Add(name);
+                    typeDependency = true;
+                }
+            }
             for (int i = 0; i < instructions.Length; i++)
             {
                 switch (instructions[i].NormalizedOpCode)
@@ -573,6 +609,8 @@ namespace IKVM.Runtime
                                 (dependencies ??= new HashSet<string>()).Add(cpi.Class);
                                 memberDependency = true;
                             }
+                            else
+                                AddTypeDependency(cpi.GetFieldType());
                             break;
                         }
 
@@ -618,14 +656,8 @@ namespace IKVM.Runtime
                             var tw = JVM.LazyOperandDeps ? classFile.GetConstantPoolClassType(instructions[i].Arg1) : null;
                             if (tw != null && tw.IsUnloadable)
                             {
-                                // the loader publishes element classes, never array classes: wait for the element
-                                var name = tw.Name;
-                                var start = 0;
-                                while (start < name.Length && name[start] == '[')
-                                    start++;
-                                if (start > 0)
-                                    name = start < name.Length && name[start] == 'L' && name[name.Length - 1] == ';' ? name.Substring(start + 1, name.Length - start - 2) : null;
-                                if (!string.IsNullOrEmpty(name))
+                                var name = ElementClassName(tw);
+                                if (name != null)
                                 {
                                     (dependencies ??= new HashSet<string>()).Add(name);
                                     operandDependency = true;
@@ -642,6 +674,8 @@ namespace IKVM.Runtime
             // the population the operand cases add: no member reference would have made this a candidate
             if (operandDependency && !memberDependency)
                 System.Threading.Interlocked.Increment(ref LazyBodyStats.OperandOnly);
+            if (typeDependency && !memberDependency && !operandDependency)
+                System.Threading.Interlocked.Increment(ref LazyBodyStats.TypeOnly);
 
             var result = new string[dependencies.Count];
             dependencies.CopyTo(result);
@@ -1336,6 +1370,7 @@ namespace IKVM.Runtime
                             var field = cpi.GetField();
                             field.EmitGet(ilGenerator);
                             field.FieldTypeWrapper.EmitConvSignatureTypeToStackType(ilGenerator);
+                            EmitRetypedFieldCast(cpi);
                             break;
                         }
                     case NormalizedByteCode.__getfield:
@@ -1357,6 +1392,7 @@ namespace IKVM.Runtime
                             }
                             field.EmitGet(ilGenerator);
                             field.FieldTypeWrapper.EmitConvSignatureTypeToStackType(ilGenerator);
+                            EmitRetypedFieldCast(cpi);
                             break;
                         }
                     case NormalizedByteCode.__putstatic:
@@ -3702,6 +3738,28 @@ namespace IKVM.Runtime
                 tw = tw.GetPublicBaseTypeWrapper();
             }
             return !tw.IsAssignableTo(arg);
+        }
+
+        /// <summary>
+        /// wasm fork (typed-spindle P1-0): casts an erased field's value to the type the analyzer gave it
+        /// (MethodAnalyzer.GetRetypedFieldType). The CLR field is object while every consumer of the value now emits for
+        /// the loadable type -- ldelem.ref, ldlen, a typed call -- so this cast is what makes the IL stack hold what the
+        /// analyzer says it holds, and it must fire exactly when the analyzer retyped. A null passes it.
+        /// </summary>
+        /// <remarks>
+        /// No store-side counterpart: putfield/putstatic convert to the FIELD's type, which is erased, so a typed value
+        /// is stored into the object field as it stands.
+        /// </remarks>
+        void EmitRetypedFieldCast(ClassFile.ConstantPoolItemFieldref cpi)
+        {
+            var retyped = MethodAnalyzer.GetRetypedFieldType(clazz, cpi);
+            if (retyped == null)
+                return;
+
+            retyped.EmitCheckcast(ilGenerator);
+            System.Threading.Interlocked.Increment(ref LazyBodyStats.FieldRetyped);
+            if (finish.IsLazyRecompile)
+                System.Threading.Interlocked.Increment(ref LazyBodyStats.FieldRetypedGen2);
         }
 
         private void DynamicGetPutField(Instruction instr, int i)

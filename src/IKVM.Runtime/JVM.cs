@@ -141,6 +141,16 @@ namespace IKVM.Runtime
         // candidacy, for the A/B.
         internal static readonly bool LazyOperandDeps = SafeGetEnvironmentVariable("IKVM_LAZY_OPERANDS") != "0";
 
+        // wasm fork (plan typed-spindle P1-0): count an unloadable FIELD TYPE (get/putfield, get/putstatic) as a dynamic
+        // dependency (not for bridge/synthetic methods; callee return types were tried and faulted -- compiler.cs). aaload/aastore on such a value compile to the
+        // dynamic form (DynamicAaload/DynamicAastore) from the verifier's stack type -- a checkcast is dynamic only by its own operand -- which
+        // no constant-pool operand names, so the method was never a relink candidate and kept generation 1 forever --
+        // DataTracker.getEntry's entries-array read is the hot case. Default OFF until measured; "1" enables.
+        // Also gates the half that lets generation 2 pay (MethodAnalyzer.GetRetypedFieldType): the analyzer typed a field
+        // load with the FIELD's link-time type, which stays unloadable for the class's life, so generation 2 re-emitted the
+        // same dynamic forms. That half applies to every compile, not only relinks.
+        internal static readonly bool LazyTypeDeps = SafeGetEnvironmentVariable("IKVM_LAZY_TYPEDEPS") == "1";
+
         // wasm fork (plan2x F7a): count an unloadable PARAMETER type as a relink dependency. A method whose only
         // unloadable is its own signature was refused as `nodyn`, and so kept generation 1's entry check -- the full
         // dynamic cast chain (DynamicCastResolve + InstanceCheckOf.IsInstanceOf) on every unloadable parameter on

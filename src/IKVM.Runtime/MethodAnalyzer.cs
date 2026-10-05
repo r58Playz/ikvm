@@ -438,9 +438,11 @@ namespace IKVM.Runtime
                                     }
                                     else
                                     {
+                                        // wasm fork (typed-spindle P1-0): an erased field may instead be typed with the
+                                        // constant pool's now-loadable type, which the compiler casts to (GetRetypedFieldType)
                                         var cpi = GetFieldref(inst.Arg1);
                                         if (cpi.GetField() != null && cpi.GetField().FieldTypeWrapper.IsUnloadable)
-                                            s.PushType(cpi.GetField().FieldTypeWrapper);
+                                            s.PushType(GetRetypedFieldType(_type, cpi) ?? cpi.GetField().FieldTypeWrapper);
                                         else
                                             s.PushType(cpi.GetFieldType());
                                     }
@@ -487,9 +489,10 @@ namespace IKVM.Runtime
                                     {
                                         s.PopObjectType(GetFieldref(inst.Arg1).GetClassType());
 
+                                        // wasm fork (typed-spindle P1-0): as getstatic above
                                         var cpi = GetFieldref(inst.Arg1);
                                         if (cpi.GetField() != null && cpi.GetField().FieldTypeWrapper.IsUnloadable)
-                                            s.PushType(cpi.GetField().FieldTypeWrapper);
+                                            s.PushType(GetRetypedFieldType(_type, cpi) ?? cpi.GetField().FieldTypeWrapper);
                                         else
                                             s.PushType(cpi.GetFieldType());
 
@@ -2541,6 +2544,62 @@ namespace IKVM.Runtime
         static string ToSlash(string str)
         {
             return str.Replace('.', '/');
+        }
+
+        /// <summary>
+        /// wasm fork (typed-spindle P1-0, IKVM_LAZY_TYPEDEPS=1): the type a getfield/getstatic of an ERASED field is
+        /// given in place of its erased one, or null to keep the erased one.
+        /// </summary>
+        /// <remarks>
+        /// A field whose type was unloadable when its class linked is a CLR field of type object for the life of the
+        /// class, and RuntimeJavaField.FieldTypeWrapper stays the unloadable placeholder: it is linked once and the
+        /// field's metadata is baked. The getfield/getstatic cases push THAT type, so the value's consumers take their
+        /// unloadable forms -- aaload/aastore call DynamicAaload/DynamicAastore, arraylength goes through System.Array,
+        /// and each typed use (call argument, receiver, return, athrow) gets its own castclass -- in a generation-2 relink
+        /// too, although the reparsed constant pool's GetFieldType() has re-resolved by then. DataTracker.getEntry's
+        /// entries-array read is the hot case. Here the load is typed with the constant pool's type instead, and
+        /// Compiler.EmitRetypedFieldCast casts the CLR object to it once, so the consumers take the static path.
+        ///
+        /// The analyzer and the compiler must decide identically for the same instruction -- a retyped stack slot over
+        /// an uncast object is wrong IL, not a slow path -- so both call this, over state fixed once the constant pool
+        /// is linked. Restricted to where the cast cannot reject a value Java accepts:
+        ///   * the field's declaring class has the accessor's loader, so the name means what the field's own descriptor
+        ///     means (IKVM checks no loader constraints: PatchFieldAccess's check is disabled);
+        ///   * the ultimate element type is a class defined from bytecode, which rules out ghosts, remapped types and
+        ///     .NET types, whose stack and signature types are not the plain CLR class;
+        ///   * not an interface or interface array, because the verifier lets any reference flow into those, so the
+        ///     field may legally hold an object the CLR cast would reject;
+        ///   * public, or of the accessor's loader, so the cast names a type the emitting module can see.
+        /// Primitive types and primitive arrays never get here: they are never unloadable.
+        /// </remarks>
+        internal static RuntimeJavaType GetRetypedFieldType(RuntimeJavaType accessor, ClassFile.ConstantPoolItemFieldref cpi)
+        {
+#if IMPORTER || EXPORTER
+            return null;
+#else
+            if (JVM.LazyTypeDeps == false)
+                return null;
+
+            var field = cpi.GetField();
+            if (field == null || field.FieldTypeWrapper.IsUnloadable == false)
+                return null;
+
+            var type = cpi.GetFieldType();
+            if (type == null || type.IsUnloadable)
+                return null;
+
+            if (field.DeclaringType.ClassLoader != accessor.ClassLoader)
+                return null;
+
+            var element = type.IsArray ? type.GetUltimateElementTypeWrapper() : type;
+            if (element is not RuntimeByteCodeJavaType || element.IsInterface)
+                return null;
+
+            if (element.IsPublic == false && element.ClassLoader != accessor.ClassLoader)
+                return null;
+
+            return type;
+#endif
         }
 
         void PatchFieldAccess(RuntimeJavaType wrapper, RuntimeJavaMethod mw, ref ClassFile.Method.Instruction instr, StackState stack)
