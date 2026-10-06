@@ -735,6 +735,54 @@ namespace IKVM.Runtime
         }
 
         /// <summary>
+        /// wasm fork (JVM.LazyPartialProbes): true if the declaring class of every __dynamic_* reference left in
+        /// <paramref name="m"/> satisfies <paramref name="pending"/>. Only meaningful after the analyzer has run.
+        /// </summary>
+        /// <remarks>
+        /// Keyed on the constant-pool class name, the same string GetDynamicDependencies recorded as the dependency.
+        /// Fails closed: a reference it cannot name answers false.
+        /// </remarks>
+        internal static bool DynamicReferencesOnlyTo(ClassFile classFile, ClassFile.Method m, Predicate<string> pending)
+        {
+            var instructions = m.Instructions;
+            if (instructions == null)
+                return true;
+
+            for (int i = 0; i < instructions.Length; i++)
+            {
+                var op = instructions[i].NormalizedOpCode;
+                if (op < NormalizedByteCode.__dynamic_getstatic || op > NormalizedByteCode.__dynamic_invokespecial)
+                    continue;
+
+                string declaring;
+                try
+                {
+                    switch (op)
+                    {
+                        case NormalizedByteCode.__dynamic_getfield:
+                        case NormalizedByteCode.__dynamic_putfield:
+                        case NormalizedByteCode.__dynamic_getstatic:
+                        case NormalizedByteCode.__dynamic_putstatic:
+                            declaring = classFile.GetFieldref(instructions[i].Arg1)?.Class;
+                            break;
+                        default:
+                            declaring = classFile.GetMethodref(instructions[i].Arg1)?.Class;
+                            break;
+                    }
+                }
+                catch
+                {
+                    return false;
+                }
+
+                if (declaring == null || !pending(declaring))
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Names the first reference that is STILL dynamic after a generation-2 recompile, as
         /// "opcode class.member". Returns null if none.
         /// </summary>
@@ -3093,15 +3141,22 @@ namespace IKVM.Runtime
                 ilgen.Emit(OpCodes.Ldloc, cs);
                 ilgen.Emit(OpCodes.Ldloc, ex);
 
+                // wasm fork (JVM.IndyDirect): a LambdaMetafactory site links through the *Lambda* variant, which may install a
+                // direct target in place of the CallSite's MethodHandle. Same arguments, same failure handling.
+                var lambda = JVM.IndyDirect && LambdaMetafactory.IsLambdaBootstrap(compiler.classFile, compiler.classFile.GetBootstrapMethod(cpi.BootstrapMethod));
+                if (lambda)
+                    System.Threading.Interlocked.Increment(ref LazyBodyStats.IndyEmitted);
+
+                var helpers = compiler.finish.Context.ByteCodeHelperMethods;
                 if (HasUnloadable(cpi.GetArgTypes(), cpi.GetRetType()))
                 {
                     ilgen.Emit(OpCodes.Ldstr, cpi.Signature);
                     compiler.finish.EmitCallerID(ilgen, compiler.m.IsLambdaFormHidden);
-                    ilgen.Emit(OpCodes.Call, compiler.finish.Context.ByteCodeHelperMethods.DynamicLinkIndyCallSite.MakeGenericMethod(delegateType));
+                    ilgen.Emit(OpCodes.Call, (lambda ? helpers.DynamicLinkLambdaIndyCallSite : helpers.DynamicLinkIndyCallSite).MakeGenericMethod(delegateType));
                 }
                 else
                 {
-                    ilgen.Emit(OpCodes.Call, compiler.finish.Context.ByteCodeHelperMethods.LinkIndyCallSite.MakeGenericMethod(delegateType));
+                    ilgen.Emit(OpCodes.Call, (lambda ? helpers.LinkLambdaIndyCallSite : helpers.LinkIndyCallSite).MakeGenericMethod(delegateType));
                 }
 
                 ilgen.Emit(OpCodes.Ldsfld, fb);

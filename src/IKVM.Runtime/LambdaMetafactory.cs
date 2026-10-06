@@ -1151,6 +1151,19 @@ namespace IKVM.Runtime
         }
 
         /// <summary>
+        /// Returns <c>true</c> if the given bootstrap method is LambdaMetafactory.metafactory or altMetafactory, whether or
+        /// not <see cref="Emit"/> could compile the site statically.
+        /// </summary>
+        /// <remarks>
+        /// wasm fork (IKVM_INDY_DIRECT): such a site's CallSite is built by the stock InnerClassLambdaMetafactory.buildCallSite,
+        /// which is what lets ByteCodeHelper.TryCreateDirectLambdaCallSite treat a zero-argument target as a constant.
+        /// </remarks>
+        internal static bool IsLambdaBootstrap(ClassFile classFile, ClassFile.BootstrapMethod bsm)
+        {
+            return IsLambdaMetafactory(classFile, bsm) || IsLambdaAltMetafactory(classFile, bsm);
+        }
+
+        /// <summary>
         /// Returns <c>true</c> if the given class file bootstrap method is a reference to the java.lang.invoke.LambdaMetafactory:metafactory method.
         /// </summary>
         /// <param name="classFile"></param>

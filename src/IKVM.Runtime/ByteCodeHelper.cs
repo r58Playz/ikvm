@@ -573,14 +573,23 @@ namespace IKVM.Runtime
                 // wasm fork (R357): name the methods that keep waiting. 64 probes at the capped retry delay is
                 // thousands of generation-1 calls, i.e. a hot method whose dependency never reads as published
                 // -- which would pin it to its dynamic stubs for the whole run. Bounded to the first 48.
-                if (Interlocked.Increment(ref entry.Waits) == 64 && Interlocked.Increment(ref LazyBodyStats.StuckNamed) <= 48)
+                var waits = Interlocked.Increment(ref entry.Waits);
+                if (waits == 64 && Interlocked.Increment(ref LazyBodyStats.StuckNamed) <= 48)
                     Console.WriteLine($"[IKVM lazybody] stuck #{LazyBodyStats.StuckNamed}: {entry.Wrapper?.Name}.{entry.Method?.Name}{entry.Method?.Signature} waits on {entry.FirstUnpublished() ?? "(none now)"} ({entry.Dependencies.Length} deps, loader {entry.Wrapper?.ClassLoader?.GetType().Name})");
-                return IncreaseRelinkRetryDelay(entry);
+
+                // wasm fork (JVM.LazyPartialProbes): stop waiting and queue the relink without the unpublished
+                // dependencies. FlushRelinkBatch admits the result only if what stays dynamic is exactly those.
+                if (JVM.LazyPartialProbes <= 0 || waits < JVM.LazyPartialProbes || HasUnpublishedParameterType(entry))
+                    return IncreaseRelinkRetryDelay(entry);
+
+                Volatile.Write(ref entry.Partial, 1);
             }
 
             if (Interlocked.CompareExchange(ref entry.RelinkState, 1, 0) == 0)
             {
                 newlyQueued = true;
+                if (Volatile.Read(ref entry.Partial) == 1)
+                    Interlocked.Increment(ref LazyBodyStats.PartialQueued);
             }
 
             if (Volatile.Read(ref entry.RelinkState) == 2)
@@ -621,6 +630,35 @@ namespace IKVM.Runtime
         static readonly Timer relinkDrainTimer = new Timer(_ => DrainRelinkQueue(), null, Timeout.Infinite, Timeout.Infinite);
         static int relinkDeferralStarted;
         static long relinkObservedDefinitionVersion = -1;
+
+        /// <summary>
+        /// wasm fork (JVM.LazyPartialProbes): true if a parameter of the entry's method is a class that is still not
+        /// published, which keeps a partial relink from being queued.
+        /// </summary>
+        /// <remarks>
+        /// Generation 2's prologue resolves an unloadable parameter's entry check through Compiler.TryResolveForEntryCheck,
+        /// i.e. TryLoadClassByName, which LOADS. For a full relink the class is published by then and nothing loads; for a
+        /// partial one it would load, through the user loader, from the relink drain, a class generation 1 never loaded.
+        /// </remarks>
+        static bool HasUnpublishedParameterType(LazyBodyRegistry.Entry entry)
+        {
+            foreach (var tw in entry.Method.GetParameters())
+            {
+                if (!tw.IsUnloadable)
+                    continue;
+
+                var name = tw.Name;
+                var start = 0;
+                while (start < name.Length && name[start] == '[')
+                    start++;
+                if (start > 0)
+                    name = start < name.Length && name[start] == 'L' && name[name.Length - 1] == ';' ? name.Substring(start + 1, name.Length - start - 2) : null;
+                if (!string.IsNullOrEmpty(name) && !entry.Wrapper.ClassLoader.IsClassPublished(name))
+                    return true;
+            }
+
+            return false;
+        }
 
         static int IncreaseRelinkRetryDelay(LazyBodyRegistry.Entry entry)
         {
@@ -875,18 +913,39 @@ namespace IKVM.Runtime
                         ilgen.CheckLabels();
                         ilgen.DoEmit();
 
+                        var isPartial = Volatile.Read(ref entry.Partial) == 1;
                         if (Compiler.HasDynamicReferences(m))
                         {
-                            Interlocked.Increment(ref LazyBodyStats.Gen2UnexpectedDynamic);
-                            // Tally by the SURVIVING REFERENCE, not by the method: 422 per run is a
-                            // population, and only the reference says which gate assumption is wrong.
-                            LazyBodyStats.RecordUnexpectedDynamic(Compiler.DescribeFirstDynamicReference(classFile, m));
-                            if (JVM.TraceLazyBodies)
-                                Console.WriteLine($"[IKVM lazybody] unexpected dynamic Gen2 {entry.Wrapper.Name}:{m.Name}{m.Signature} -> {Compiler.DescribeFirstDynamicReference(classFile, m)}");
-                            Interlocked.Increment(ref LazyBodyStats.InPlaceDeclined);
-                            continue;
+                            // wasm fork (JVM.LazyPartialProbes): a partial relink may keep the dynamic form for references
+                            // to its OWN dependencies that are still unpublished -- exactly what generation 1 does for
+                            // them. A reference to anything else, including a published dependency whose member did not
+                            // resolve, is the defect this invariant exists to catch and declines as before.
+                            var loader = entry.Wrapper.ClassLoader;
+                            var deps = entry.Dependencies;
+                            if (isPartial && Compiler.DynamicReferencesOnlyTo(classFile, m, d => Array.IndexOf(deps, d) >= 0 && !loader.IsClassPublished(d)))
+                            {
+                                var n = Interlocked.Increment(ref LazyBodyStats.PartialAccepted);
+                                if (n <= 48 || JVM.TraceLazyBodies)
+                                    Console.WriteLine($"[IKVM lazybody] partial #{n}: {entry.Wrapper.Name}.{m.Name}{m.Signature} keeps {Compiler.DescribeFirstDynamicReference(classFile, m)}");
+                            }
+                            else
+                            {
+                                if (isPartial)
+                                    Interlocked.Increment(ref LazyBodyStats.PartialRefused);
+                                Interlocked.Increment(ref LazyBodyStats.Gen2UnexpectedDynamic);
+                                // Tally by the SURVIVING REFERENCE, not by the method: 422 per run is a
+                                // population, and only the reference says which gate assumption is wrong.
+                                LazyBodyStats.RecordUnexpectedDynamic(Compiler.DescribeFirstDynamicReference(classFile, m));
+                                if (JVM.TraceLazyBodies)
+                                    Console.WriteLine($"[IKVM lazybody] unexpected dynamic Gen2 {entry.Wrapper.Name}:{m.Name}{m.Signature} -> {Compiler.DescribeFirstDynamicReference(classFile, m)}");
+                                Interlocked.Increment(ref LazyBodyStats.InPlaceDeclined);
+                                continue;
+                            }
                         }
-                        Interlocked.Increment(ref LazyBodyStats.Gen2Clean);
+                        else
+                        {
+                            Interlocked.Increment(ref LazyBodyStats.Gen2Clean);
+                        }
 
                         if (finish.DefinedCallerID)
                         {
@@ -2735,6 +2794,57 @@ namespace IKVM.Runtime
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
+            LinkIndyCallSiteCore(ref site, cs, x, false);
+#endif
+        }
+
+        /// <summary>
+        /// <see cref="LinkIndyCallSite{T}"/> for a site whose bootstrap method is LambdaMetafactory.metafactory or
+        /// altMetafactory: links it to a direct target when the CallSite's shape allows one. Emitted only under
+        /// JVM.IndyDirect.
+        /// </summary>
+        [HideFromJava]
+        public static void LinkLambdaIndyCallSite<T>(ref IndyCallSite<T> site, global::java.lang.invoke.CallSite cs, Exception x)
+            where T : class, Delegate
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            LinkIndyCallSiteCore(ref site, cs, x, true);
+#endif
+        }
+
+        [HideFromJava]
+        public static void DynamicLinkIndyCallSite<T>(ref IndyCallSite<T> site, global::java.lang.invoke.CallSite cs, Exception x, string signature, ikvm.@internal.CallerID callerID)
+            where T : class, Delegate
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            DynamicLinkIndyCallSiteCore(ref site, cs, x, signature, callerID, false);
+#endif
+        }
+
+        /// <summary>
+        /// <see cref="DynamicLinkIndyCallSite{T}"/> for a LambdaMetafactory site; see <see cref="LinkLambdaIndyCallSite{T}"/>.
+        /// </summary>
+        [HideFromJava]
+        public static void DynamicLinkLambdaIndyCallSite<T>(ref IndyCallSite<T> site, global::java.lang.invoke.CallSite cs, Exception x, string signature, ikvm.@internal.CallerID callerID)
+            where T : class, Delegate
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            DynamicLinkIndyCallSiteCore(ref site, cs, x, signature, callerID, true);
+#endif
+        }
+
+#if !FIRST_PASS
+
+        [HideFromJava]
+        static void LinkIndyCallSiteCore<T>(ref IndyCallSite<T> site, global::java.lang.invoke.CallSite cs, Exception x, bool lambda)
+            where T : class, Delegate
+        {
             // when a CallSite is first constructed, it doesn't call MethodHandleNatives.setCallSiteTargetNormal(),
             // so we have to check if we need to initialize it here (i.e. attach an IndyCallSite<T> to it)
             if (cs != null)
@@ -2747,6 +2857,7 @@ namespace IKVM.Runtime
             }
 
             IndyCallSite<T> ics;
+            IndyCallSite<T> direct = null;
             if (x != null || cs == null || (ics = cs.ics as IndyCallSite<T>) == null)
             {
                 x = MapException<Exception>(x ?? (cs == null
@@ -2765,20 +2876,22 @@ namespace IKVM.Runtime
                                 exc),
                         0, type.parameterArray()));
             }
+            else if (lambda && (direct = TryCreateDirectLambdaCallSite<T>(cs)) != null)
+            {
+                // wasm fork (JVM.IndyDirect): replaces cs.ics for THIS site only. cs is a ConstantCallSite, so cs.ics
+                // can never be retargeted, and nothing else reads this site's field.
+                ics = direct;
+            }
 
             var curr = site;
-            if (curr.IsBootstrap)
-                Interlocked.CompareExchange(ref site, ics, curr);
-#endif
+            if (curr.IsBootstrap && Interlocked.CompareExchange(ref site, ics, curr) == curr && direct != null)
+                LazyBodyStats.NoteIndyInstalled();
         }
 
         [HideFromJava]
-        public static void DynamicLinkIndyCallSite<T>(ref IndyCallSite<T> site, global::java.lang.invoke.CallSite cs, Exception x, string signature, ikvm.@internal.CallerID callerID)
+        static void DynamicLinkIndyCallSiteCore<T>(ref IndyCallSite<T> site, global::java.lang.invoke.CallSite cs, Exception x, string signature, ikvm.@internal.CallerID callerID, bool lambda)
             where T : class, Delegate
         {
-#if FIRST_PASS
-            throw new NotImplementedException();
-#else
             // when a CallSite is first constructed, it doesn't call MethodHandleNatives.setCallSiteTargetNormal(),
             // so we have to check if we need to initialize it here (i.e. attach an IndyCallSite<T> to it)
             if (cs != null)
@@ -2792,6 +2905,7 @@ namespace IKVM.Runtime
 
             global::java.lang.invoke.MethodType typeCache = null;
             IndyCallSite<T> ics;
+            IndyCallSite<T> direct = null;
             if (x != null || cs == null || cs.type() != DynamicLoadMethodType(ref typeCache, signature, callerID))
             {
                 x = MapException<Exception>(x ?? (cs == null
@@ -2810,6 +2924,12 @@ namespace IKVM.Runtime
                                 exc),
                         0, type.parameterArray()));
             }
+            else if (lambda && (direct = TryCreateDirectLambdaCallSite<T>(cs)) != null)
+            {
+                // wasm fork (JVM.IndyDirect): instead of dynamicInvoker().asType(), whose PairwiseConvert adapter casts
+                // the erased arguments on every call; the direct target casts them itself (EmitDirectBinderConversion).
+                ics = direct;
+            }
             else
             {
                 ics = new IndyCallSite<T>();
@@ -2817,10 +2937,197 @@ namespace IKVM.Runtime
             }
 
             IndyCallSite<T> curr = site;
-            if (curr.IsBootstrap)
-                Interlocked.CompareExchange(ref site, ics, curr);
-#endif
+            if (curr.IsBootstrap && Interlocked.CompareExchange(ref site, ics, curr) == curr && direct != null)
+                LazyBodyStats.NoteIndyInstalled();
         }
+
+        /// <summary>
+        /// wasm fork (JVM.IndyDirect): an <see cref="IndyCallSite{T}"/> whose target bypasses the MethodHandle of a
+        /// LambdaMetafactory CallSite, or null to keep the MethodHandle chain.
+        /// </summary>
+        /// <remarks>
+        /// Only for sites whose bootstrap is LambdaMetafactory.metafactory/altMetafactory -- the compiler picks the *Lambda*
+        /// link helpers only for those -- because the second shape below is a constant only by InnerClassLambdaMetafactory's
+        /// construction. buildCallSite returns a ConstantCallSite in both cases, so the target read here is final:
+        ///
+        /// * captured arguments: findStatic(innerClass, "get$Lambda", invokedType), an exact DirectMethodHandle. Calling the
+        ///   factory directly is what invoking that handle does, minus InvokeExact, the DMH.invokeStatic LambdaForm,
+        ///   linkToStatic and the MemberName thunk -- plus PairwiseConvert and its castReference binders on an erased site.
+        /// * no captured arguments: MethodHandles.constant(samBase, inst), inst constructed by buildCallSite. Invoking it once
+        ///   has no side effect and returns what every invocation returns.
+        ///
+        /// Never throws: any failure keeps the chain, which is the behaviour with the knob off. Racing bootstraps each get a
+        /// candidate; only the one whose link CAS wins is installed and counted.
+        /// </remarks>
+        static IndyCallSite<T> TryCreateDirectLambdaCallSite<T>(global::java.lang.invoke.CallSite cs)
+            where T : class, Delegate
+        {
+            try
+            {
+                if (cs is not global::java.lang.invoke.ConstantCallSite constant)
+                {
+                    Interlocked.Increment(ref LazyBodyStats.IndyRejNotConstant);
+                    return null;
+                }
+
+                var target = constant.getTarget();
+                var direct = target != null && target.GetType() == typeof(global::java.lang.invoke.DirectMethodHandle)
+                    ? CreateDirectLambdaFactory<T>((global::java.lang.invoke.DirectMethodHandle)target)
+                    : CreateDirectLambdaConstant<T>(target);
+                return direct == null ? null : new IndyCallSite<T>(direct, false);
+            }
+            catch (Exception e)
+            {
+                if (Interlocked.Increment(ref LazyBodyStats.IndyFailed) <= 8 || JVM.TraceLazyBodies)
+                    Console.WriteLine($"[IKVM indy] direct link FAILED, keeping the MethodHandle chain: {e.GetType().Name}: {e.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The capturing shape: a delegate calling the static factory <paramref name="dmh"/> names, bound straight to it when
+        /// the call site's delegate signature is the factory's own, else through a thunk that casts erased arguments.
+        /// </summary>
+        static T CreateDirectLambdaFactory<T>(global::java.lang.invoke.DirectMethodHandle dmh)
+            where T : class, Delegate
+        {
+            var context = JVM.Context;
+
+            // exactly DirectMethodHandle, checked by the caller: its subclasses (Special, Interface, Constructor, the field
+            // accessors) carry receiver or allocation semantics this does not reproduce
+            var member = dmh.member;
+            if (member == null || !member.isMethod() || member.getReferenceKind() != global::java.lang.invoke.MethodHandleNatives.Constants.REF_invokeStatic)
+            {
+                Interlocked.Increment(ref LazyBodyStats.IndyRejShape);
+                return null;
+            }
+
+            // resolved the way MethodHandleNatives.ResolveMethod resolved it
+            var tw = RuntimeJavaType.FromClass(member.getDeclaringClass());
+            var mw = tw.GetMethod(member.getName(), member.getSignature().Replace('/', '.'), true);
+            if (mw == null || !mw.IsStatic || mw.IsDynamicOnly || mw.HasCallerID || mw.IsFinalizeOrClone
+                || mw.DeclaringType.IsGhost || mw.DeclaringType.IsRemapped || mw.DeclaringType.IsNonPrimitiveValueType || mw.DeclaringType.IsFakeTypeContainer
+                || RuntimeByteCodeJavaType.RequiresDynamicReflectionCallerClass(mw.DeclaringType.Name, mw.Name, mw.Signature))
+            {
+                Interlocked.Increment(ref LazyBodyStats.IndyRejShape);
+                return null;
+            }
+
+            mw.Link();
+            var invoke = context.MethodHandleUtil.GetDelegateInvokeMethod(typeof(T));
+            var dp = invoke.GetParameters();
+            var args = mw.GetParameters();
+            var ret = mw.ReturnType;
+
+            // a length mismatch means the delegate packs its arguments (arity > MethodHandleUtil.MaxArity)
+            if (dp.Length != args.Length || !CanEmitDirectBinderReturn(ret, invoke.ReturnType, context))
+            {
+                Interlocked.Increment(ref LazyBodyStats.IndyRejSig);
+                return null;
+            }
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (!CanEmitDirectBinderConversion(dp[i].ParameterType, args[i]))
+                {
+                    Interlocked.Increment(ref LazyBodyStats.IndyRejSig);
+                    return null;
+                }
+            }
+
+            // as TryCreateDirectBinderDelegate: nothing unbaked in a signature, and the member re-resolved from its builder
+            mw.DeclaringType.Finish();
+            foreach (var arg in args)
+                if (!arg.IsUnloadable)
+                    arg.Finish();
+            if (!ret.IsUnloadable)
+                ret.Finish();
+            mw.ResolveMethod();
+
+            // the usual case: the site was compiled with every type loadable, so its delegate has the factory's signature
+            if (mw.GetMethod() is MethodInfo mi && HasExactSignature(mi, invoke))
+            {
+                var bound = Delegate.CreateDelegate(typeof(T), mi, false) as T;
+                if (bound != null)
+                {
+                    Interlocked.Increment(ref LazyBodyStats.IndyBind);
+                    return bound;
+                }
+            }
+
+            var dpTypes = new Type[dp.Length];
+            for (int i = 0; i < dp.Length; i++)
+                dpTypes[i] = dp[i].ParameterType;
+
+            // owned like the MethodHandle adapters it replaces, which also keeps it out of Java stack traces (ExceptionHelper)
+            var dm = new DynamicMethod($"__<>IndyDirect__{tw.Name}__{mw.Name}", invoke.ReturnType, dpTypes, typeof(MethodHandleUtil.DynamicMethodBuilder), true);
+            var ilgen = context.CodeEmitterFactory.Create(dm);
+            for (int i = 0; i < args.Length; i++)
+            {
+                ilgen.EmitLdarg(i);
+                EmitDirectBinderConversion(ilgen, dpTypes[i], args[i]);
+            }
+
+            mw.EmitCall(ilgen);
+            EmitDirectBinderReturn(ilgen, ret, invoke.ReturnType, context);
+            ilgen.Emit(OpCodes.Ret);
+            ilgen.DoEmit();
+
+            Interlocked.Increment(ref LazyBodyStats.IndyThunk);
+            return (T)dm.CreateDelegate(typeof(T));
+        }
+
+        /// <summary>
+        /// The non-capturing shape: a delegate closed over the lambda instance that returns it. See
+        /// <see cref="TryCreateDirectLambdaCallSite{T}"/> for why invoking <paramref name="target"/> here is sound.
+        /// </summary>
+        static T CreateDirectLambdaConstant<T>(global::java.lang.invoke.MethodHandle target)
+            where T : class, Delegate
+        {
+            var invoke = JVM.Context.MethodHandleUtil.GetDelegateInvokeMethod(typeof(T));
+            var rt = invoke.ReturnType;
+            if (target == null || target.type().parameterCount() != 0 || invoke.GetParameters().Length != 0 || rt == typeof(void) || rt.IsValueType)
+            {
+                Interlocked.Increment(ref LazyBodyStats.IndyRejShape);
+                return null;
+            }
+
+            var inst = target.invokeWithArguments(new object[0]);
+            if (inst == null || !rt.IsInstanceOfType(inst))
+            {
+                Interlocked.Increment(ref LazyBodyStats.IndyRejSig);
+                return null;
+            }
+
+            // the parameter is the instance's own class, as DynamicMethodBuilder types a bound target, so the delegate
+            // binds as a closed static (BOUND_STATIC to the wasm JIT's delegate PIC) and `ldarg.0; ret` is verifiable
+            var dm = new DynamicMethod("__<>IndyConstant__" + inst.GetType().Name, rt, new[] { inst.GetType() }, typeof(MethodHandleUtil.DynamicMethodBuilder), true);
+            var ilgen = JVM.Context.CodeEmitterFactory.Create(dm);
+            ilgen.Emit(OpCodes.Ldarg_0);
+            ilgen.Emit(OpCodes.Ret);
+            ilgen.DoEmit();
+
+            Interlocked.Increment(ref LazyBodyStats.IndyConst);
+            return (T)dm.CreateDelegate(typeof(T), inst);
+        }
+
+        static bool HasExactSignature(MethodInfo method, MethodInfo invoke)
+        {
+            if (method.ReturnType != invoke.ReturnType)
+                return false;
+
+            var mp = method.GetParameters();
+            var ip = invoke.GetParameters();
+            if (mp.Length != ip.Length)
+                return false;
+
+            for (int i = 0; i < mp.Length; i++)
+                if (mp[i].ParameterType != ip[i].ParameterType)
+                    return false;
+
+            return true;
+        }
+
+#endif
 
 #endif
 

@@ -83,6 +83,11 @@ namespace IKVM.Runtime
             /// <summary>wasm fork (R357): dependency probes that found a dependency unpublished.</summary>
             internal int Waits;
 
+            /// <summary>wasm fork (IKVM_LAZY_PARTIAL): 1 once RelinkBody stopped waiting for the dependencies and queued the
+            /// entry anyway. Only ever set; FlushRelinkBatch then admits a generation 2 whose remaining __dynamic_*
+            /// references all name dependencies that are still unpublished.</summary>
+            internal int Partial;
+
             /// <summary>The first dependency the loader does not report as published, or null.</summary>
             internal string FirstUnpublished()
             {
@@ -167,6 +172,40 @@ namespace IKVM.Runtime
         internal static int NoDynSig;             // wasm fork (plan2x F7a): no dynamic member/operand, but an unloadable PARAMETER -- counted with IKVM_LAZY_SIGDEPS on or off
         internal static int SigOnly;              // ... and admitted on those parameters (IKVM_LAZY_SIGDEPS=1)
         internal static int StuckNamed;           // wasm fork (R357): entries named for 64 unanswered dependency probes
+
+        // wasm fork (IKVM_LAZY_PARTIAL): stuck entries relinked without their unpublished dependencies. Queued counts the
+        // decision in RelinkBody, accepted/refused the outcome in FlushRelinkBatch. The rest of queued came out clean (a
+        // dependency loaded meanwhile; counted in gen2 clean), failed to emit, or is still in flight.
+        internal static int PartialQueued;
+        internal static int PartialAccepted;      // generation 2 installed with __dynamic_* left only on unpublished dependencies
+        internal static int PartialRefused;       // generation 2 still dynamic on something else: declined, as without the knob
+
+        // wasm fork (IKVM_INDY_DIRECT): LambdaMetafactory call sites linked to a direct target (ByteCodeHelper.
+        // TryCreateDirectLambdaCallSite). Emitted is counted at compile time; the built/kept counters at link time, once
+        // per bootstrap attempt; installed only where the link CAS was WON, which is the action. emitted > 0 with
+        // installed == 0 means the sites were compiled for it and never linked directly -- read the kept-chain reasons.
+        internal static int IndyEmitted;
+        internal static int IndyBind;             // built: delegate bound straight to the spun class's get$Lambda
+        internal static int IndyThunk;            // built: cast thunk calling get$Lambda (erased site signature)
+        internal static int IndyConst;            // built: delegate returning the non-capturing lambda instance
+        internal static int IndyRejNotConstant;   // kept the chain: the CallSite was not a ConstantCallSite
+        internal static int IndyRejShape;         // kept the chain: target neither a static DirectMethodHandle nor a zero-argument constant
+        internal static int IndyRejSig;           // kept the chain: a signature the direct target cannot express (packed arity, value types, ...)
+        internal static int IndyFailed;           // kept the chain: building the direct target threw
+        internal static int IndyInstalled;
+
+        internal static void NoteIndyInstalled()
+        {
+            var n = Interlocked.Increment(ref IndyInstalled);
+            if (n == 1 || n % 500 == 0)
+                ReportIndy();
+        }
+
+        internal static void ReportIndy()
+        {
+            Console.WriteLine($"[IKVM indy] direct installed={IndyInstalled} built: bind={IndyBind} thunk={IndyThunk} const={IndyConst} | chain kept: notConstant={IndyRejNotConstant} shape={IndyRejShape} sig={IndyRejSig} failed={IndyFailed} | lambda sites compiled={IndyEmitted} (IKVM_INDY_DIRECT={(JVM.IndyDirect ? 1 : 0)})");
+        }
+
         internal static int RejArity;             // more args than the delegate types cover
         internal static int RejExceptionHandlers; // only with IKVM_LAZY_SKIP_EH=1
 
@@ -302,6 +341,10 @@ namespace IKVM.Runtime
             Console.WriteLine($"[IKVM lazybody] gen2 clean={Gen2Clean} unexpectedDynamic={Gen2UnexpectedDynamic} callerID={Gen2CallerID} depWaits={DependencyWaits} missingSite={MissingBakedSite} bakedLambda={Gen2BakedLambdaSite} cidReal={Gen2CallerIDReal} cidReused={Gen2CallerIDReused} cidForeign={Gen2CallerIDForeign} scratchShared={Gen2ScratchShared}");
             if (JVM.LazyInPlace)
                 Console.WriteLine($"[IKVM lazybody] inplace ok={InPlaceOk} late={InPlaceLate} declined={InPlaceDeclined} failed={InPlaceFailed} unsupported={InPlaceUnsupported} queued={InPlaceQueued} batches={InPlaceBatches} deferrals={InPlaceDeferrals} forced={InPlaceForced}");
+            if (JVM.LazyPartialProbes > 0)
+                Console.WriteLine($"[IKVM lazybody] partial queued={PartialQueued} accepted={PartialAccepted} refused={PartialRefused} (IKVM_LAZY_PARTIAL={JVM.LazyPartialProbes})");
+            if (JVM.IndyDirect)
+                ReportIndy();
             Console.WriteLine($"[IKVM lazybody] inplaceFail stubbed={InPlaceStubbed} stubFailed={InPlaceStubFailed} {InPlaceFailureSummary()}");
             Console.WriteLine($"[IKVM lazybody] unexpDyn {UnexpectedDynamicSummary()}");
             Console.WriteLine($"[IKVM lazybody] noLoadBootstrapFinds={RuntimeClassLoader.NoLoadFoundInBootstrap}");

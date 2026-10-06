@@ -118,6 +118,9 @@ namespace IKVM.Runtime
         internal readonly MethodInfo ThrowWrongMethodType;
         internal readonly MethodInfo LoadMethodType;
         internal readonly MethodInfo LinkIndyCallSite;
+        /// <summary>LambdaMetafactory variants of the two indy link helpers; see JVM.IndyDirect.</summary>
+        internal readonly MethodInfo LinkLambdaIndyCallSite;
+        internal readonly MethodInfo DynamicLinkLambdaIndyCallSite;
 
         /// <summary>
         /// Initializes a new instance.
@@ -199,6 +202,8 @@ namespace IKVM.Runtime
             ThrowWrongMethodType = GetHelper(typeofByteCodeHelper, "ThrowWrongMethodType");
             LoadMethodType = GetHelper(typeofByteCodeHelper, "LoadMethodType");
             LinkIndyCallSite = GetHelper(typeofByteCodeHelper, "LinkIndyCallSite");
+            LinkLambdaIndyCallSite = GetHelper(typeofByteCodeHelper, "LinkLambdaIndyCallSite");
+            DynamicLinkLambdaIndyCallSite = GetHelper(typeofByteCodeHelper, "DynamicLinkLambdaIndyCallSite");
         }
 
         static MethodInfo GetHelper(Type type, string method)

@@ -181,6 +181,31 @@ namespace IKVM.Runtime
         // -2.3%, all disjoint. "0" is the A/B.
         internal static readonly bool LazyDefaultImpl = SafeGetEnvironmentVariable("IKVM_LAZY_DEFAULT_IMPL") != "0";
 
+        // wasm fork (IKVM_INDY_DIRECT): link an invokedynamic whose bootstrap is LambdaMetafactory.metafactory/altMetafactory
+        // -- a site IKVM's own LambdaMetafactory.Emit refused, which therefore runs the stock InnerClassLambdaMetafactory --
+        // to a DIRECT target instead of to the CallSite's MethodHandle (ByteCodeHelper.TryCreateDirectLambdaCallSite). That
+        // CallSite is a ConstantCallSite, so its target can never change: a capturing lambda's target is a DirectMethodHandle
+        // to the spun class's static get$Lambda, which is called directly; a non-capturing lambda's is
+        // MethodHandles.constant(samBase, inst), which becomes a delegate returning inst. The lambda class and instance are
+        // the ones the bootstrap produced, so identity is unchanged. Without it every lambda creation runs the chain
+        // InvokeExact -> [PairwiseConvert ->] DMH.invokeStatic or BMH.reinvoke -> linkToStatic -> MemberName thunk.
+        // Decided when the bootstrap stub is EMITTED, so it reaches classes compiled after it is set. Unmeasured; "1"
+        // enables. The [IKVM indy] line counts the sites compiled for it and the direct targets installed.
+        internal static readonly bool IndyDirect = SafeGetEnvironmentVariable("IKVM_INDY_DIRECT") == "1";
+
+        // wasm fork (IKVM_LAZY_PARTIAL): after this many unanswered dependency probes, relink an in-place candidate anyway
+        // and let generation 2 keep the dynamic form for references to the dependencies that are STILL unpublished
+        // (ByteCodeHelper.RelinkBody, FlushRelinkBatch). R357's stuck entries wait on classes referenced only on error
+        // paths -- JsonSyntaxException, CrashException (net.minecraft.class_148), CancellationException -- which never load,
+        // so the all-dependencies gate never opens and every other dynamic reference in the method stays dynamic for the
+        // life of the process. A generation 2 is admitted only if each __dynamic_* reference it still holds names one of
+        // the entry's own unpublished dependencies (Compiler.DynamicReferencesOnlyTo); anything else declines as before. Not
+        // for an entry with an unpublished PARAMETER type, whose generation 2 would load it (HasUnpublishedParameterType).
+        // 0 is off. The count is in RelinkBody's probes, not calls: 64 is the `stuck` line's threshold and, on the capped
+        // retry schedule (1, 4, 16, then 64 calls per probe), ~3,900 generation-1 calls. A small value relinks before a
+        // hot dependency has had time to load, and that dependency then stays dynamic for good.
+        internal static readonly int LazyPartialProbes = ParseInt(SafeGetEnvironmentVariable("IKVM_LAZY_PARTIAL"), 0);
+
         // Make every eligible method a candidate, not just those with dynamic references. Diagnostic: it turns
         // the trampoline cost on for bodies that have nothing to gain, which is how the indirection's own cost
         // was measured.
