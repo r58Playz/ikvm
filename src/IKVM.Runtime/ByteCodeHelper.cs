@@ -574,8 +574,20 @@ namespace IKVM.Runtime
                 // thousands of generation-1 calls, i.e. a hot method whose dependency never reads as published
                 // -- which would pin it to its dynamic stubs for the whole run. Bounded to the first 48.
                 var waits = Interlocked.Increment(ref entry.Waits);
+                if ((waits & (waits - 1)) == 0 && LazyBodyRegistry.IsWatched(entry.Wrapper?.Name, entry.Method?.Name))
+                    Console.WriteLine($"[IKVM lazybody] watch {entry.Wrapper?.Name}.{entry.Method?.Name}{entry.Method?.Signature}: wait #{waits} on {entry.FirstUnpublished() ?? "(none now)"} ({entry.Dependencies.Length} deps)");
                 if (waits == 64 && Interlocked.Increment(ref LazyBodyStats.StuckNamed) <= 48)
                     Console.WriteLine($"[IKVM lazybody] stuck #{LazyBodyStats.StuckNamed}: {entry.Wrapper?.Name}.{entry.Method?.Name}{entry.Method?.Signature} waits on {entry.FirstUnpublished() ?? "(none now)"} ({entry.Dependencies.Length} deps, loader {entry.Wrapper?.ClassLoader?.GetType().Name})");
+
+                // wasm fork (JVM.LazyLoadStuckProbes): hand the entry to the drain to load what it waits on. Still
+                // lock-free and non-loading here; the next probe after the load finds the gate open.
+                if (JVM.LazyLoadStuckProbes > 0 && waits >= JVM.LazyLoadStuckProbes && Interlocked.CompareExchange(ref entry.LoadRequested, 1, 0) == 0)
+                {
+                    lock (relinkPendingLock)
+                        loadStuckPending.Add(id);
+                    Interlocked.Increment(ref LazyBodyStats.LoadStuckRequested);
+                    ScheduleRelinkDrain();
+                }
 
                 // wasm fork (JVM.LazyPartialProbes): stop waiting and queue the relink without the unpublished
                 // dependencies. FlushRelinkBatch admits the result only if what stays dynamic is exactly those.
@@ -603,6 +615,8 @@ namespace IKVM.Runtime
                 {
                     relinkPending.Add(id);
                     Interlocked.Increment(ref LazyBodyStats.InPlaceQueued);
+                    if (LazyBodyRegistry.IsWatched(entry.Wrapper?.Name, entry.Method?.Name))
+                        Console.WriteLine($"[IKVM lazybody] watch {entry.Wrapper?.Name}.{entry.Method?.Name}: queued (partial={Volatile.Read(ref entry.Partial)})");
                 }
             }
 
@@ -625,6 +639,10 @@ namespace IKVM.Runtime
 
         static readonly object relinkPendingLock = new object();
         static List<int> relinkPending = new List<int>();
+        static List<int> loadStuckPending = new List<int>();   // wasm fork (JVM.LazyLoadStuckProbes), under relinkPendingLock
+
+        /// <summary>Dependencies loaded per drain ownership period, so one drain cannot spend a whole boot loading.</summary>
+        const int LoadStuckPerDrain = 16;
         static int relinkDrainScheduled;
         static readonly WaitCallback relinkDrainCallback = _ => DrainRelinkQueue();
         static readonly Timer relinkDrainTimer = new Timer(_ => DrainRelinkQueue(), null, Timeout.Infinite, Timeout.Infinite);
@@ -720,6 +738,8 @@ namespace IKVM.Runtime
                         Console.WriteLine($"[IKVM lazybody] forcing one relink batch after {elapsed} ms of continuous class-definition activity");
                 }
 
+                LoadStuckDependencies();
+
                 List<int> batch;
                 lock (relinkPendingLock)
                 {
@@ -762,11 +782,72 @@ namespace IKVM.Runtime
             lock (relinkPendingLock)
             {
                 Volatile.Write(ref relinkDrainScheduled, 0);
-                reschedule = relinkPending.Count != 0;
+                reschedule = relinkPending.Count != 0 || loadStuckPending.Count != 0;
             }
 
             if (reschedule)
                 ScheduleRelinkDrain();
+        }
+
+        /// <summary>
+        /// wasm fork (JVM.LazyLoadStuckProbes): load the unpublished dependencies of the entries RelinkBody named stuck,
+        /// through each entry's own loader and without initializing them. Runs on the drain, outside every lock, which is
+        /// what the hook cannot do: it runs at arbitrary Java method entry. Loading publishes the name in that loader
+        /// (RegisterInitiatingLoader), so the entry's next probe queues an ordinary full relink.
+        /// </summary>
+        static void LoadStuckDependencies()
+        {
+            List<int> ids;
+            lock (relinkPendingLock)
+            {
+                if (loadStuckPending.Count == 0)
+                    return;
+
+                ids = loadStuckPending;
+                loadStuckPending = new List<int>();
+            }
+
+            var loads = 0;
+            for (int k = 0; k < ids.Count; k++)
+            {
+                if (loads >= LoadStuckPerDrain)
+                {
+                    // the rest waits for the next ownership period; ReleaseRelinkDrain reschedules for it
+                    lock (relinkPendingLock)
+                        loadStuckPending.AddRange(ids.GetRange(k, ids.Count - k));
+                    return;
+                }
+
+                var entry = LazyBodyRegistry.Get(ids[k]);
+                if (entry == null || entry.Wrapper?.ClassLoader == null)
+                    continue;
+
+                var loader = entry.Wrapper.ClassLoader;
+                foreach (var dep in entry.Dependencies)
+                {
+                    if (loader.IsClassPublished(dep))
+                    {
+                        Interlocked.Increment(ref LazyBodyStats.LoadStuckAlready);
+                        continue;
+                    }
+
+                    loads++;
+                    string outcome;
+                    try
+                    {
+                        var tw = loader.TryLoadClassByName(dep);
+                        outcome = tw != null && !tw.IsUnloadable ? "loaded" : "not found";
+                    }
+                    catch (Exception e)
+                    {
+                        outcome = e.GetType().Name;
+                    }
+
+                    var n = outcome == "loaded" ? Interlocked.Increment(ref LazyBodyStats.LoadStuckLoaded) : Interlocked.Increment(ref LazyBodyStats.LoadStuckFailed);
+                    if (n <= 16 || LazyBodyRegistry.IsWatched(entry.Wrapper.Name, entry.Method?.Name))
+                        Console.WriteLine($"[IKVM lazybody] loadStuck {dep} for {entry.Wrapper.Name}.{entry.Method?.Name}: {outcome}");
+                }
+            }
         }
 
         static void PrepareRelinkBatch(List<int> ids)
@@ -936,7 +1017,7 @@ namespace IKVM.Runtime
                                 // Tally by the SURVIVING REFERENCE, not by the method: 422 per run is a
                                 // population, and only the reference says which gate assumption is wrong.
                                 LazyBodyStats.RecordUnexpectedDynamic(Compiler.DescribeFirstDynamicReference(classFile, m));
-                                if (JVM.TraceLazyBodies)
+                                if (JVM.TraceLazyBodies || LazyBodyRegistry.IsWatched(entry.Wrapper.Name, m.Name))
                                     Console.WriteLine($"[IKVM lazybody] unexpected dynamic Gen2 {entry.Wrapper.Name}:{m.Name}{m.Signature} -> {Compiler.DescribeFirstDynamicReference(classFile, m)}");
                                 Interlocked.Increment(ref LazyBodyStats.InPlaceDeclined);
                                 continue;
@@ -1051,6 +1132,8 @@ namespace IKVM.Runtime
                         }
 
                         var r = LibIkvm.ReplaceMethodBody(target.MethodHandle.Value, source.MethodHandle.Value);
+                        if (LazyBodyRegistry.IsWatched(b.Entry.Wrapper?.Name, mw.Name))
+                            Console.WriteLine($"[IKVM lazybody] watch {b.Entry.Wrapper?.Name}.{mw.Name}: body swap r={r} (1 installed, 0 too late, -2 unsupported)");
                         if (r == 1)
                         {
                             var n = Interlocked.Increment(ref LazyBodyStats.InPlaceOk);

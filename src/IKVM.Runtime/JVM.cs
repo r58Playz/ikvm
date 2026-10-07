@@ -217,6 +217,17 @@ namespace IKVM.Runtime
         // hot dependency has had time to load, and that dependency then stays dynamic for good.
         internal static readonly int LazyPartialProbes = ParseInt(SafeGetEnvironmentVariable("IKVM_LAZY_PARTIAL"), 0);
 
+        // wasm fork (IKVM_LAZY_LOAD_STUCK, plan swirling-moore S4): after this many unanswered dependency probes, ask the
+        // relink drain to LOAD the entry's unpublished dependencies -- through the entry's own loader, without initializing
+        // them -- so the all-dependencies gate opens and the relink is a full one. The alternative to IKVM_LAZY_PARTIAL for
+        // the same stuck entries: Entity.move (class_1297.method_5784) waits on CrashException (class_148), which only its
+        // catch handler names, and stays generation 1 with its __<>MHC stubs (R478). Java allows a class to be loaded
+        // before its first active use; a failed load is swallowed and the entry keeps waiting as before. One request per
+        // entry. 0 is off; the count is in probes, as for IKVM_LAZY_PARTIAL. Measured (R479, j2d/w6): at 64, +1,190
+        // generation-2 bodies (+23%) and both Entity.move and MinecraftClient.render relink, but the server tick and the
+        // client frame do not move -- the stubs it removes are ~1% of tick calls.
+        internal static readonly int LazyLoadStuckProbes = ParseInt(SafeGetEnvironmentVariable("IKVM_LAZY_LOAD_STUCK"), 0);
+
         // Make every eligible method a candidate, not just those with dynamic references. Diagnostic: it turns
         // the trampoline cost on for bodies that have nothing to gain, which is how the indirection's own cost
         // was measured.

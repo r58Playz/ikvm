@@ -613,7 +613,10 @@ namespace IKVM.Runtime
             /// </remarks>
             private FieldBuilder TryPrepareInPlaceRelink(RuntimeJavaMethod mw, ClassFile.Method m, int index, RuntimeJavaType host)
             {
-                if (IsLazyBodyCandidate(mw, m, out var dependencies, inPlace: true) == false)
+                var candidate = IsLazyBodyCandidate(mw, m, out var dependencies, inPlace: true);
+                if (LazyBodyRegistry.IsWatched(wrapper.Name, m.Name))
+                    Console.WriteLine($"[IKVM lazybody] watch {wrapper.Name}.{m.Name}{m.Signature}: in-place candidate={candidate} deps=[{string.Join(", ", dependencies)}] handlers={m.ExceptionTable.Length}");
+                if (candidate == false)
                     return null;
 
                 // Same side table as the delegate path: the hook is emitted code and can only carry an

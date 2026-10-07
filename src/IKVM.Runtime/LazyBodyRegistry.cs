@@ -45,6 +45,25 @@ namespace IKVM.Runtime
     static class LazyBodyRegistry
     {
 
+        // wasm fork: IKVM_LAZY_WATCH=<java class>.<method>[,<java class>.<method>...] traces those methods' in-place
+        // relinks -- candidacy and dependencies, waits on unpublished classes (at every power-of-two probe, naming the
+        // first one still unpublished), queueing, and what the batch did with each. For a hot method that stays
+        // generation 1 when the aggregate counters cannot say why (the `stuck` list names only the first 48, all from
+        // boot). Off unless set.
+        static readonly string[] watch = JVM.SafeGetEnvironmentVariable("IKVM_LAZY_WATCH")?.Split(',');
+
+        internal static bool IsWatched(string className, string methodName)
+        {
+            if (watch == null || className == null || methodName == null)
+                return false;
+
+            foreach (var w in watch)
+                if (w.Length == className.Length + 1 + methodName.Length && w.StartsWith(className, StringComparison.Ordinal) && w[className.Length] == '.' && w.EndsWith(methodName, StringComparison.Ordinal))
+                    return true;
+
+            return false;
+        }
+
         internal sealed class Entry
         {
 
@@ -87,6 +106,10 @@ namespace IKVM.Runtime
             /// entry anyway. Only ever set; FlushRelinkBatch then admits a generation 2 whose remaining __dynamic_*
             /// references all name dependencies that are still unpublished.</summary>
             internal int Partial;
+
+            /// <summary>wasm fork (IKVM_LAZY_LOAD_STUCK): 1 once RelinkBody asked the drain to load this entry's unpublished
+            /// dependencies. Only ever set, so an entry asks once.</summary>
+            internal int LoadRequested;
 
             /// <summary>The first dependency the loader does not report as published, or null.</summary>
             internal string FirstUnpublished()
@@ -179,6 +202,13 @@ namespace IKVM.Runtime
         internal static int PartialQueued;
         internal static int PartialAccepted;      // generation 2 installed with __dynamic_* left only on unpublished dependencies
         internal static int PartialRefused;       // generation 2 still dynamic on something else: declined, as without the knob
+
+        // wasm fork (IKVM_LAZY_LOAD_STUCK): requested counts entries RelinkBody handed to the drain; loaded / failed /
+        // already count DEPENDENCIES the drain then loaded, could not load (null or a throw), or found published by then.
+        internal static int LoadStuckRequested;
+        internal static int LoadStuckLoaded;
+        internal static int LoadStuckFailed;
+        internal static int LoadStuckAlready;
 
         // wasm fork (IKVM_INDY_DIRECT): LambdaMetafactory call sites linked to a direct target (ByteCodeHelper.
         // TryCreateDirectLambdaCallSite). Emitted is counted at compile time; the built/kept counters at link time, once
@@ -343,6 +373,8 @@ namespace IKVM.Runtime
                 Console.WriteLine($"[IKVM lazybody] inplace ok={InPlaceOk} late={InPlaceLate} declined={InPlaceDeclined} failed={InPlaceFailed} unsupported={InPlaceUnsupported} queued={InPlaceQueued} batches={InPlaceBatches} deferrals={InPlaceDeferrals} forced={InPlaceForced}");
             if (JVM.LazyPartialProbes > 0)
                 Console.WriteLine($"[IKVM lazybody] partial queued={PartialQueued} accepted={PartialAccepted} refused={PartialRefused} (IKVM_LAZY_PARTIAL={JVM.LazyPartialProbes})");
+            if (JVM.LazyLoadStuckProbes > 0)
+                Console.WriteLine($"[IKVM lazybody] loadStuck requested={LoadStuckRequested} loaded={LoadStuckLoaded} failed={LoadStuckFailed} already={LoadStuckAlready} (IKVM_LAZY_LOAD_STUCK={JVM.LazyLoadStuckProbes})");
             if (JVM.IndyDirect)
                 ReportIndy();
             Console.WriteLine($"[IKVM lazybody] inplaceFail stubbed={InPlaceStubbed} stubFailed={InPlaceStubFailed} {InPlaceFailureSummary()}");
