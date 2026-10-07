@@ -197,6 +197,12 @@ namespace IKVM.Runtime
         // sites compiled for it and the direct targets installed.
         internal static readonly bool IndyDirect = SafeGetEnvironmentVariable("IKVM_INDY_DIRECT") != "0";
 
+        // wasm fork (plan swirling-moore S1): sun.misc.Unsafe getObject/putObject read and write a reference field in place
+        // (Unsafe.cs, FieldKindRefObject / FieldKindRefTyped) instead of through the reflective field accessor; putObject
+        // only into a field whose CLR type is object, and both only after a receiver-type check. Aimed at LockSupport.park's
+        // setBlocker (1.3 M instructions per server tick in R461, before park went native); on the Minecraft server tick it
+        // measured as nothing (R478, j2d/w4, u s s u s u). "1" enables.
+        internal static readonly bool UnsafeRefFast = SafeGetEnvironmentVariable("IKVM_UNSAFE_REF") == "1";
 
         // wasm fork (IKVM_LAZY_PARTIAL): after this many unanswered dependency probes, relink an in-place candidate anyway
         // and let generation 2 keep the dynamic form for references to the dependencies that are STILL unpublished

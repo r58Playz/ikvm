@@ -90,6 +90,7 @@ namespace IKVM.Java.Externs.sun.misc
             readonly int[] fieldSizes;
             readonly byte[] fieldKinds;
             readonly int[] rawOffsets;
+            readonly Type[] refReceiverTypes;   // per reference field: the last receiver type that passed GetRawRefOffset's check
 
             /// <summary>
             /// Initializes a new instance.
@@ -109,6 +110,7 @@ namespace IKVM.Java.Externs.sun.misc
                 fieldSizes = new int[fields.Length];
                 fieldKinds = new byte[fields.Length];
                 rawOffsets = new int[fields.Length];
+                refReceiverTypes = new Type[fields.Length];
                 for (var i = 0; i < fields.Length; i++)
                 {
                     var field = fields[i];
@@ -215,9 +217,64 @@ namespace IKVM.Java.Externs.sun.misc
                 return -1;
             }
 
+            /// <summary>
+            /// GetRawOffset for a reference field (FieldKindRefObject, or either reference kind unless <paramref name="store"/>),
+            /// also checking that <paramref name="target"/> is an instance of the field's CLR declaring type: one GetType
+            /// compare against the last receiver type that passed, IsInstanceOfType otherwise. Returns -1 for the general path.
+            /// </summary>
+            public int GetRawRefOffset(object target, int offset, bool store)
+            {
+                var starts = fieldStartOffsets;
+                var lo = 0;
+                var hi = starts.Length - 1;
+
+                while (lo <= hi)
+                {
+                    var mid = lo + ((hi - lo) >> 1);
+                    var start = starts[mid];
+
+                    if (offset == start)
+                    {
+                        var k = fieldKinds[mid];
+                        if (k != FieldKindRefObject && (store || k != FieldKindRefTyped))
+                            return -1;
+
+                        var raw = rawOffsets[mid];
+                        if (raw == RawOffsetUnresolved)
+                        {
+                            // resolution checks the receiver itself (ComputeRawOffset)
+                            raw = ResolveRawOffset(mid, target);
+                            if (raw >= 0)
+                                refReceiverTypes[mid] = target.GetType();
+                            return raw;
+                        }
+                        if (raw < 0)
+                            return -1;
+
+                        var t = target.GetType();
+                        if (t != refReceiverTypes[mid])
+                        {
+                            var fi = Fields[mid].GetField();
+                            if (fi == null || fi.DeclaringType == null || fi.DeclaringType.IsInstanceOfType(target) == false)
+                                return -1;
+                            // benign race: every writer stores a type that passed the check
+                            refReceiverTypes[mid] = t;
+                        }
+                        return raw;
+                    }
+
+                    if (offset < start)
+                        hi = mid - 1;
+                    else
+                        lo = mid + 1;
+                }
+
+                return -1;
+            }
+
             int ResolveRawOffset(int index, object target)
             {
-                var raw = ComputeRawOffset(Fields[index], fieldSizes[index], target);
+                var raw = ComputeRawOffset(Fields[index], fieldSizes[index], target, fieldKinds[index]);
                 if (raw == RawOffsetUnresolved)
                     return -1;
 
@@ -298,6 +355,14 @@ namespace IKVM.Java.Externs.sun.misc
         const byte FieldKindFloat = 4;
         const byte FieldKindLong = 5;
         const byte FieldKindDouble = 6;
+        // wasm fork (plan swirling-moore S1): reference fields. getObject reads either kind in place; putObject writes in
+        // place only into a field whose CLR type is object (erased, unloadable or java.lang.Object), where no store can
+        // break the CLR type system -- a raw store goes through a `ref object`, so mono still emits the GC write barrier.
+        // Unlike the primitive kinds, the receiver's type is checked (GetRawRefOffset): a reference written into the
+        // wrong object's memory is heap corruption, not a wrong number. LockSupport.park's setBlocker
+        // (putObject(Thread, parkBlockerOffset, ...)) was 1.3 M instructions per server tick on the old path (R461).
+        const byte FieldKindRefObject = 7;
+        const byte FieldKindRefTyped = 8;
 
         const int RawOffsetNone = -1;
         const int RawOffsetUnresolved = -2;
@@ -322,6 +387,13 @@ namespace IKVM.Java.Externs.sun.misc
                 return FieldKindLong;
             if (ft == p.DOUBLE)
                 return FieldKindDouble;
+            if (ft.IsUnloadable)
+                return FieldKindRefObject;
+            // a ghost interface (CharSequence, Comparable, ...) is held in a wrapper struct, not as a reference
+            if (ft.IsGhost || ft.IsGhostArray)
+                return FieldKindNone;
+            if (ft.IsPrimitive == false && ft.IsNonPrimitiveValueType == false)
+                return ft == field.DeclaringType.Context.JavaBase.TypeOfJavaLangObject ? FieldKindRefObject : FieldKindRefTyped;
 
             return FieldKindNone;
         }
@@ -338,6 +410,45 @@ namespace IKVM.Java.Externs.sun.misc
         }
 
         delegate ref byte FieldRefGetter(object o);
+
+        /// <summary>
+        /// A reference field in place. Stores through it are stind.ref, so the runtime emits the GC write barrier.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static ref object RawRef(object o, int raw)
+        {
+            return ref SysUnsafe.As<byte, object>(ref SysUnsafe.AddByteOffset(ref SysUnsafe.As<RawData>(o).Data, (IntPtr)raw));
+        }
+
+        /// <summary>
+        /// GetRawRefOffset for an encoded field offset, or -1. The caller has already tested IsEncodedObjectFieldOffset.
+        /// </summary>
+        static int EncodedRefRawOffset(object o, long offset, bool store)
+        {
+            var value = (int)offset;
+            var info = objectFieldOffsetsByTypeId[(value >> ObjectFieldOffsetTypeIdShift) & ObjectFieldOffsetTypeIdMask];
+            var raw = info != null ? info.GetRawRefOffset(o, value & ObjectFieldOffsetValueMask, store) : -1;
+            if (raw < 0)
+                refRefused++;
+            return raw;
+        }
+
+        // IKVM_UNSAFE_REF's counts, approximate (unsynchronized): the reference reads and writes done in place, and the
+        // encoded-offset calls the fast path declined (the field is not a reference of a usable kind, a store into a typed
+        // field, or a receiver of the wrong type). get+put must be non-zero in a run that uses LockSupport; reported each
+        // time the in-place total reaches a power of two, so the last line gives its magnitude.
+        static int refGets, refPuts, refRefused;
+
+        static void NoteRefFast(bool put)
+        {
+            if (put)
+                refPuts++;
+            else
+                refGets++;
+            var total = refGets + refPuts;
+            if ((total & (total - 1)) == 0)
+                Console.WriteLine($"[IKVM unsafe] ref in place: get={refGets} put={refPuts}; declined={refRefused} (IKVM_UNSAFE_REF={(JVM.UnsafeRefFast ? 1 : 0)})");
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static ref T RawField<T>(object o, int raw) where T : unmanaged
@@ -373,7 +484,7 @@ namespace IKVM.Java.Externs.sun.misc
         /// offset, <see cref="RawOffsetNone"/> if the field cannot be addressed directly, or <see cref="RawOffsetUnresolved"/>
         /// if <paramref name="target"/> is not an instance of the declaring type (the next receiver tries again).
         /// </summary>
-        static int ComputeRawOffset(RuntimeJavaField field, int size, object target)
+        static int ComputeRawOffset(RuntimeJavaField field, int size, object target, byte kind)
         {
             try
             {
@@ -402,6 +513,15 @@ namespace IKVM.Java.Externs.sun.misc
                 var raw = (long)SysUnsafe.ByteOffset(ref SysUnsafe.As<RawData>(target).Data, ref fieldRef);
                 if (raw < 0 || raw > int.MaxValue - 8)
                     return RawOffsetNone;
+
+                if (kind == FieldKindRefObject || kind == FieldKindRefTyped)
+                {
+                    // a reference: the CLR field must hold object exactly for an in-place store, and the slot must hold
+                    // the same reference the reflective read returns
+                    if (kind == FieldKindRefObject && fi.FieldType != typeof(object))
+                        return RawOffsetNone;
+                    return ReferenceEquals(RawRef(target, (int)raw), field.UnsafeGetValue<object>(target)) ? (int)raw : RawOffsetNone;
+                }
 
                 // check the resolved location against the reference implementation before trusting it
                 Span<byte> expect = stackalloc byte[8];
@@ -847,6 +967,16 @@ namespace IKVM.Java.Externs.sun.misc
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
+            if (o != null && JVM.UnsafeRefFast && IsEncodedObjectFieldOffset(offset))
+            {
+                var raw = EncodedRefRawOffset(o, offset, false);
+                if (raw >= 0)
+                {
+                    NoteRefFast(false);
+                    return RawRef(o, raw);
+                }
+            }
+
             try
             {
                 return o switch
@@ -876,6 +1006,17 @@ namespace IKVM.Java.Externs.sun.misc
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
+            if (o != null && JVM.UnsafeRefFast && IsEncodedObjectFieldOffset(offset))
+            {
+                var raw = EncodedRefRawOffset(o, offset, true);
+                if (raw >= 0)
+                {
+                    RawRef(o, raw) = x;
+                    NoteRefFast(true);
+                    return;
+                }
+            }
+
             try
             {
                 switch (o)
