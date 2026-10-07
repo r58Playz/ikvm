@@ -544,9 +544,16 @@ namespace IKVM.Runtime
 #if !FIRST_PASS && !NETFRAMEWORK
 
         /// <summary>
-        /// Returns true if the candidate's parameter optional custom modifiers match the ones IKVM
-        /// would emit for this method's signature (used to disambiguate erased overloads).
+        /// Returns true if the candidate's parameter and return optional custom modifiers match the ones
+        /// IKVM would emit for this method's signature (used to disambiguate erased overloads).
         /// </summary>
+        /// <remarks>
+        /// The return modifier is the ONLY difference between a covariant override and its javac bridge when
+        /// the covariant return type is unloadable: both returns erase to object and the parameters are
+        /// identical, so a parameter-only test resolved both to whichever GetMethods listed first. The relink
+        /// then installed the bridge's generation-2 body (`return this.m(x)`) on the real method, which became
+        /// unconditional self-recursion (glsl-transformer's ASTBuilder.visitLiteralExpression under Iris).
+        /// </remarks>
         bool MatchesModOpt(MethodBase candidate)
         {
             var parameters = GetParameters();
@@ -557,16 +564,24 @@ namespace IKVM.Runtime
             var thisParam = candidate.IsStatic && !IsStatic ? 1 : 0;
 
             for (int i = 0; i < parameters.Length; i++)
-            {
-                var expected = RuntimeByteCodeJavaType.GetModOpt(factory, parameters[i], false);
-                var actual = pi[i + thisParam].GetOptionalCustomModifiers();
-                if (expected.Length != actual.Length)
+                if (!MatchesModOpt(RuntimeByteCodeJavaType.GetModOpt(factory, parameters[i], false), pi[i + thisParam].GetOptionalCustomModifiers()))
                     return false;
 
-                for (int j = 0; j < expected.Length; j++)
-                    if (ContainsType(actual, expected[j]) == false)
-                        return false;
-            }
+            if (candidate is MethodInfo mi && ReturnType != null)
+                if (!MatchesModOpt(RuntimeByteCodeJavaType.GetModOpt(factory, ReturnType, false), mi.ReturnParameter.GetOptionalCustomModifiers()))
+                    return false;
+
+            return true;
+        }
+
+        static bool MatchesModOpt(Type[] expected, Type[] actual)
+        {
+            if (expected.Length != actual.Length)
+                return false;
+
+            for (int j = 0; j < expected.Length; j++)
+                if (ContainsType(actual, expected[j]) == false)
+                    return false;
 
             return true;
         }

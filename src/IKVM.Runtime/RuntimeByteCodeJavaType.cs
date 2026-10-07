@@ -867,6 +867,16 @@ namespace IKVM.Runtime
             return DecodeAnnotations(impl.GetDeclaredAnnotations());
         }
 
+        /// <summary>
+        /// wasm fork: the class's annotation definitions undecoded (JVM.RawRetentionIsRuntime), or null before the type
+        /// is finished -- only FinishedTypeImpl holds them.
+        /// </summary>
+        internal object[] GetRawDeclaredAnnotations()
+        {
+            var i = impl;
+            return i is FinishedTypeImpl ? i.GetDeclaredAnnotations() : null;
+        }
+
         internal override object[] GetMethodAnnotations(RuntimeJavaMethod mw)
         {
             RuntimeJavaMethod[] methods = GetMethods();

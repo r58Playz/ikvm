@@ -193,6 +193,7 @@ namespace IKVM.Runtime
         // enables. The [IKVM indy] line counts the sites compiled for it and the direct targets installed.
         internal static readonly bool IndyDirect = SafeGetEnvironmentVariable("IKVM_INDY_DIRECT") == "1";
 
+
         // wasm fork (IKVM_LAZY_PARTIAL): after this many unanswered dependency probes, relink an in-place candidate anyway
         // and let generation 2 keep the dynamic form for references to the dependencies that are STILL unpublished
         // (ByteCodeHelper.RelinkBody, FlushRelinkBatch). R357's stuck entries wait on classes referenced only on error
@@ -520,12 +521,86 @@ namespace IKVM.Runtime
 
             }
 
-            if (ann != null && sun.reflect.annotation.AnnotationType.getInstance(ann.annotationType()).retention() == java.lang.annotation.RetentionPolicy.RUNTIME)
+            if (ann != null && IsRuntimeRetained(ann.annotationType()))
                 return ann;
 
             return null;
 #endif
         }
+
+#if !FIRST_PASS
+
+        /// <summary>
+        /// wasm fork: annotation types whose retention this thread is resolving through AnnotationType.getInstance in
+        /// IsRuntimeRetained, innermost last.
+        /// </summary>
+        [ThreadStatic]
+        static System.Collections.Generic.List<java.lang.Class> retentionPending;
+
+        /// <summary>
+        /// wasm fork: whether annotations of this type are retained at runtime, without recursing forever on a type that
+        /// reaches itself through its own meta-annotations.
+        /// </summary>
+        /// <remarks>
+        /// AnnotationType's constructor asks the type for its @Retention through getDeclaredAnnotation, which decodes ALL
+        /// of the type's annotations and brings each one back through NewAnnotation, and getInstance caches only once that
+        /// constructor returns. So a type annotated with itself recursed until the stack ran out: kotlin.Metadata, which
+        /// every Kotlin class carries (kotlin-stdlib also has Target, MustBeDocumented and Retention in cycles with it),
+        /// and groovy's Incubating. OpenJDK's constructor parses only Retention and Inherited out of the raw bytes, so it
+        /// never re-enters. When this thread is already resolving the type, read its @Retention out of its raw
+        /// definitions instead; every other call is unchanged.
+        /// </remarks>
+        static bool IsRuntimeRetained(java.lang.Class annotationType)
+        {
+            var pending = retentionPending ??= new System.Collections.Generic.List<java.lang.Class>();
+            foreach (var c in pending)
+                if (ReferenceEquals(c, annotationType))
+                    return RawRetentionIsRuntime(annotationType);
+
+            pending.Add(annotationType);
+            try
+            {
+                return sun.reflect.annotation.AnnotationType.getInstance(annotationType).retention() == java.lang.annotation.RetentionPolicy.RUNTIME;
+            }
+            finally
+            {
+                pending.RemoveAt(pending.Count - 1);
+            }
+        }
+
+        /// <summary>
+        /// The type's own @java.lang.annotation.Retention read from its undecoded definitions (RetentionPolicy.CLASS when
+        /// it has none, as AnnotationType has it). A type whose definitions are not available here keeps the annotation:
+        /// the runtime reads only RuntimeVisibleAnnotations (ClassFile), which a compiler writes for RUNTIME retention.
+        /// </summary>
+        static bool RawRetentionIsRuntime(java.lang.Class annotationType)
+        {
+            if (RuntimeJavaType.FromClass(annotationType) is not RuntimeByteCodeJavaType tw)
+                return true;
+
+            var definitions = tw.GetRawDeclaredAnnotations();
+            if (definitions == null)
+                return true;
+
+            foreach (var d in definitions)
+            {
+                // [1] is the type's descriptor until AnnotationAttributeBase.newAnnotation resolves it in place to the Class
+                if (d is not object[] def || def.Length < 2)
+                    continue;
+                if (def[1] is java.lang.Class c ? c.getName() != "java.lang.annotation.Retention" : !"Ljava/lang/annotation/Retention;".Equals(def[1]))
+                    continue;
+
+                for (int i = 2; i + 1 < def.Length; i += 2)
+                    if ("value".Equals(def[i]) && def[i + 1] is object[] e && e.Length == 3)
+                        return "RUNTIME".Equals(e[2]);
+
+                return false;
+            }
+
+            return false;
+        }
+
+#endif
 
 #endif
 
