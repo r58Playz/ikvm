@@ -145,11 +145,13 @@ namespace IKVM.Runtime
         // dependency (not for bridge/synthetic methods; callee return types were tried and faulted -- compiler.cs). aaload/aastore on such a value compile to the
         // dynamic form (DynamicAaload/DynamicAastore) from the verifier's stack type -- a checkcast is dynamic only by its own operand -- which
         // no constant-pool operand names, so the method was never a relink candidate and kept generation 1 forever --
-        // DataTracker.getEntry's entries-array read is the hot case. Default OFF until measured; "1" enables.
+        // DataTracker.getEntry's entries-array read is the hot case.
         // Also gates the half that lets generation 2 pay (MethodAnalyzer.GetRetypedFieldType): the analyzer typed a field
         // load with the FIELD's link-time type, which stays unloadable for the class's life, so generation 2 re-emitted the
-        // same dynamic forms. That half applies to every compile, not only relinks.
-        internal static readonly bool LazyTypeDeps = SafeGetEnvironmentVariable("IKVM_LAZY_TYPEDEPS") == "1";
+        // same dynamic forms. That half applies to every compile, not only relinks. Measured alone, stores -9.1% on the
+        // Minecraft server tick (R461); with the runtime's compact virtual sites and strict tier 2, part of a bundle that
+        // read -3.7% cycles / -4.2% instructions, non-overlapping (R466). "0" is the A/B.
+        internal static readonly bool LazyTypeDeps = SafeGetEnvironmentVariable("IKVM_LAZY_TYPEDEPS") != "0";
 
         // wasm fork (plan2x F7a): count an unloadable PARAMETER type as a relink dependency. A method whose only
         // unloadable is its own signature was refused as `nodyn`, and so kept generation 1's entry check -- the full
@@ -189,9 +191,11 @@ namespace IKVM.Runtime
         // MethodHandles.constant(samBase, inst), which becomes a delegate returning inst. The lambda class and instance are
         // the ones the bootstrap produced, so identity is unchanged. Without it every lambda creation runs the chain
         // InvokeExact -> [PairwiseConvert ->] DMH.invokeStatic or BMH.reinvoke -> linkToStatic -> MemberName thunk.
-        // Decided when the bootstrap stub is EMITTED, so it reaches classes compiled after it is set. Unmeasured; "1"
-        // enables. The [IKVM indy] line counts the sites compiled for it and the direct targets installed.
-        internal static readonly bool IndyDirect = SafeGetEnvironmentVariable("IKVM_INDY_DIRECT") == "1";
+        // Decided when the bootstrap stub is EMITTED, so it reaches classes compiled after it is set. Minecraft server
+        // tick (R472, j2d/s16b + s21, k i p | p i k | k p i): cycles -3.4%, instructions -4.3%, calls -6.6%, disjoint;
+        // peak VmData +72 MiB (each direct site costs a DynamicMethod). "0" is the A/B. The [IKVM indy] line counts the
+        // sites compiled for it and the direct targets installed.
+        internal static readonly bool IndyDirect = SafeGetEnvironmentVariable("IKVM_INDY_DIRECT") != "0";
 
 
         // wasm fork (IKVM_LAZY_PARTIAL): after this many unanswered dependency probes, relink an in-place candidate anyway
