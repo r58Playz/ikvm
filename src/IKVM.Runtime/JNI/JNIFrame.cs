@@ -32,6 +32,37 @@ namespace IKVM.Runtime.JNI
     {
 
         /// <summary>
+        /// wasm fork (IKVM_JNI_LIGHT, plan swirling-moore GL6.3): a static native under org/lwjgl/opengl/ or
+        /// org/lwjgl/system/JNI whose arguments and return are all primitive is called without a JNI frame -- no local
+        /// reference frame, no class-literal local ref (jclass is passed as null), no try/finally, no pending-exception
+        /// check -- when this is true. Those natives only read the per-thread function table through JNIEnv
+        /// (LWJGL's tlsGetFunction) or call a raw function pointer; none creates a local reference, throws, or calls back
+        /// into Java (GLFW does, which is why it is not on the list). The full stub is still emitted after the switch.
+        /// Measured (R479, j2d/w7): the frame machinery 2.89% -> 0.19% of the render thread's self time (+0.52% in
+        /// GetEnvLight), client cycles a frame -2.8% in Q60. "0" disables.
+        /// </summary>
+        public static readonly bool LightCalls =
+#if FIRST_PASS || IMPORTER || EXPORTER
+            false;
+#else
+            JVM.SafeGetEnvironmentVariable("IKVM_JNI_LIGHT") != "0";
+#endif
+
+        /// <summary>
+        /// wasm fork (IKVM_JNI_LIGHT): this thread's JNIEnv*, creating the thread's JNI environment if it has none, without
+        /// entering a frame.
+        /// </summary>
+        public static nint GetEnvLight()
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            var env = JNIEnvContext.Current ?? JNIEnv.CreateJNIEnv(JVM.Context)->GetContext();
+            return (nint)(void*)env.pJNIEnv;
+#endif
+        }
+
+        /// <summary>
         /// Invoked by managed code to acquire a function pointer to a native JNI method.
         /// </summary>
         /// <param name="callerID"></param>

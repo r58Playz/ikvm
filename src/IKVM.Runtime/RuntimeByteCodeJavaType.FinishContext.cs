@@ -2345,6 +2345,26 @@ namespace IKVM.Runtime
 
                 MethodInfo UnwrapLocalRefMethod => LocalRefStructType.GetMethod("UnwrapLocalRef");
 
+                FieldInfo LightCallsField => LocalRefStructType.GetField("LightCalls");
+
+                MethodInfo GetEnvLightMethod => LocalRefStructType.GetMethod("GetEnvLight");
+
+                /// <summary>wasm fork (IKVM_JNI_LIGHT): see JNIFrame.LightCalls for what makes a native eligible.</summary>
+                static bool IsLightEligible(ClassFile classFile, ClassFile.Method m, RuntimeJavaMethod mw, RuntimeJavaType[] args)
+                {
+                    if (!m.IsStatic || m.IsSynchronized)
+                        return false;
+                    var cls = classFile.Name.Replace('.', '/');
+                    if (!cls.StartsWith("org/lwjgl/opengl/", StringComparison.Ordinal) && cls != "org/lwjgl/system/JNI")
+                        return false;
+                    if (mw.ReturnType.IsUnloadable || !mw.ReturnType.IsPrimitive)
+                        return false;
+                    foreach (var a in args)
+                        if (a.IsUnloadable || !a.IsPrimitive)
+                            return false;
+                    return true;
+                }
+
                 MethodInfo WriteLineMethod => context.Resolver.ResolveCoreType(typeof(Console).FullName).AsReflection().GetMethod("WriteLine", [context.Types.Object]);
 
                 MethodInfo MonitorEnterMethod => context.Resolver.ResolveCoreType(typeof(System.Threading.Monitor).FullName).AsReflection().GetMethod("Enter", [context.Types.Object]);
@@ -2384,6 +2404,30 @@ namespace IKVM.Runtime
                     ilGenerator.Emit(OpCodes.Call, JniFuncPtrMethod);
                     ilGenerator.Emit(OpCodes.Stsfld, methodPtr);
                     ilGenerator.MarkLabel(oklabel);
+
+                    // wasm fork (IKVM_JNI_LIGHT): if (JNIFrame.LightCalls) return calli(GetEnvLight(), null, args...);
+                    if (IsLightEligible(classFile, m, mw, args))
+                    {
+                        var full = ilGenerator.DefineLabel();
+                        ilGenerator.Emit(OpCodes.Ldsfld, LightCallsField);
+                        ilGenerator.EmitBrfalse(full);
+                        ilGenerator.Emit(OpCodes.Call, GetEnvLightMethod);
+                        ilGenerator.Emit(OpCodes.Ldc_I4_0);
+                        ilGenerator.Emit(OpCodes.Conv_I);
+                        var lightArgs = new Type[args.Length + 2];
+                        lightArgs[0] = context.context.Types.IntPtr;
+                        lightArgs[1] = context.context.Types.IntPtr;
+                        for (int i = 0; i < args.Length; i++)
+                        {
+                            lightArgs[i + 2] = args[i].TypeAsSignatureType;
+                            ilGenerator.EmitLdarg(i);
+                        }
+                        ilGenerator.Emit(OpCodes.Ldsfld, methodPtr);
+                        var lightRet = mw.ReturnType == context.Context.PrimitiveJavaTypeFactory.BOOLEAN ? context.Context.Types.Byte : mw.ReturnType.TypeAsSignatureType;
+                        ilGenerator.EmitCalli(OpCodes.Calli, System.Runtime.InteropServices.CallingConvention.Cdecl, lightRet, lightArgs);
+                        ilGenerator.Emit(OpCodes.Ret);
+                        ilGenerator.MarkLabel(full);
+                    }
                     ilGenerator.Emit(OpCodes.Ldloca, localRefStruct);
                     if (thruProxy)
                         ilGenerator.EmitLdarg(args.Length + (mw.IsStatic ? 0 : 1));
