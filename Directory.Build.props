@@ -1,4 +1,21 @@
 <Project>
+    <!--
+        JDK flavor: which Java version this build implements. Everything (class library, runtime, ikvmc, natives,
+        image) is built per flavor from the same tree; flavor-specific sources are selected by directory and by the
+        JDK$(IkvmJdk) define. Each flavor gets its own obj/bin under artifacts\jdkN so both can coexist on disk.
+        Restore and build must agree on the flavor: pass /p:IkvmJdk (or set IKVM_JDK) to both.
+    -->
+    <PropertyGroup Label="JDK Flavor">
+        <IkvmJdk Condition=" '$(IkvmJdk)' == '' ">$(IKVM_JDK)</IkvmJdk>
+        <IkvmJdk Condition=" '$(IkvmJdk)' == '' ">8</IkvmJdk>
+        <IkvmArtifactsDir>$(MSBuildThisFileDirectory)artifacts\jdk$(IkvmJdk)\</IkvmArtifactsDir>
+        <BaseIntermediateOutputPath>$(IkvmArtifactsDir)obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+        <BaseOutputPath>$(IkvmArtifactsDir)bin\$(MSBuildProjectName)\</BaseOutputPath>
+        <!-- obj/bin no longer live in the project directory, so the SDK stops excluding in-tree ones left over from
+             older builds; their generated sources (AssemblyInfo, JVM.Constants.cs) would otherwise compile again. -->
+        <DefaultItemExcludes>$(DefaultItemExcludes);bin\**;obj\**</DefaultItemExcludes>
+    </PropertyGroup>
+
     <PropertyGroup Label="Runtime Info">
         <SupportedRuntimes>win-x64;win-x86;win-arm64;linux-x64;linux-arm;linux-arm64;linux-musl-x64;linux-musl-arm;linux-musl-arm64;osx-x64;osx-arm64</SupportedRuntimes>
         <EnabledRuntimes Condition=" '$(EnabledRuntimes)' == '' ">$(SupportedRuntimes)</EnabledRuntimes>
@@ -19,7 +36,7 @@
         <_EnabledToolRuntimes>;$(EnabledToolRuntimes);</_EnabledToolRuntimes>
     </PropertyGroup>
 
-    <PropertyGroup Label="OpenJDK Info">
+    <PropertyGroup Label="OpenJDK Info" Condition=" '$(IkvmJdk)' == '8' ">
         <OpenJdkDir>$(MSBuildThisFileDirectory)ext\openjdk\</OpenJdkDir>
         <OpenJdkMajorVersion>1</OpenJdkMajorVersion>
         <OpenJdkMinorVersion>8</OpenJdkMinorVersion>
@@ -85,8 +102,8 @@
     </PropertyGroup>
 
     <PropertyGroup Label="IKVM SDK">
-        <IkvmCacheDir>$(MSBuildThisFileDirectory).ikvm\cache\1\</IkvmCacheDir>
-        <IkvmExportCacheDir>$(MSBuildThisFileDirectory).ikvm\expcache\1\</IkvmExportCacheDir>
+        <IkvmCacheDir>$(MSBuildThisFileDirectory).ikvm\jdk$(IkvmJdk)\cache\1\</IkvmCacheDir>
+        <IkvmExportCacheDir>$(MSBuildThisFileDirectory).ikvm\jdk$(IkvmJdk)\expcache\1\</IkvmExportCacheDir>
         <IkvmKeyFile>$(AssemblyOriginatorKeyFile)</IkvmKeyFile>
         <IkvmVersion>$(PackageVersion)</IkvmVersion>
         <UseIkvmTasks>false</UseIkvmTasks>

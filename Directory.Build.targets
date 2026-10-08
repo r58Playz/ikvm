@@ -1,6 +1,17 @@
-<Project>
+<Project InitialTargets="_IkvmCheckJdkFlavor">
     <Import Project="targets\ClangProjectReference.targets" />
     <Import Project="targets\DotNetOSXCodeSign.targets"/>
+
+    <PropertyGroup>
+        <!-- JDK flavors that can currently be built. -->
+        <IkvmSupportedJdks>8</IkvmSupportedJdks>
+    </PropertyGroup>
+
+    <!-- A project that only exists in some flavors declares them in IkvmJdkFlavors (e.g. "8"). -->
+    <Target Name="_IkvmCheckJdkFlavor">
+        <Error Condition=" !$([System.String]::Copy(';$(IkvmSupportedJdks);').Contains(';$(IkvmJdk);')) " Text="IkvmJdk=$(IkvmJdk) is not a supported JDK flavor (supported: $(IkvmSupportedJdks))." />
+        <Error Condition=" '$(IkvmJdkFlavors)' != '' And !$([System.String]::Copy(';$(IkvmJdkFlavors);').Contains(';$(IkvmJdk);')) " Text="$(MSBuildProjectName) is not part of the JDK $(IkvmJdk) flavor (only: $(IkvmJdkFlavors))." />
+    </Target>
 
     <PropertyGroup>
         <RuntimeIdentifier Condition=" '$(RuntimeIdentifier)' == 'win7-x86' ">win-x86</RuntimeIdentifier>

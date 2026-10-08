@@ -19,14 +19,21 @@
         <OpenJdkTargetOsDir Condition=" '$(IkvmJavaRuntimeIdentifier)' == 'osx' ">macosx</OpenJdkTargetOsDir>
     </PropertyGroup>
 
+    <PropertyGroup>
+        <!-- This JDK flavor's IKVM-side class library sources: the local\ overlay, icedtea_jce\ and map.xml. -->
+        <IkvmJavaFlavorDir Condition=" '$(IkvmJdk)' == '8' ">$(MSBuildThisFileDirectory)</IkvmJavaFlavorDir>
+        <IkvmJavaFlavorDir Condition=" '$(IkvmJdk)' == '25' ">$(MSBuildThisFileDirectory)jdk25\</IkvmJavaFlavorDir>
+    </PropertyGroup>
+
     <Import Project="$(MSBuildThisFileDirectory)..\IKVM.MSBuild\buildTransitive\IKVM.MSBuild.props" />
 
-    <Import Project="IKVM.Java.runtime.jdk.props" />
-    <Import Project="IKVM.Java.runtime.corba.props" />
-    <Import Project="IKVM.Java.runtime.langtools.props" />
-    <Import Project="IKVM.Java.runtime.nashorn.props" />
-    <Import Project="IKVM.Java.runtime.jaxp.props" />
-    <Import Project="IKVM.Java.runtime.jaxws.props" />
+    <!-- The OpenJDK 8 class library, by repository. -->
+    <Import Project="IKVM.Java.runtime.jdk.props" Condition=" '$(IkvmJdk)' == '8' " />
+    <Import Project="IKVM.Java.runtime.corba.props" Condition=" '$(IkvmJdk)' == '8' " />
+    <Import Project="IKVM.Java.runtime.langtools.props" Condition=" '$(IkvmJdk)' == '8' " />
+    <Import Project="IKVM.Java.runtime.nashorn.props" Condition=" '$(IkvmJdk)' == '8' " />
+    <Import Project="IKVM.Java.runtime.jaxp.props" Condition=" '$(IkvmJdk)' == '8' " />
+    <Import Project="IKVM.Java.runtime.jaxws.props" Condition=" '$(IkvmJdk)' == '8' " />
 
     <PropertyGroup>
         <AssemblyName>IKVM.Java</AssemblyName>
@@ -61,12 +68,12 @@
     </ItemGroup>
 
     <ItemGroup>
-        <None Include="$(MSBuildThisFileDirectory)icedtea_jce\**\*" Link="icedtea_jce\%(RecursiveDir)%(Filename)%(Extension)" />
-        <None Include="$(MSBuildThisFileDirectory)local\**\*" Link="local\%(RecursiveDir)%(Filename)%(Extension)" />
-        <Compile Include="$(MSBuildThisFileDirectory)icedtea_jce\**\*.java" Link="icedtea_jce\%(RecursiveDir)%(Filename)%(Extension)" />
-        <Compile Include="$(MSBuildThisFileDirectory)local\**\*.java" Link="local\%(RecursiveDir)%(Filename)%(Extension)" />
-        <ServiceFile Include="$(MSBuildThisFileDirectory)local\META-INF\services\*" />
-        <Transform Include="$(MSBuildThisFileDirectory)\local\META-INF\MANIFEST.MF.tt" TargetPath="$(IntermediateOutputPath)transform\local\META-INF\MANIFEST.MF" />
+        <None Include="$(IkvmJavaFlavorDir)icedtea_jce\**\*" Link="icedtea_jce\%(RecursiveDir)%(Filename)%(Extension)" />
+        <None Include="$(IkvmJavaFlavorDir)local\**\*" Link="local\%(RecursiveDir)%(Filename)%(Extension)" />
+        <Compile Include="$(IkvmJavaFlavorDir)icedtea_jce\**\*.java" Link="icedtea_jce\%(RecursiveDir)%(Filename)%(Extension)" />
+        <Compile Include="$(IkvmJavaFlavorDir)local\**\*.java" Link="local\%(RecursiveDir)%(Filename)%(Extension)" />
+        <ServiceFile Include="$(IkvmJavaFlavorDir)local\META-INF\services\*" />
+        <Transform Include="$(IkvmJavaFlavorDir)local\META-INF\MANIFEST.MF.tt" TargetPath="$(IntermediateOutputPath)transform\local\META-INF\MANIFEST.MF" />
         <JavaResource Include="$(IntermediateOutputPath)transform\local\META-INF\MANIFEST.MF" Visible="False" ResourcePath="META-INF/MANIFEST.MF" Link="local\META-INF\MANIFEST.MF" />
     </ItemGroup>
 
@@ -81,7 +88,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <MapFile Include="$(MSBuildThisFileDirectory)map.xml" />
+        <MapFile Include="$(IkvmJavaFlavorDir)map.xml" />
     </ItemGroup>
 
 </Project>

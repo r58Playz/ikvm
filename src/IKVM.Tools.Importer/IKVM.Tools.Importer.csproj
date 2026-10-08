@@ -20,11 +20,15 @@
         <ProjectReference Include="..\IKVM.Tools.Core\IKVM.Tools.Core.csproj" />
     </ItemGroup>
 
+    <Import Project="..\IKVM.Runtime\IKVM.Runtime.Flavor.props" />
+
     <ItemGroup>
         <ExcludeFromCompile Include="..\IKVM.Runtime\bin\**\*.cs" />
         <ExcludeFromCompile Include="..\IKVM.Runtime\obj\**\*.cs" />
         <ExcludeFromCompile Include="..\IKVM.Runtime\Util\**\*.cs" />
         <ExcludeFromCompile Include="..\IKVM.Runtime\Java\Externs\**\*.cs" />
+        <ExcludeFromCompile Include="..\IKVM.Runtime\Jdk25\Util\**\*.cs" />
+        <ExcludeFromCompile Include="..\IKVM.Runtime\Jdk25\Java\Externs\**\*.cs" />
         <ExcludeFromCompile Include="..\IKVM.Runtime\Assertions.cs" />
         <ExcludeFromCompile Include="..\IKVM.Runtime\ByteCodeHelper.cs" />
         <ExcludeFromCompile Include="..\IKVM.Runtime\common.cs" />
@@ -33,6 +37,7 @@
         <ExcludeFromCompile Include="..\IKVM.Runtime\PassiveWeakDictionary.cs" />
         <ExcludeFromCompile Include="..\IKVM.Runtime\JNI\**\*.cs" />
         <Compile Include="..\IKVM.Runtime\**\*.cs" LinkBase="IKVM.Runtime" Exclude="@(ExcludeFromCompile)" />
+        <Compile Remove="@(IkvmRuntimeFlavorExclude)" />
     </ItemGroup>
 
     <Import Project="$(MSBuildThisFileDirectory)..\..\IKVM.deps.targets" />

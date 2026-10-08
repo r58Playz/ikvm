@@ -20,6 +20,8 @@
         <ProjectReference Include="..\IKVM.Tools.Core\IKVM.Tools.Core.csproj" />
     </ItemGroup>
 
+    <Import Project="..\IKVM.Runtime\IKVM.Runtime.Flavor.props" />
+
     <ItemGroup>
         <Compile Include="..\IKVM.Runtime\Extensions\**\*.cs" LinkBase="IKVM.Runtime\Extensions" />
         <Compile Include="..\IKVM.Runtime\Syntax\**\*.cs" LinkBase="IKVM.Runtime\Syntax" />
@@ -74,6 +76,7 @@
         <Compile Include="..\IKVM.Runtime\NamePrefix.cs" LinkBase="IKVM.Runtime" />
         <Compile Include="..\IKVM.Runtime\NestedTypeName.cs" LinkBase="IKVM.Runtime" />
         <Compile Include="..\IKVM.Runtime\Accessors\**\*.cs" LinkBase="IKVM.Runtime\Accessors" />
+        <Compile Include="..\IKVM.Runtime\Jdk25\Accessors\**\*.cs" LinkBase="IKVM.Runtime\Jdk25\Accessors" Condition=" '$(IkvmJdk)' == '25' " />
         <Compile Include="..\IKVM.Runtime\Vfs\**\*.cs" LinkBase="IKVM.Runtime\Vfs" />
         <Compile Include="..\IKVM.Runtime\RuntimeUtil.cs" LinkBase="IKVM.Runtime" />
         <Compile Include="..\IKVM.Runtime\RuntimeSimpleJavaField.cs" LinkBase="IKVM.Runtime" />
@@ -93,6 +96,7 @@
         <Compile Include="..\IKVM.Runtime\RuntimeContext.cs" LinkBase="IKVM.Runtime" />
         <Compile Include="..\IKVM.Runtime\RuntimeContextOptions.cs" LinkBase="IKVM.Runtime" />
         <Compile Include="..\IKVM.Runtime\SymbolExtensions.cs" LinkBase="IKVM.Runtime" />
+        <Compile Remove="@(IkvmRuntimeFlavorExclude)" />
     </ItemGroup>
 
     <ItemGroup>

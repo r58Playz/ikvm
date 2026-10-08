@@ -20,8 +20,8 @@
         <PropertyGroup>
             <JdkPath Condition=" '$(JAVA_HOME)' != '' ">$(JAVA_HOME)</JdkPath>
         </PropertyGroup>
-        <!-- Otherwise, fall back to searching for JDK 8 -->
-        <FindJdk Family="8" Condition=" '$(JdkPath)' == '' ">
+        <!-- Otherwise, fall back to searching for the JDK this flavor is built with -->
+        <FindJdk Family="$(IkvmJdk)" Condition=" '$(JdkPath)' == '' ">
             <Output TaskParameter="JdkPath" PropertyName="JdkPath" />
         </FindJdk>
         <Error Condition=" '$(JdkPath)' == '' " Text="Failed to locate JDK. IKVM.Java requires JDK version 8 or higher available on the system." />
@@ -178,9 +178,9 @@ File.WriteAllBytes(Path, Encoding.UTF8.GetBytes(Text));
         </Task>
     </UsingTask>
 
-    <Import Project="IKVM.Java.runtime.jdk.targets" />
-    <Import Project="IKVM.Java.runtime.langtools.targets" />
-    <Import Project="IKVM.Java.runtime.nashorn.targets" />
-    <Import Project="IKVM.Java.runtime.corba.targets" />
+    <Import Project="IKVM.Java.runtime.jdk.targets" Condition=" '$(IkvmJdk)' == '8' " />
+    <Import Project="IKVM.Java.runtime.langtools.targets" Condition=" '$(IkvmJdk)' == '8' " />
+    <Import Project="IKVM.Java.runtime.nashorn.targets" Condition=" '$(IkvmJdk)' == '8' " />
+    <Import Project="IKVM.Java.runtime.corba.targets" Condition=" '$(IkvmJdk)' == '8' " />
 
 </Project>
