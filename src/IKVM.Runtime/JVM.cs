@@ -49,6 +49,14 @@ namespace IKVM.Runtime
         // always binds the first-generation helper, which isolates "did the indirection cost anything" from
         // "did the recompile buy anything".
         internal static readonly bool LazyRecompile = SafeGetEnvironmentVariable("IKVM_LAZY_RECOMPILE") != "0";
+        /// <summary>
+        /// IKVM_LAZY_SLIM (wasm fork, R484): a lazy-body registry entry keeps only what a recompile needs to reparse its
+        /// class -- the decoded class-file reader and the parse options -- instead of the first-generation ClassFile with
+        /// its instruction streams, constant-pool objects and UTF-8 table, and a TERMINAL entry releases even that. The
+        /// registry is never pruned, so before this every lazy candidate's class stayed fully parsed for the life of the
+        /// process (~105 MiB of parse state on the 1.16.1 plateau, R482). "0" keeps the whole ClassFile, as before.
+        /// </summary>
+        internal static readonly bool LazySlim = SafeGetEnvironmentVariable("IKVM_LAZY_SLIM") != "0";
 
         /// <summary>
         /// IKVM_ARRAYCOPY_OBJ (R429/R430/R435): System.arraycopy between reference arrays is copied inside

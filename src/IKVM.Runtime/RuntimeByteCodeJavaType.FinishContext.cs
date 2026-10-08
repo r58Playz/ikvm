@@ -565,7 +565,8 @@ namespace IKVM.Runtime
                 // because the analyzer has already rewritten this instance's opcode stream in place.
                 var registryId = LazyBodyRegistry.Add(new LazyBodyRegistry.Entry
                 {
-                    ClassFile = classFile,
+                    ClassFile = JVM.LazySlim ? null : classFile,
+                    Source = JVM.LazySlim ? classFile.GetReparseSource() : null,
                     MethodIndex = index,
                     Wrapper = wrapper,
                     Host = host,
@@ -623,7 +624,8 @@ namespace IKVM.Runtime
                 // immediate, so it carries an integer id.
                 var registryId = LazyBodyRegistry.Add(new LazyBodyRegistry.Entry
                 {
-                    ClassFile = classFile,
+                    ClassFile = JVM.LazySlim ? null : classFile,
+                    Source = JVM.LazySlim ? classFile.GetReparseSource() : null,
                     MethodIndex = index,
                     Wrapper = wrapper,
                     Host = host,

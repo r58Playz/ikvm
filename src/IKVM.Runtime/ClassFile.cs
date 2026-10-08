@@ -1297,6 +1297,42 @@ namespace IKVM.Runtime
             return new ClassFile(context, diagnostics, clazz, null, parseOptions, null);
         }
 
+        /// <summary>
+        /// wasm fork (R484, IKVM_LAZY_SLIM): everything <see cref="Reparse"/> needs, without this ClassFile. A registry
+        /// entry holding this instead of the ClassFile lets the first parse -- instructions, constant-pool items, the
+        /// UTF-8 table -- be collected once the class is finished. Shared per ClassFile so FlushRelinkBatch's per-class
+        /// reparse cache still keys one reparse per class. Null when <see cref="Reparse"/> would return null.
+        /// </summary>
+        internal sealed class ReparseSource
+        {
+
+            readonly RuntimeContext context;
+            readonly IDiagnosticHandler diagnostics;
+            readonly IKVM.ByteCode.Decoding.ClassFile clazz;
+            readonly ClassFileParseOptions parseOptions;
+
+            internal ReparseSource(RuntimeContext context, IDiagnosticHandler diagnostics, IKVM.ByteCode.Decoding.ClassFile clazz, ClassFileParseOptions parseOptions)
+            {
+                this.context = context;
+                this.diagnostics = diagnostics;
+                this.clazz = clazz;
+                this.parseOptions = parseOptions;
+            }
+
+            internal ClassFile Reparse() => new ClassFile(context, diagnostics, clazz, null, parseOptions, null);
+
+        }
+
+        ReparseSource reparseSource;
+
+        internal ReparseSource GetReparseSource()
+        {
+            if (hadConstantPoolPatches)
+                return null;
+
+            return reparseSource ??= new ReparseSource(context, diagnostics, clazz, parseOptions);
+        }
+
         internal object[] GetConstantPool()
         {
             var cp = new object[constantpool.Length];

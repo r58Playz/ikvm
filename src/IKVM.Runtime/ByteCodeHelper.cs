@@ -538,6 +538,7 @@ namespace IKVM.Runtime
             {
                 Interlocked.Increment(ref LazyBodyStats.InPlaceUnsupported);
                 Volatile.Write(ref entry.RelinkState, 2);
+                entry.Release();
                 return -1;
             }
 
@@ -925,7 +926,7 @@ namespace IKVM.Runtime
                     continue;
                 }
 
-                var reparsed = new Dictionary<ClassFile, ClassFile>();
+                var reparsed = new Dictionary<object, ClassFile>();
                 var built = new List<RelinkPending>();
                 var nameSeq = 0;
 
@@ -936,11 +937,11 @@ namespace IKVM.Runtime
                     MethodBuilder mbForRepair = null;
                     try
                     {
-                        if (reparsed.TryGetValue(entry.ClassFile, out var classFile) == false)
+                        if (reparsed.TryGetValue(entry.ReparseKey ?? entry, out var classFile) == false)
                         {
                             // Reparse is mandatory: MethodAnalyzer rewrote generation 1's opcode stream in
                             // place. Null means constant-pool patches (anonymous/hidden classes).
-                            classFile = entry.ClassFile.Reparse();
+                            classFile = entry.Reparse();
                             if (classFile != null)
                             {
                                 // LinkNoLoad, NOT LoadMode.Link. This runs at a method's first execution,
@@ -956,7 +957,7 @@ namespace IKVM.Runtime
                                 // rejected by the post-compile Gen2 invariant below.
                                 classFile.Link(entry.Wrapper, LoadMode.LinkNoLoad);
                             }
-                            reparsed[entry.ClassFile] = classFile;
+                            reparsed[entry.ReparseKey ?? entry] = classFile;
                         }
 
                         if (classFile == null)
@@ -1251,6 +1252,7 @@ namespace IKVM.Runtime
                 catch { }
 
                 Volatile.Write(ref entry.RelinkState, 2);
+                entry.Release();
             }
         }
 
@@ -1367,7 +1369,7 @@ namespace IKVM.Runtime
             // MANDATORY reparse. MethodAnalyzer rewrote the original ClassFile's opcodes in place during the
             // first compile, so recompiling from it would emit the already-resolved form and defeat the point
             // (and, where it patched a __dynamic_* into a direct reference, emit something inconsistent).
-            var classFile = entry.ClassFile.Reparse();
+            var classFile = entry.Reparse();
             if (classFile == null)
                 return null;
 

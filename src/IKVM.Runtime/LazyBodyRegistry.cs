@@ -68,8 +68,33 @@ namespace IKVM.Runtime
         {
 
             /// <summary>The ClassFile the first generation was compiled from. Reparse() is called on it,
-            /// because MethodAnalyzer has already rewritten this one's opcodes in place.</summary>
+            /// because MethodAnalyzer has already rewritten this one's opcodes in place. Null under
+            /// IKVM_LAZY_SLIM, which keeps <see cref="Source"/> instead.</summary>
             internal ClassFile ClassFile;
+
+            /// <summary>wasm fork (R484, IKVM_LAZY_SLIM): what a reparse needs, without the first parse.</summary>
+            internal ClassFile.ReparseSource Source;
+
+            /// <summary>A fresh parse of this entry's class, or null when it cannot be reparsed (constant-pool
+            /// patches) or the entry has released its source (terminal).</summary>
+            internal ClassFile Reparse() => Source != null ? Source.Reparse() : ClassFile?.Reparse();
+
+            /// <summary>One key per class, for FlushRelinkBatch's per-class reparse cache.</summary>
+            internal object ReparseKey => (object)Source ?? ClassFile;
+
+            /// <summary>wasm fork (R484): drop what only a future recompile needed. Called once the entry is terminal
+            /// (RelinkState 2), after which RelinkBody returns at its first test and nothing reparses it.</summary>
+            internal void Release()
+            {
+                if (JVM.LazySlim == false)
+                    return;
+                if (ClassFile != null || Source != null || TypeBuilder != null)
+                    Interlocked.Increment(ref LazyBodyStats.Released);
+                ClassFile = null;
+                Source = null;
+                TypeBuilder = null;
+                Host = null;
+            }
 
             /// <summary>Index into ClassFile.Methods, not a name+signature lookup: overloads that differ only
             /// in erased signature would resolve ambiguously by name.</summary>
@@ -178,6 +203,7 @@ namespace IKVM.Runtime
     {
 
         internal static int Seen;
+        internal static int Released;             // wasm fork (R484): terminal entries that dropped their reparse source
         internal static int Accepted;
         internal static int RejShape;             // abstract/native/no instructions, or <init>/<clinit>
         internal static int RejNoDynamic;         // nothing dynamic to gain from a second generation
@@ -368,7 +394,7 @@ namespace IKVM.Runtime
         {
             Console.WriteLine($"[IKVM lazybody] eval seen={Seen} accepted={Accepted} opOnly={OperandOnly} typeOnly={TypeOnly} fieldRetyped={FieldRetyped} (gen2 {FieldRetypedGen2}) nodynSig={NoDynSig} sigOnly={SigOnly} rej: shape={RejShape} nodyn={RejNoDynamic} arity={RejArity} sigAwkward={RejSigAwkward} sigUnloadable={RejSigUnloadable} eh={RejExceptionHandlers}");
             Console.WriteLine($"[IKVM privileged] direct={PrivilegedDirect} binder={PrivilegedBinder} (IKVM_PRIVILEGED_DIRECT={(JVM.PrivilegedDirect ? 1 : 0)}) | default_impl resolved={DefaultImplResolved} unresolved={DefaultImplUnresolved} (IKVM_LAZY_DEFAULT_IMPL={(JVM.LazyDefaultImpl ? 1 : 0)})");
-            Console.WriteLine($"[IKVM lazybody] gen2 clean={Gen2Clean} unexpectedDynamic={Gen2UnexpectedDynamic} callerID={Gen2CallerID} depWaits={DependencyWaits} missingSite={MissingBakedSite} bakedLambda={Gen2BakedLambdaSite} cidReal={Gen2CallerIDReal} cidReused={Gen2CallerIDReused} cidForeign={Gen2CallerIDForeign} scratchShared={Gen2ScratchShared}");
+            Console.WriteLine($"[IKVM lazybody] gen2 clean={Gen2Clean} unexpectedDynamic={Gen2UnexpectedDynamic} callerID={Gen2CallerID} depWaits={DependencyWaits} missingSite={MissingBakedSite} bakedLambda={Gen2BakedLambdaSite} cidReal={Gen2CallerIDReal} cidReused={Gen2CallerIDReused} cidForeign={Gen2CallerIDForeign} scratchShared={Gen2ScratchShared} slim={(JVM.LazySlim ? 1 : 0)} released={Released}");
             if (JVM.LazyInPlace)
                 Console.WriteLine($"[IKVM lazybody] inplace ok={InPlaceOk} late={InPlaceLate} declined={InPlaceDeclined} failed={InPlaceFailed} unsupported={InPlaceUnsupported} queued={InPlaceQueued} batches={InPlaceBatches} deferrals={InPlaceDeferrals} forced={InPlaceForced}");
             if (JVM.LazyPartialProbes > 0)
