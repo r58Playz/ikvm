@@ -631,6 +631,10 @@ namespace IKVM.Runtime
                                     : instructions[i].NormalizedOpCode == NormalizedByteCode.__invokestatic &&
                                       cpi.Name is "linkToVirtual" or "linkToStatic" or "linkToSpecial" or "linkToInterface"))
                                 break;
+#if JDK25
+                            if (instructions[i].NormalizedOpCode == NormalizedByteCode.__invokevirtual && MethodHandleUtil.IsVarHandleAccessMode(cpi.Class, cpi.Name))
+                                break;
+#endif
 
                             var ct = mi?.GetClassType();
                             if (ct == null || ct.IsUnloadable)
@@ -3914,12 +3918,20 @@ namespace IKVM.Runtime
             }
 
             internal MethodHandleMethodWrapper(Compiler compiler, RuntimeJavaType wrapper, ClassFile.ConstantPoolItemMI cpi, int siteKey)
-                : base(compiler.finish.Context.JavaBase.TypeOfJavaLangInvokeMethodHandle, cpi.Name, cpi.Signature, null, cpi.GetRetType(), cpi.GetArgTypes(), Modifiers.Public, MemberFlags.None)
+                : base(ReceiverType(compiler, cpi), cpi.Name, cpi.Signature, null, cpi.GetRetType(), cpi.GetArgTypes(), Modifiers.Public, MemberFlags.None)
             {
                 this.compiler = compiler;
                 this.wrapper = wrapper;
                 this.cpi = cpi;
                 this.siteKey = siteKey;
+            }
+
+            /// <summary>
+            /// Gets the class whose signature polymorphic method the call site calls: MethodHandle, or VarHandle.
+            /// </summary>
+            static RuntimeJavaType ReceiverType(Compiler compiler, ClassFile.ConstantPoolItemMI cpi)
+            {
+                return MethodHandleUtil.IsVarHandleAccessMode(cpi.Class, cpi.Name) ? cpi.GetClassType() : compiler.finish.Context.JavaBase.TypeOfJavaLangInvokeMethodHandle;
             }
 
             private static void ToBasic(RuntimeJavaType tw, CodeEmitter ilgen)
@@ -3962,7 +3974,7 @@ namespace IKVM.Runtime
             void EmitThroughBridge(CodeEmitter ilgen, bool virtualCall)
             {
                 var args = virtualCall
-                    ? ArrayUtil.Concat(compiler.finish.Context.JavaBase.TypeOfJavaLangInvokeMethodHandle, cpi.GetArgTypes())
+                    ? ArrayUtil.Concat(DeclaringType, cpi.GetArgTypes())
                     : cpi.GetArgTypes();
                 var parameterTypes = Array.ConvertAll(args, t => t.TypeAsSignatureType);
                 var key = siteKey | (virtualCall ? 1 << 24 : 2 << 24);
@@ -4190,6 +4202,49 @@ namespace IKVM.Runtime
                 context.MethodHandleUtil.EmitCallDelegateInvokeMethod(ilgen, delegateType);
             }
 
+            /// <summary>
+            /// Emits a call of one of VarHandle's access mode methods, through a delegate of the call site's type that
+            /// the runtime links the first time (see VarHandleLinker) and the call site keeps.
+            /// </summary>
+            /// <param name="ilgen"></param>
+            private void EmitVarHandleInvoke(CodeEmitter ilgen)
+            {
+#if JDK25
+                var args = ArrayUtil.Concat(DeclaringType, cpi.GetArgTypes());
+                var temps = new CodeEmitterLocal[args.Length];
+                for (int i = args.Length - 1; i >= 0; i--)
+                {
+                    temps[i] = ilgen.DeclareLocal(args[i].TypeAsSignatureType);
+                    ilgen.Emit(OpCodes.Stloc, temps[i]);
+                }
+
+                var delegateType = compiler.finish.Context.MethodHandleUtil.CreateMethodHandleDelegateType(args, cpi.GetRetType());
+                ilgen.Emit(OpCodes.Ldsflda, compiler.finish.DefineMethodHandleInvokeCacheField(delegateType));
+                ilgen.Emit(OpCodes.Ldstr, cpi.Name);
+                if (HasUnloadable(cpi.GetArgTypes(), cpi.GetRetType()))
+                {
+                    ilgen.Emit(OpCodes.Ldsflda, compiler.finish.DefineDynamicMethodTypeCacheField());
+                    ilgen.Emit(OpCodes.Ldstr, cpi.Signature);
+                    compiler.finish.EmitCallerID(ilgen, compiler.m.IsLambdaFormCompiled);
+                    ilgen.Emit(OpCodes.Call, ilgen.Context.ByteCodeHelperMethods.DynamicLoadMethodType);
+                }
+                else
+                {
+                    // the runtime has the call site's type from the delegate's
+                    ilgen.Emit(OpCodes.Ldnull);
+                }
+
+                compiler.finish.EmitCallerID(ilgen, compiler.m.IsLambdaFormCompiled);
+                ilgen.Emit(OpCodes.Call, ilgen.Context.ByteCodeHelperMethods.GetDelegateForVarHandle.MakeGenericMethod(delegateType));
+                for (int i = 0; i < args.Length; i++)
+                    ilgen.Emit(OpCodes.Ldloc, temps[i]);
+
+                compiler.finish.Context.MethodHandleUtil.EmitCallDelegateInvokeMethod(ilgen, delegateType);
+#else
+                throw new InvalidOperationException();
+#endif
+            }
+
             internal override void EmitCallvirt(CodeEmitter ilgen)
             {
                 if (compiler.finish.UseLazySiteBridges)
@@ -4200,6 +4255,12 @@ namespace IKVM.Runtime
 
             void EmitCallvirtCore(CodeEmitter ilgen)
             {
+                if (MethodHandleUtil.IsVarHandleAccessMode(cpi.Class, cpi.Name))
+                {
+                    EmitVarHandleInvoke(ilgen);
+                    return;
+                }
+
                 switch (cpi.Name)
                 {
                     case "invokeExact":

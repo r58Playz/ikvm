@@ -40,6 +40,32 @@ namespace IKVM.Runtime
 
         internal const int MaxArity = 8;
 
+        /// <summary>
+        /// The signature polymorphic methods of java.lang.invoke.VarHandle (JDK 9+), one per VarHandle.AccessMode.
+        /// </summary>
+        static readonly System.Collections.Generic.HashSet<string> varHandleAccessModeMethods = new()
+        {
+            "get", "set", "getVolatile", "setVolatile", "getAcquire", "setRelease", "getOpaque", "setOpaque",
+            "compareAndSet", "compareAndExchange", "compareAndExchangeAcquire", "compareAndExchangeRelease",
+            "weakCompareAndSetPlain", "weakCompareAndSet", "weakCompareAndSetAcquire", "weakCompareAndSetRelease",
+            "getAndSet", "getAndSetAcquire", "getAndSetRelease",
+            "getAndAdd", "getAndAddAcquire", "getAndAddRelease",
+            "getAndBitwiseOr", "getAndBitwiseOrRelease", "getAndBitwiseOrAcquire",
+            "getAndBitwiseAnd", "getAndBitwiseAndRelease", "getAndBitwiseAndAcquire",
+            "getAndBitwiseXor", "getAndBitwiseXorRelease", "getAndBitwiseXorAcquire",
+        };
+
+        /// <summary>
+        /// Returns whether a call of the method of the class is a call of one of VarHandle's access mode methods.
+        /// </summary>
+        /// <param name="className"></param>
+        /// <param name="name"></param>
+        /// <returns></returns>
+        internal static bool IsVarHandleAccessMode(string className, string name)
+        {
+            return className == "java.lang.invoke.VarHandle" && varHandleAccessModeMethods.Contains(name);
+        }
+
         readonly RuntimeContext context;
 
         readonly Type typeofMHA;

@@ -3024,6 +3024,38 @@ namespace IKVM.Runtime
 #endif
         }
 
+#if JDK25
+
+        /// <summary>
+        /// Gets the delegate of a call site of one of VarHandle's access mode methods, linking the call site the first
+        /// time. The delegate's type is the call site's, with the VarHandle first.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="cache">the call site's delegate</param>
+        /// <param name="name">the access mode method</param>
+        /// <param name="type">the call site's type without the VarHandle, or null to take it from the delegate's</param>
+        /// <param name="callerID"></param>
+        /// <returns></returns>
+        public static T GetDelegateForVarHandle<T>(ref T cache, string name, global::java.lang.invoke.MethodType type, ikvm.@internal.CallerID callerID)
+            where T : class, Delegate
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            var d = Volatile.Read(ref cache);
+            if (d == null)
+            {
+                type ??= LoadMethodType<T>().dropParameterTypes(0, 1);
+                Interlocked.CompareExchange(ref cache, (T)VarHandleLinker.Link(typeof(T), name, type, callerID.getCallerClass()), null);
+                d = cache;
+            }
+
+            return d;
+#endif
+        }
+
+#endif
+
         /// <summary>
         /// The exception a dynamic constant's resolution fails with when its bootstrap method (or the conversion of its
         /// result to the constant's type) throws: a Java Error as is, anything else wrapped in a BootstrapMethodError,
