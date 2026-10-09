@@ -339,13 +339,25 @@ namespace IKVM.Runtime
 
         /// <summary>
         /// Rejects this class if the direct supertype is sealed and does not permit it (JVMS 5.3.5): a permitted
-        /// subclass is named by its PermittedSubclasses attribute and, as classes here are in unnamed modules, is in
-        /// the same run-time package.
+        /// subclass is named by its PermittedSubclasses attribute and is in the same run-time module. Modules are not
+        /// modelled, so that is taken to be the same class loader -- which is weaker than the JVMS for classes in an
+        /// unnamed module, which must also share the run-time package, but which a named module needs: the JDK seals
+        /// java.base types across packages (java.lang.constant.ClassDesc, java.security.DEREncodable, ...).
         /// </summary>
         void CheckPermittedSubclass(RuntimeJavaType supertype)
         {
-            if (supertype.IsSealed && (supertype.PermitsSubclass(Name) == false || supertype.IsPackageAccessibleFrom(this) == false))
+            if (supertype.IsSealed && (supertype.PermitsSubclass(Name) == false || IsSameClassLoader(supertype) == false))
                 throw new IncompatibleClassChangeError("class " + Name + " cannot inherit from sealed class " + supertype.Name);
+        }
+
+        bool IsSameClassLoader(RuntimeJavaType other)
+        {
+#if IMPORTER
+            // several targets of a -sharedclassloader compilation each have an ImportClassLoader for the one loader
+            if (ClassLoader is ImportClassLoader importer)
+                return importer.IsEquivalentTo(other.ClassLoader);
+#endif
+            return ClassLoader == other.ClassLoader;
         }
 
         internal override Modifiers ReflectiveModifiers
@@ -1077,6 +1089,13 @@ namespace IKVM.Runtime
                 || (classFile == "java.lang.Thread" && method == "getContextClassLoader" && signature == "()Ljava.lang.ClassLoader;")
                 || (classFile == "java.io.ObjectStreamField" && method == "getType" && signature == "()Ljava.lang.Class;")
                 || (classFile == "javax.sql.rowset.serial.SerialJavaObject" && method == "getFields" && signature == "()[Ljava.lang.reflect.Field;")
+                // JDK 9+: caller-sensitive methods that can be overridden or implement an interface method
+                || (classFile is "java.lang.reflect.AccessibleObject" && method is "setAccessible" or "trySetAccessible" or "canAccess")
+                || (classFile is "java.lang.reflect.Field" or "java.lang.reflect.Method" or "java.lang.reflect.Constructor" && method == "setAccessible")
+                || (classFile == "java.lang.foreign.MemorySegment" && method == "reinterpret")
+                || (classFile == "java.lang.foreign.AddressLayout" && method == "withTargetLayout")
+                || (classFile == "java.lang.foreign.Linker" && method is "downcallHandle" or "upcallStub")
+                || (classFile.StartsWith("jdk.internal.foreign.", StringComparison.Ordinal) && method is "reinterpret" or "withTargetLayout" or "downcallHandle" or "upcallStub")
                 ;
         }
 

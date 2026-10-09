@@ -3,8 +3,8 @@
     <Import Project="targets\DotNetOSXCodeSign.targets"/>
 
     <PropertyGroup>
-        <!-- JDK flavors that can currently be built. -->
-        <IkvmSupportedJdks>8</IkvmSupportedJdks>
+        <!-- JDK flavors that can be built (25 is in progress: the class library does not build yet). -->
+        <IkvmSupportedJdks>8;25</IkvmSupportedJdks>
     </PropertyGroup>
 
     <!-- A project that only exists in some flavors declares them in IkvmJdkFlavors (e.g. "8"). -->

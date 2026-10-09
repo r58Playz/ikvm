@@ -1331,8 +1331,15 @@ namespace IKVM.Runtime
                     type = typeBuilder.CreateType();
                     if (nestedTypeBuilders != null)
                     {
-                        context.ClassLoaderFactory.LoadClassCritical("ikvm.internal.IntrinsicAtomicReferenceFieldUpdater").Finish();
-                        context.ClassLoaderFactory.LoadClassCritical("ikvm.internal.IntrinsicThreadLocal").Finish();
+                        // the nested types may use these intrinsic helpers, which must be finished first -- unless this
+                        // is one of their base classes (JDK 25's ThreadLocal has nested types), which finishing them
+                        // would finish again
+                        foreach (var helper in new[] { "ikvm.internal.IntrinsicAtomicReferenceFieldUpdater", "ikvm.internal.IntrinsicThreadLocal" })
+                        {
+                            var tw = context.ClassLoaderFactory.LoadClassCritical(helper);
+                            if (tw.IsSubTypeOf(wrapper) == false)
+                                tw.Finish();
+                        }
                         foreach (TypeBuilder tb in nestedTypeBuilders)
                             tb.CreateType();
                     }

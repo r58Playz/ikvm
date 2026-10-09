@@ -216,7 +216,7 @@ namespace IKVM.Runtime
 
             bool SupportsCallerID(ClassFile.Method method)
             {
-                if ((classFile.Name == "sun.reflect.Reflection" && method.Name == "getCallerClass") || (classFile.Name == "java.lang.SecurityManager" && method.Name == "checkMemberAccess"))
+                if ((classFile.Name is "sun.reflect.Reflection" or "jdk.internal.reflect.Reflection" && method.Name == "getCallerClass") || (classFile.Name == "java.lang.SecurityManager" && method.Name == "checkMemberAccess"))
                 {
                     // ignore CallerSensitive on methods that don't need CallerID parameter
                     return false;
