@@ -581,13 +581,50 @@ namespace IKVM.Java.Externs.java.lang
             return RuntimeJavaType.FromClass(self).IsRecord;
         }
 
+#if FIRST_PASS == false
+
+        static readonly global::System.Reflection.FieldInfo recordComponentClazz = GetRecordComponentField("clazz");
+        static readonly global::System.Reflection.FieldInfo recordComponentName = GetRecordComponentField("name");
+        static readonly global::System.Reflection.FieldInfo recordComponentType = GetRecordComponentField("type");
+        static readonly global::System.Reflection.FieldInfo recordComponentAccessor = GetRecordComponentField("accessor");
+        static readonly global::System.Reflection.FieldInfo recordComponentSignature = GetRecordComponentField("signature");
+
+        static global::System.Reflection.FieldInfo GetRecordComponentField(string name)
+        {
+            return typeof(global::java.lang.reflect.RecordComponent).GetField(name, global::System.Reflection.BindingFlags.Instance | global::System.Reflection.BindingFlags.NonPublic);
+        }
+
+#endif
+
+        /// <summary>
+        /// Implements the native method 'getRecordComponents0': the components of a record class, from its Record
+        /// attribute, as HotSpot's Reflection::new_record_component makes them. They do not have the component's
+        /// annotations (ikvmc does not keep them yet).
+        /// </summary>
         public static global::java.lang.reflect.RecordComponent[] getRecordComponents0(global::java.lang.Class self)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            // the runtime does not keep a record's Record attribute yet
-            return RuntimeJavaType.FromClass(self).IsRecord ? Array.Empty<global::java.lang.reflect.RecordComponent>() : null;
+            var tw = RuntimeJavaType.FromClass(self);
+            if (tw.IsRecord == false)
+                return null;
+
+            var components = tw.RecordComponents ?? Array.Empty<RecordComponentInfo>();
+            var result = new global::java.lang.reflect.RecordComponent[components.Length];
+            for (int i = 0; i < components.Length; i++)
+            {
+                var component = components[i];
+                var rc = (global::java.lang.reflect.RecordComponent)global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(global::java.lang.reflect.RecordComponent));
+                recordComponentClazz.SetValue(rc, self);
+                recordComponentName.SetValue(rc, component.Name);
+                recordComponentType.SetValue(rc, tw.ClassLoader.FieldTypeWrapperFromSig(component.Descriptor, LoadMode.LoadOrThrow).EnsureLoadable(tw.ClassLoader).ClassObject);
+                recordComponentAccessor.SetValue(rc, tw.GetMethod(component.Name, "()" + component.Descriptor, false)?.ToMethodOrConstructor(true));
+                recordComponentSignature.SetValue(rc, component.Signature);
+                result[i] = rc;
+            }
+
+            return result;
 #endif
         }
 

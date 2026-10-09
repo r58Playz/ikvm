@@ -333,6 +333,7 @@ namespace IKVM.Runtime
         readonly string nestHost;
         readonly string[] nestMembers;
         readonly string[] permittedSubclasses;
+        readonly RecordComponentInfo[] recordComponents;
         readonly TypeAnnotationTable runtimeVisibleTypeAnnotations = TypeAnnotationTable.Empty;
 
 #if IMPORTER
@@ -716,6 +717,31 @@ namespace IKVM.Runtime
                             {
                                 ValidateConstantPoolItemClass(inputClassName, permittedSubclassesAttribute.PermittedSubclasses[j]);
                                 permittedSubclasses[j] = GetConstantPoolClass(permittedSubclassesAttribute.PermittedSubclasses[j]);
+                            }
+
+                            break;
+                        case AttributeName.Record:
+                            if (clazz.Version < 60)
+                                goto default;
+
+                            if (recordComponents != null)
+                                throw new ClassFormatError("{0} (Multiple Record attributes)", inputClassName);
+
+                            var recordAttribute = (IKVM.ByteCode.Decoding.RecordAttribute)attribute;
+                            recordComponents = new RecordComponentInfo[recordAttribute.Components.Count];
+                            for (int j = 0; j < recordComponents.Length; j++)
+                            {
+                                var component = recordAttribute.Components[j];
+
+                                string componentSignature = null;
+                                for (int k = 0; k < component.Attributes.Count; k++)
+                                    if (GetConstantPoolUtf8String(utf8_cp, component.Attributes[k].Name) == AttributeName.Signature)
+                                        componentSignature = GetConstantPoolUtf8String(utf8_cp, ((IKVM.ByteCode.Decoding.SignatureAttribute)component.Attributes[k]).Signature);
+
+                                recordComponents[j] = new RecordComponentInfo(
+                                    GetConstantPoolUtf8String(utf8_cp, component.Name),
+                                    GetConstantPoolUtf8String(utf8_cp, component.Descriptor).Replace('/', '.'),
+                                    componentSignature);
                             }
 
                             break;
@@ -1363,6 +1389,11 @@ namespace IKVM.Runtime
         /// class is not sealed (JVMS 4.7.31).
         /// </summary>
         internal string[] PermittedSubclasses => permittedSubclasses;
+
+        /// <summary>
+        /// The components the Record attribute declares, or null if there is none (JVMS 4.7.30).
+        /// </summary>
+        internal RecordComponentInfo[] RecordComponents => recordComponents;
 
         internal ref readonly TypeAnnotationTable RuntimeVisibleTypeAnnotations => ref runtimeVisibleTypeAnnotations;
 

@@ -1102,6 +1102,11 @@ namespace IKVM.Runtime
         internal virtual string[] PermittedSubclassNames => null;
 
         /// <summary>
+        /// The components of this record class, or null if its Record attribute is not known.
+        /// </summary>
+        internal virtual RecordComponentInfo[] RecordComponents => null;
+
+        /// <summary>
         /// Whether this type and <paramref name="other"/> are nestmates, which may access each other's private members
         /// (JVMS 5.4.4): they name the same nest host, are in the same run-time package, and the host lists each of them
         /// that is not the host itself.

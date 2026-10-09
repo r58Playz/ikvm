@@ -74,6 +74,7 @@ namespace IKVM.Runtime
         readonly string nestHostName;
         readonly string[] nestMemberNames;
         readonly string[] permittedSubclassNames;
+        readonly RecordComponentInfo[] recordComponents;
 #if !IMPORTER
         byte[][] lineNumberTables;
 #endif
@@ -133,6 +134,7 @@ namespace IKVM.Runtime
             this.nestHostName = f.NestHost;
             this.nestMemberNames = f.NestMembers;
             this.permittedSubclassNames = f.PermittedSubclasses;
+            this.recordComponents = f.RecordComponents;
             if (f.IsInterface)
             {
                 // interfaces can't "override" final methods in object
@@ -340,6 +342,8 @@ namespace IKVM.Runtime
         internal override bool PermitsSubclass(string name) => permittedSubclassNames == null || Array.IndexOf(permittedSubclassNames, name) >= 0;
 
         internal override string[] PermittedSubclassNames => permittedSubclassNames;
+
+        internal override RecordComponentInfo[] RecordComponents => recordComponents;
 
         /// <summary>
         /// Rejects this class if the direct supertype is sealed and does not permit it (JVMS 5.3.5): a permitted

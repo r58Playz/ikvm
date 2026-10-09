@@ -371,6 +371,26 @@ namespace IKVM.Runtime
 
         internal override string[] PermittedSubclassNames => PermittedSubclasses;
 
+        RecordComponentInfo[] recordComponents;
+        bool recordComponentsRead;
+
+        /// <summary>
+        /// The components ikvmc recorded for a type compiled from a record class, or null.
+        /// </summary>
+        internal override RecordComponentInfo[] RecordComponents
+        {
+            get
+            {
+                if (recordComponentsRead == false)
+                {
+                    recordComponents = Context.AttributeHelper.GetRecordComponents(type);
+                    recordComponentsRead = true;
+                }
+
+                return recordComponents;
+            }
+        }
+
         internal override RuntimeJavaType[] InnerClasses
         {
             get

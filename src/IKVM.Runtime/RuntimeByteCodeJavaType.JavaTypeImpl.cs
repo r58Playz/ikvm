@@ -563,6 +563,10 @@ namespace IKVM.Runtime
                     if (classFile.PermittedSubclasses != null)
                         wrapper.Context.AttributeHelper.SetPermittedSubclassesAttribute(typeBuilder, classFile.PermittedSubclasses);
 
+                    // Class.getRecordComponents
+                    if (classFile.RecordComponents != null)
+                        wrapper.Context.AttributeHelper.SetRecordComponentsAttribute(typeBuilder, classFile.RecordComponents);
+
                     if (wrapper.classLoader.EmitStackTraceInfo)
                     {
                         if (f.SourceFileAttribute != null)

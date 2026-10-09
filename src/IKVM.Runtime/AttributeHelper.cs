@@ -162,6 +162,10 @@ namespace IKVM.Runtime
 
         Type TypeOfPermittedSubclassesAttribute => typeofPermittedSubclassesAttribute ??= LoadType(typeof(IKVM.Attributes.PermittedSubclassesAttribute));
 
+        Type typeofRecordComponentsAttribute;
+
+        Type TypeOfRecordComponentsAttribute => typeofRecordComponentsAttribute ??= LoadType(typeof(IKVM.Attributes.RecordComponentsAttribute));
+
         Type TypeOfMethodParametersAttribute => typeofMethodParametersAttribute ??= LoadType(typeof(IKVM.Attributes.MethodParametersAttribute));
 
         Type TypeOfRuntimeVisibleTypeAnnotationsAttribute => typeofRuntimeVisibleTypeAnnotationsAttribute ??= LoadType(typeof(IKVM.Attributes.RuntimeVisibleTypeAnnotationsAttribute));
@@ -872,6 +876,23 @@ namespace IKVM.Runtime
 			tb.SetCustomAttribute(new CustomAttributeBuilder(con, new object[] { names }));
 		}
 
+		internal void SetRecordComponentsAttribute(TypeBuilder tb, RecordComponentInfo[] components)
+		{
+			var names = new string[components.Length];
+			var descriptors = new string[components.Length];
+			var signatures = new string[components.Length];
+			for (int i = 0; i < components.Length; i++)
+			{
+				names[i] = components[i].Name;
+				descriptors[i] = components[i].Descriptor;
+				signatures[i] = components[i].Signature;
+			}
+
+			var stringArray = context.Types.String.MakeArrayType();
+			var con = TypeOfRecordComponentsAttribute.GetConstructor(new Type[] { stringArray, stringArray, stringArray });
+			tb.SetCustomAttribute(new CustomAttributeBuilder(con, new object[] { names, descriptors, signatures }));
+		}
+
 		internal void SetSignatureAttribute(TypeBuilder tb, string signature)
 		{
 			signatureAttribute ??= TypeOfSignatureAttribute.GetConstructor(new Type[] { context.Types.String });
@@ -1264,6 +1285,39 @@ namespace IKVM.Runtime
                     names[i] = (string)args[i].Value;
 
                 return names;
+            }
+
+            return null;
+#endif
+        }
+
+        /// <summary>
+        /// The components recorded on a type compiled from a record class, or null if it is not one.
+        /// </summary>
+        internal RecordComponentInfo[] GetRecordComponents(Type type)
+        {
+#if !IMPORTER && !EXPORTER
+            var attr = type.GetCustomAttributes(typeof(IKVM.Attributes.RecordComponentsAttribute), false);
+            if (attr.Length != 1)
+                return null;
+
+            var record = (IKVM.Attributes.RecordComponentsAttribute)attr[0];
+            var components = new RecordComponentInfo[record.Names.Length];
+            for (int i = 0; i < components.Length; i++)
+                components[i] = new RecordComponentInfo(record.Names[i], record.Descriptors[i], record.Signatures[i]);
+
+            return components;
+#else
+            foreach (var cad in CustomAttributeData.__GetCustomAttributes(type, TypeOfRecordComponentsAttribute, false))
+            {
+                var names = (System.Collections.Generic.IList<CustomAttributeTypedArgument>)cad.ConstructorArguments[0].Value;
+                var descriptors = (System.Collections.Generic.IList<CustomAttributeTypedArgument>)cad.ConstructorArguments[1].Value;
+                var signatures = (System.Collections.Generic.IList<CustomAttributeTypedArgument>)cad.ConstructorArguments[2].Value;
+                var components = new RecordComponentInfo[names.Count];
+                for (int i = 0; i < components.Length; i++)
+                    components[i] = new RecordComponentInfo((string)names[i].Value, (string)descriptors[i].Value, (string)signatures[i].Value);
+
+                return components;
             }
 
             return null;
