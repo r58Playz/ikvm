@@ -18,9 +18,40 @@
     </ItemGroup>
 
     <ItemGroup>
-        <EmbeddedResource Include="**\*.java" />
+        <EmbeddedResource Include="**\*.java" Exclude="Jdk25\**" />
         <EmbeddedResource Include="Runtime\Vfs\VfsTestResource.txt" />
     </ItemGroup>
+
+    <!-- Fixtures compiled by a JDK 25 javac, for testing class file version 69 features (nestmates,
+         invokedynamic bootstraps, ...). Copied to jdk25\ in the output, and as jdk25.jar for ikvmc. -->
+    <ItemGroup>
+        <Jdk25FixtureSource Include="Jdk25\**\*.java" />
+    </ItemGroup>
+
+
+    <Target Name="_FindJdk25ForFixtures">
+        <FindJdk Family="25">
+            <Output TaskParameter="JdkPath" PropertyName="Jdk25Path" />
+        </FindJdk>
+        <Error Condition=" '$(Jdk25Path)' == '' " Text="IKVM.Tests compiles its class file version 69 fixtures with javac from JDK 25, which was not found." />
+    </Target>
+
+    <Target Name="_CompileJdk25Fixtures" DependsOnTargets="_FindJdk25ForFixtures" Inputs="@(Jdk25FixtureSource)" Outputs="$(_Jdk25FixtureOutputPath).stamp" Condition=" '$(TargetFramework)' != '' ">
+        <RemoveDir Directories="$(_Jdk25FixtureOutputPath)" />
+        <MakeDir Directories="$(_Jdk25FixtureOutputPath)" />
+        <Exec Command="&quot;$(Jdk25Path)/bin/javac&quot; --release 25 -nowarn -d &quot;$(_Jdk25FixtureOutputPath)classes&quot; @(Jdk25FixtureSource->'&quot;%(FullPath)&quot;', ' ')" />
+        <Exec Command="&quot;$(Jdk25Path)/bin/jar&quot; -cf &quot;$(_Jdk25FixtureOutputPath)jdk25.jar&quot; -C &quot;$(_Jdk25FixtureOutputPath)classes&quot; ." />
+        <Touch Files="$(_Jdk25FixtureOutputPath).stamp" AlwaysCreate="true" />
+    </Target>
+
+    <Target Name="CompileJdk25Fixtures" BeforeTargets="AssignTargetPaths" DependsOnTargets="_CompileJdk25Fixtures" Condition=" '$(TargetFramework)' != '' ">
+        <ItemGroup>
+            <_Jdk25FixtureClass Include="$(_Jdk25FixtureOutputPath)classes\**\*.class" />
+            <None Include="@(_Jdk25FixtureClass)" Link="jdk25\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+            <None Include="$(_Jdk25FixtureOutputPath)jdk25.jar" Link="jdk25.jar" CopyToOutputDirectory="PreserveNewest" />
+            <FileWrites Include="@(_Jdk25FixtureClass);$(_Jdk25FixtureOutputPath)jdk25.jar;$(_Jdk25FixtureOutputPath).stamp" />
+        </ItemGroup>
+    </Target>
 
     <ItemGroup>
         <None Include="..\..\ext\helloworld\*.jar" LinkBase="helloworld">
@@ -224,6 +255,11 @@
     <Import Project="$(MSBuildThisFileDirectory)..\..\IKVM.refs.targets" />
 
     <Import Sdk="MSTest.Sdk" Project="Sdk.targets" />
+
+    <!-- after Sdk.targets, which defines IntermediateOutputPath -->
+    <PropertyGroup>
+        <_Jdk25FixtureOutputPath>$(IntermediateOutputPath)jdk25\</_Jdk25FixtureOutputPath>
+    </PropertyGroup>
     <Import Project="$(MSBuildThisFileDirectory)..\IKVM\buildTransitive\IKVM.targets" />
     <Import Project="$(MSBuildThisFileDirectory)..\IKVM.MSBuild\buildTransitive\IKVM.MSBuild.targets" />
 </Project>

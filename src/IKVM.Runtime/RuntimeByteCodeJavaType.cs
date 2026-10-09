@@ -71,6 +71,8 @@ namespace IKVM.Runtime
         readonly RuntimeJavaType baseTypeWrapper;
         readonly RuntimeJavaType[] interfaces;
         readonly string sourceFileName;
+        readonly string nestHostName;
+        readonly string[] nestMemberNames;
 #if !IMPORTER
         byte[][] lineNumberTables;
 #endif
@@ -127,6 +129,8 @@ namespace IKVM.Runtime
             Profiler.Count("RuntimeByteCodeJavaType");
             this.classLoader = classLoader;
             this.sourceFileName = f.SourceFileAttribute;
+            this.nestHostName = f.NestHost;
+            this.nestMemberNames = f.NestMembers;
             if (f.IsInterface)
             {
                 // interfaces can't "override" final methods in object
@@ -320,6 +324,10 @@ namespace IKVM.Runtime
         }
 
         internal override RuntimeClassLoader ClassLoader => classLoader;
+
+        internal override string NestHostName => nestHostName;
+
+        internal override bool ListsNestMember(string name) => nestMemberNames != null && Array.IndexOf(nestMemberNames, name) >= 0;
 
         internal override Modifiers ReflectiveModifiers
         {

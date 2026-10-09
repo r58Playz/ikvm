@@ -1062,6 +1062,55 @@ namespace IKVM.Runtime
             return ClassLoader.InternalsVisibleToImpl(this, wrapper);
         }
 
+        /// <summary>
+        /// The host of the nest this type claims to belong to through its NestHost attribute, or null when it has none
+        /// and so hosts its own nest (JVMS 5.4.4).
+        /// </summary>
+        internal virtual string NestHostName => null;
+
+        /// <summary>
+        /// Whether this type's NestMembers attribute lists the named class.
+        /// </summary>
+        internal virtual bool ListsNestMember(string name) => false;
+
+        /// <summary>
+        /// Whether this type and <paramref name="other"/> are nestmates, which may access each other's private members
+        /// (JVMS 5.4.4): they name the same nest host, are in the same run-time package, and the host lists each of them
+        /// that is not the host itself.
+        /// </summary>
+        /// <remarks>
+        /// When neither is the host, the host is looked up as linking would: under lazy class loading that runs no user
+        /// loadClass, and a host that is not loaded yet is then taken on trust rather than loaded.
+        /// </remarks>
+        internal bool IsNestmateOf(RuntimeJavaType other)
+        {
+            if (this == other)
+                return true;
+
+            var hostName = NestHostName ?? Name;
+            if (hostName != (other.NestHostName ?? other.Name) || IsPackageAccessibleFrom(other) == false)
+                return false;
+
+            RuntimeJavaType host;
+            if (hostName == Name)
+                host = this;
+            else if (hostName == other.Name)
+                host = other;
+            else
+            {
+#if EXPORTER
+                var lazy = false;
+#else
+                var lazy = JVM.LazyClassLoading && ClassLoader.InvokesUserLoadClass;
+#endif
+                host = ClassLoader.LoadClass(hostName, lazy ? LoadMode.LinkNoLoad : LoadMode.Link);
+                if (host == null || host.IsUnloadable)
+                    return lazy;
+            }
+
+            return (host == this || host.ListsNestMember(Name)) && (host == other || host.ListsNestMember(other.Name));
+        }
+
         internal virtual bool IsPackageAccessibleFrom(RuntimeJavaType wrapper)
         {
             if (MatchingPackageNames(name, wrapper.name))

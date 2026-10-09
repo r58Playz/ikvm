@@ -993,6 +993,7 @@ namespace IKVM.Runtime
                     fw.IsFinal &&
                     fw.IsSerialVersionUID == false &&
                     classFile.Fields[fieldIndex].Annotations == null &&
+                    classFile.IsInNest == false &&
                     classFile.IsReferenced(classFile.Fields[fieldIndex]) == false)
                 {
                     // unused, so we skip it
@@ -1044,7 +1045,18 @@ namespace IKVM.Runtime
 #endif
                 if (fld.IsPrivate)
                 {
-                    attribs |= FieldAttributes.Private;
+                    if (classFile.IsInNest)
+                    {
+                        // nestmates access it from other classes (JVMS 5.4.4), which CLR private would not allow
+                        attribs |= FieldAttributes.Assembly;
+#if IMPORTER
+                        setModifiers = true;
+#endif
+                    }
+                    else
+                    {
+                        attribs |= FieldAttributes.Private;
+                    }
                 }
                 else if (fld.IsProtected)
                 {
@@ -2476,7 +2488,7 @@ namespace IKVM.Runtime
                         method = GenerateConstructor(methods[index]);
 
                         // strictfp is the only modifier that a constructor can have
-                        if (m.IsStrictfp)
+                        if (m.IsStrictfp || IsPrivateWidenedForNest(m.Modifiers))
                             setModifiers = true;
                     }
                     else if (m.IsClassInitializer)
@@ -2578,6 +2590,13 @@ namespace IKVM.Runtime
                 return mw.GetDefineMethodHelper().DefineConstructor(wrapper, typeBuilder, GetMethodAccess(mw) | MethodAttributes.HideBySig);
             }
 
+            /// <summary>
+            /// Whether a private member of this class gets assembly rather than private CLR accessibility, because it
+            /// is in a nest whose other members may access it (JVMS 5.4.4). Its real modifiers are then recorded in
+            /// a ModifiersAttribute.
+            /// </summary>
+            bool IsPrivateWidenedForNest(Modifiers modifiers) => (modifiers & Modifiers.AccessMask) == Modifiers.Private && classFile.IsInNest;
+
             MethodBuilder GenerateMethod(int index, ClassFile.Method m, ref bool setModifiers)
             {
                 var attribs = MethodAttributes.HideBySig;
@@ -2603,6 +2622,8 @@ namespace IKVM.Runtime
                 else
                 {
                     attribs |= GetMethodAccess(methods[index]);
+                    if (IsPrivateWidenedForNest(m.Modifiers))
+                        setModifiers = true;
                 }
 
                 if (m.IsAbstract || (!m.IsStatic && m.IsPublic && classFile.IsInterface))
@@ -2909,12 +2930,12 @@ namespace IKVM.Runtime
                 return mb;
             }
 
-            private static MethodAttributes GetMethodAccess(RuntimeJavaMethod mw)
+            MethodAttributes GetMethodAccess(RuntimeJavaMethod mw)
             {
                 switch (mw.Modifiers & Modifiers.AccessMask)
                 {
                     case Modifiers.Private:
-                        return MethodAttributes.Private;
+                        return IsPrivateWidenedForNest(mw.Modifiers) ? MethodAttributes.Assembly : MethodAttributes.Private;
                     case Modifiers.Protected:
                         return MethodAttributes.FamORAssem;
                     case Modifiers.Public:

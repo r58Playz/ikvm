@@ -22,6 +22,8 @@
   
 */
 
+using IKVM.ByteCode;
+
 namespace IKVM.Runtime
 {
 
@@ -31,8 +33,19 @@ namespace IKVM.Runtime
         static class SupportedVersions
         {
 
-            internal static readonly int Minimum = 45;
-            internal static readonly int Maximum = 52;
+            /// <summary>
+            /// The newest class file major version that can be read: Java 25.
+            /// </summary>
+            internal const int Maximum = 69;
+
+            /// <summary>
+            /// Whether a class file of the given version can be read: 45.3 through <see cref="Maximum"/>, but not a
+            /// preview-features class file (minor version 65535), which the JVM loads only with --enable-preview.
+            /// </summary>
+            internal static bool IsSupported(ClassFormatVersion version)
+            {
+                return version >= new ClassFormatVersion(45, 3) && version.Major <= Maximum && (version.Major < 56 || version.Minor != 65535);
+            }
 
         }
 

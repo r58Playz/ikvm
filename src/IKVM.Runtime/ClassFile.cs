@@ -330,6 +330,8 @@ namespace IKVM.Runtime
         readonly string signature;
         readonly string[] enclosingMethod;
         readonly BootstrapMethod[] bootstrapMethods;
+        readonly string nestHost;
+        readonly string[] nestMembers;
         readonly TypeAnnotationTable runtimeVisibleTypeAnnotations = TypeAnnotationTable.Empty;
 
 #if IMPORTER
@@ -369,7 +371,7 @@ namespace IKVM.Runtime
         /// <exception cref="ClassFormatError"></exception>
         static string GetClassName(IKVM.ByteCode.Decoding.ClassFile reader, out bool isstub)
         {
-            if (reader.Version < new ClassFormatVersion(45, 3) || reader.Version > 52)
+            if (SupportedVersions.IsSupported(reader.Version) == false)
                 throw new UnsupportedClassVersionError(reader.Version);
 
             // this is a terrible way to go about encoding this information
@@ -400,7 +402,7 @@ namespace IKVM.Runtime
 
             try
             {
-                if (clazz.Version < new ClassFormatVersion(45, 3) || clazz.Version > 52)
+                if (SupportedVersions.IsSupported(clazz.Version) == false)
                     throw new UnsupportedClassVersionError(clazz.Version);
 
                 // load a copy of the constant pool using our own custom class hierarchy, reading data from IKVM.ByteCdoe
@@ -680,6 +682,33 @@ namespace IKVM.Runtime
 
                             var bootstrapMethodsAttribute = (BootstrapMethodsAttribute)attribute;
                             bootstrapMethods = ReadBootstrapMethods(bootstrapMethodsAttribute.Methods, this);
+                            break;
+                        case AttributeName.NestHost:
+                            if (clazz.Version < 55)
+                                goto default;
+
+                            if (nestHost != null || nestMembers != null)
+                                throw new ClassFormatError("{0} (Multiple NestHost attributes, or both NestHost and NestMembers)", inputClassName);
+
+                            var nestHostAttribute = (NestHostAttribute)attribute;
+                            ValidateConstantPoolItemClass(inputClassName, nestHostAttribute.NestHost);
+                            nestHost = GetConstantPoolClass(nestHostAttribute.NestHost);
+                            break;
+                        case AttributeName.NestMembers:
+                            if (clazz.Version < 55)
+                                goto default;
+
+                            if (nestHost != null || nestMembers != null)
+                                throw new ClassFormatError("{0} (Multiple NestMembers attributes, or both NestHost and NestMembers)", inputClassName);
+
+                            var nestMembersAttribute = (NestMembersAttribute)attribute;
+                            nestMembers = new string[nestMembersAttribute.NestMembers.Count];
+                            for (int j = 0; j < nestMembers.Length; j++)
+                            {
+                                ValidateConstantPoolItemClass(inputClassName, nestMembersAttribute.NestMembers[j]);
+                                nestMembers[j] = GetConstantPoolClass(nestMembersAttribute.NestMembers[j]);
+                            }
+
                             break;
                         case AttributeName.RuntimeVisibleTypeAnnotations:
                             if (clazz.Version < 52)
@@ -1274,6 +1303,22 @@ namespace IKVM.Runtime
         internal string GenericSignature => signature;
 
         internal string[] EnclosingMethod => enclosingMethod;
+
+        /// <summary>
+        /// The class named by the NestHost attribute (dotted), or null if there is none (JVMS 4.7.28).
+        /// </summary>
+        internal string NestHost => nestHost;
+
+        /// <summary>
+        /// The classes named by the NestMembers attribute (dotted), or null if there is none (JVMS 4.7.29).
+        /// </summary>
+        internal string[] NestMembers => nestMembers;
+
+        /// <summary>
+        /// Whether this class belongs to a nest of more than one class, whose members may access each other's
+        /// private members (JVMS 5.4.4).
+        /// </summary>
+        internal bool IsInNest => nestHost != null || nestMembers != null;
 
         internal ref readonly TypeAnnotationTable RuntimeVisibleTypeAnnotations => ref runtimeVisibleTypeAnnotations;
 

@@ -148,6 +148,7 @@ namespace IKVM.Runtime
             {
                 return (
                     caller == DeclaringType ||
+                    (IsPrivate && caller.IsNestmateOf(DeclaringType)) ||
                     IsPublicOrProtectedMemberAccessible(caller, instance) ||
                     (IsInternal && DeclaringType.InternalsVisibleTo(caller)) ||
                     (!IsPrivate && DeclaringType.IsPackageAccessibleFrom(caller)))
