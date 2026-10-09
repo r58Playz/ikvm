@@ -559,6 +559,10 @@ namespace IKVM.Runtime
                     if (classFile.RuntimeVisibleTypeAnnotations.Count > 0)
                         wrapper.Context.AttributeHelper.SetRuntimeVisibleTypeAnnotationsAttribute(typeBuilder, in classFile.RuntimeVisibleTypeAnnotations);
 
+                    // a class defined later against this compiled one must still be checked against its permits
+                    if (classFile.PermittedSubclasses != null)
+                        wrapper.Context.AttributeHelper.SetPermittedSubclassesAttribute(typeBuilder, classFile.PermittedSubclasses);
+
                     if (wrapper.classLoader.EmitStackTraceInfo)
                     {
                         if (f.SourceFileAttribute != null)

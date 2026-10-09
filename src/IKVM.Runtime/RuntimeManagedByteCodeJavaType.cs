@@ -345,6 +345,30 @@ namespace IKVM.Runtime
             return type.Name.EndsWith("Attribute", StringComparison.Ordinal) && type.IsClass && type.BaseType.FullName == "ikvm.internal.AnnotationAttributeBase";
         }
 
+        string[] permittedSubclasses;
+        bool permittedSubclassesRead;
+
+        /// <summary>
+        /// The permitted subclasses ikvmc recorded for a type compiled from a sealed class, or null.
+        /// </summary>
+        string[] PermittedSubclasses
+        {
+            get
+            {
+                if (permittedSubclassesRead == false)
+                {
+                    permittedSubclasses = Context.AttributeHelper.GetPermittedSubclasses(type);
+                    permittedSubclassesRead = true;
+                }
+
+                return permittedSubclasses;
+            }
+        }
+
+        internal override bool IsSealed => PermittedSubclasses != null;
+
+        internal override bool PermitsSubclass(string name) => PermittedSubclasses is not { } names || Array.IndexOf(names, name) >= 0;
+
         internal override RuntimeJavaType[] InnerClasses
         {
             get
@@ -594,7 +618,7 @@ namespace IKVM.Runtime
 #elif IMPORTER || EXPORTER
             foreach (CustomAttributeData cad in mb.GetCustomAttributesData())
             {
-                if (cad.AttributeType.FullName == "sun.reflect.CallerSensitiveAttribute")
+                if (cad.AttributeType.FullName is "sun.reflect.CallerSensitiveAttribute" or "jdk.internal.reflect.CallerSensitiveAttribute")
                 {
                     return true;
                 }

@@ -18,6 +18,16 @@ namespace IKVM.Runtime
     public static partial class JVM
     {
 
+        /// <summary>
+        /// The Java SE feature release this build implements (the IkvmJdk flavor it was compiled for): the version
+        /// whose class library it runs, and whose multi-release JAR entries ikvmc picks.
+        /// </summary>
+#if JDK25
+        internal const int JavaFeatureVersion = 25;
+#else
+        internal const int JavaFeatureVersion = 8;
+#endif
+
         static readonly object syncRoot = new object();
         static bool initialized;
 

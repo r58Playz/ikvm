@@ -1541,7 +1541,7 @@ namespace IKVM.Runtime
                         {
                             var cpi = classFile.GetInvokeDynamic(new((ushort)instr.Arg1));
                             CastInterfaceArgs(null, cpi.GetArgTypes(), i, false);
-                            if (StringConcatFactory.Emit(finish, classFile, cpi, ilGenerator) || EmitSwitchBootstrap(cpi))
+                            if (StringConcatFactory.Emit(finish, classFile, cpi, ilGenerator) || EmitSwitchBootstrap(cpi) || EmitObjectMethodsBootstrap(cpi))
                             {
                                 // plain IL with no call site, so a lazy recompile emits it again too
                             }
@@ -2947,6 +2947,9 @@ namespace IKVM.Runtime
                 case ClassFile.ConstantType.MethodType:
                     finish.GetValue<MethodTypeConstant>(constant.Slot).Emit(this, ilgen, (MethodTypeConstantHandle)constant);
                     break;
+                case ClassFile.ConstantType.Dynamic:
+                    EmitLoadDynamicConstant(ilgen, constant);
+                    break;
 #if !IMPORTER
                 case ClassFile.ConstantType.LiveObject:
                     finish.EmitLiveObjectLoad(ilgen, classFile.GetConstantPoolConstantLiveObject(constant.Slot));
@@ -3176,10 +3179,38 @@ namespace IKVM.Runtime
 
             static bool EmitCallBootstrapMethod(Compiler compiler, ClassFile.ConstantPoolItemInvokeDynamic cpi, CodeEmitter ilgen, CodeEmitterLocal ok)
             {
+                return EmitCallBootstrapMethod(compiler, cpi.BootstrapMethod, cpi.Name, compiler.finish.Context.JavaBase.TypeOfJavaLangInvokeMethodType, il => EmitInvokeDynamicType(compiler, cpi, il), ilgen, ok);
+            }
+
+            static void EmitInvokeDynamicType(Compiler compiler, ClassFile.ConstantPoolItemInvokeDynamic cpi, CodeEmitter ilgen)
+            {
+                if (HasUnloadable(cpi.GetArgTypes(), cpi.GetRetType()))
+                {
+                    // the cache is useless since we only run once, so we use a local
+                    ilgen.Emit(OpCodes.Ldloca, ilgen.DeclareLocal(compiler.finish.Context.JavaBase.TypeOfJavaLangInvokeMethodType.TypeAsSignatureType));
+                    ilgen.Emit(OpCodes.Ldstr, cpi.Signature);
+                    compiler.finish.EmitCallerID(ilgen, compiler.m.IsLambdaFormCompiled);
+                    ilgen.Emit(OpCodes.Call, compiler.finish.Context.ByteCodeHelperMethods.DynamicLoadMethodType);
+                }
+                else
+                {
+                    ilgen.Emit(OpCodes.Call, compiler.finish.Context.ByteCodeHelperMethods.LoadMethodType.MakeGenericMethod(compiler.finish.Context.MethodHandleUtil.CreateDelegateTypeForLoadConstant(cpi.GetArgTypes(), cpi.GetRetType())));
+                }
+            }
+
+            /// <summary>
+            /// Emits the call of a bootstrap method with the caller's Lookup, the name, the invocation type (a MethodType
+            /// for invokedynamic, the Class of a dynamic constant) as pushed by <paramref name="emitInvocationType"/>, and
+            /// the static arguments. Sets <paramref name="ok"/> right before the call, so an exception raised before it
+            /// (resolving or converting the arguments) can be told from one raised by the bootstrap method. Returns false
+            /// if it emitted a throw instead.
+            /// </summary>
+            internal static bool EmitCallBootstrapMethod(Compiler compiler, ushort bootstrapMethod, string name, RuntimeJavaType invocationType, Action<CodeEmitter> emitInvocationType, CodeEmitter ilgen, CodeEmitterLocal ok)
+            {
                 var methodLookup = compiler.finish.Context.ClassLoaderFactory.LoadClassCritical("java.lang.invoke.MethodHandles").GetMethod("lookup", "()Ljava.lang.invoke.MethodHandles$Lookup;", false);
                 methodLookup.Link();
 
-                var bsm = compiler.classFile.GetBootstrapMethod(cpi.BootstrapMethod);
+                var bsm = compiler.classFile.GetBootstrapMethod(bootstrapMethod);
                 if (3 + bsm.ArgumentCount > 255)
                 {
                     ilgen.EmitThrow("java.lang.BootstrapMethodError", "too many bootstrap method arguments");
@@ -3258,23 +3289,10 @@ namespace IKVM.Runtime
 
                 compiler.finish.EmitCallerID(ilgen, compiler.m.IsLambdaFormCompiled);
                 methodLookup.EmitCall(ilgen);
-                ilgen.Emit(OpCodes.Ldstr, cpi.Name);
+                ilgen.Emit(OpCodes.Ldstr, name);
                 parameters[1].EmitConvStackTypeToSignatureType(ilgen, compiler.finish.Context.JavaBase.TypeOfJavaLangString);
-
-                if (HasUnloadable(cpi.GetArgTypes(), cpi.GetRetType()))
-                {
-                    // the cache is useless since we only run once, so we use a local
-                    ilgen.Emit(OpCodes.Ldloca, ilgen.DeclareLocal(compiler.finish.Context.JavaBase.TypeOfJavaLangInvokeMethodType.TypeAsSignatureType));
-                    ilgen.Emit(OpCodes.Ldstr, cpi.Signature);
-                    compiler.finish.EmitCallerID(ilgen, compiler.m.IsLambdaFormCompiled);
-                    ilgen.Emit(OpCodes.Call, compiler.finish.Context.ByteCodeHelperMethods.DynamicLoadMethodType);
-                }
-                else
-                {
-                    ilgen.Emit(OpCodes.Call, compiler.finish.Context.ByteCodeHelperMethods.LoadMethodType.MakeGenericMethod(compiler.finish.Context.MethodHandleUtil.CreateDelegateTypeForLoadConstant(cpi.GetArgTypes(), cpi.GetRetType())));
-                }
-
-                parameters[2].EmitConvStackTypeToSignatureType(ilgen, compiler.finish.Context.JavaBase.TypeOfJavaLangInvokeMethodType);
+                emitInvocationType(ilgen);
+                parameters[2].EmitConvStackTypeToSignatureType(ilgen, invocationType);
 
                 for (int i = 0; i < fixedArgs; i++)
                     EmitExtraArg(compiler, ilgen, bsm, i, parameters[i + 3], ok);
@@ -3318,6 +3336,7 @@ namespace IKVM.Runtime
                     ClassFile.ConstantType.String => compiler.finish.Context.JavaBase.TypeOfJavaLangString,
                     ClassFile.ConstantType.MethodHandle => compiler.finish.Context.JavaBase.TypeOfJavaLangInvokeMethodHandle,
                     ClassFile.ConstantType.MethodType => compiler.finish.Context.JavaBase.TypeOfJavaLangInvokeMethodType,
+                    ClassFile.ConstantType.Dynamic => compiler.classFile.GetConstantPoolConstantDynamic(constant).GetFieldType(),
                     _ => throw new InvalidOperationException(),
                 };
 
@@ -3328,7 +3347,8 @@ namespace IKVM.Runtime
 
                     if (constType.IsPrimitive)
                     {
-                        var wrapper = GetWrapperType(constType, out var dummy);
+                        // a dynamic constant may be of any primitive type
+                        var wrapper = GetBoxType(compiler.finish.Context, constType, out _);
                         wrapper.GetMethod("valueOf", "(" + constType.SigName + ")" + wrapper.SigName, false).EmitCall(ilgen);
                     }
 
@@ -3338,9 +3358,9 @@ namespace IKVM.Runtime
                     }
                     else if (targetType.IsPrimitive)
                     {
-                        var wrapper = GetWrapperType(targetType, out var unbox);
+                        var wrapper = GetBoxType(compiler.finish.Context, targetType, out var unbox);
                         ilgen.Emit(OpCodes.Castclass, wrapper.TypeAsBaseType);
-                        wrapper.GetMethod(unbox, "()" + targetType.SigName, false).EmitCallvirt(ilgen);
+                        unbox.EmitCallvirt(ilgen);
                     }
                     else if (!constType.IsAssignableTo(targetType))
                     {
@@ -3350,34 +3370,6 @@ namespace IKVM.Runtime
                     targetType.EmitConvStackTypeToSignatureType(ilgen, targetType);
                     ilgen.EmitLdc_I4(0);
                     ilgen.Emit(OpCodes.Stloc, wrapException);
-                }
-            }
-
-            static RuntimeJavaType GetWrapperType(RuntimeJavaType tw, out string unbox)
-            {
-                if (tw == tw.Context.PrimitiveJavaTypeFactory.INT)
-                {
-                    unbox = "intValue";
-                    return tw.Context.ClassLoaderFactory.LoadClassCritical("java.lang.Integer");
-                }
-                else if (tw == tw.Context.PrimitiveJavaTypeFactory.LONG)
-                {
-                    unbox = "longValue";
-                    return tw.Context.ClassLoaderFactory.LoadClassCritical("java.lang.Long");
-                }
-                else if (tw == tw.Context.PrimitiveJavaTypeFactory.FLOAT)
-                {
-                    unbox = "floatValue";
-                    return tw.Context.ClassLoaderFactory.LoadClassCritical("java.lang.Float");
-                }
-                else if (tw == tw.Context.PrimitiveJavaTypeFactory.DOUBLE)
-                {
-                    unbox = "doubleValue";
-                    return tw.Context.ClassLoaderFactory.LoadClassCritical("java.lang.Double");
-                }
-                else
-                {
-                    throw new InvalidOperationException();
                 }
             }
 

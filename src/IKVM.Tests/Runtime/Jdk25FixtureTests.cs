@@ -27,7 +27,16 @@ namespace IKVM.Tests.Runtime
 
         string Run(string className)
         {
-            return (string)GetFixture(className).getMethod("run").invoke(null);
+            try
+            {
+                return (string)GetFixture(className).getMethod("run").invoke(null);
+            }
+            catch (java.lang.reflect.InvocationTargetException e)
+            {
+                // fail with what run() threw, and its Java stack trace
+                var cause = (Exception)e.getCause();
+                throw new Exception("run() threw " + cause + Environment.NewLine + string.Join(Environment.NewLine, Array.ConvertAll(global::ikvm.extensions.ExtensionMethods.getStackTrace(cause), f => "    at " + f)), cause);
+            }
         }
 
         [TestMethod]
@@ -48,6 +57,24 @@ namespace IKVM.Tests.Runtime
             Run("ikvm.tests.jdk25.Switches").Should().Be("null,empty,string3,int,big,ints3,shape12,shape9,shape10,other,|A,B,long,short,|one,two,n,huge,|a,digit,char,|red,green,other,");
         }
 
+        [TestMethod]
+        public void Condy()
+        {
+            Run("ikvm.tests.jdk25.Condy").Should().Be("HELLO,42,1099511627776,null,long,SECONDS,2147483647,HELLO,3");
+        }
+
+        [TestMethod]
+        public void ObjectMethods()
+        {
+            Run("ikvm.tests.jdk25.ObjectMethodsFixture").Should().Be("ObjMethods[a=1, b=one, c=1.5]|ObjMethods[a=2, b=null, c=-0.0]|true,true,false,false,true,false,false|true,1076634139,-2147481726");
+        }
+
+        [TestMethod]
+        public void Sealed()
+        {
+            Run("ikvm.tests.jdk25.SealedFixture").Should().Be("ok,icce,icce");
+        }
+
     }
 
     /// <summary>
@@ -65,6 +92,16 @@ namespace IKVM.Tests.Runtime
             return java.lang.Class.forName(className, true, loader);
         }
 
+        [TestMethod]
+        public void MultiReleaseJar()
+        {
+            // the class library's JarFile picks the entries of a multi-release JAR, so Java 8 sees only the base ones
+            var jar = new java.io.File(Path.Combine(AppContext.BaseDirectory, "jdk25mr.jar"));
+            var mrLoader = new java.net.URLClassLoader(new[] { jar.toURI().toURL() });
+            var clazz = java.lang.Class.forName("ikvm.tests.mr.Release", true, mrLoader);
+            ((string)clazz.getMethod("run").invoke(null)).Should().Be(Jdk25FixtureImportTests.ExpectedMultiReleaseResult);
+        }
+
     }
 
     /// <summary>
@@ -74,6 +111,12 @@ namespace IKVM.Tests.Runtime
     public class Jdk25FixtureImportTests : Jdk25FixtureTests
     {
 
+        /// <summary>
+        /// The version of ikvm.tests.mr.Release a JDK of this IKVM's version uses from jdk25mr.jar: Java 8 knows only the
+        /// base entries, Java 11 and later use the META-INF/versions/11 one.
+        /// </summary>
+        internal static string ExpectedMultiReleaseResult => java.lang.System.getProperty("java.specification.version") == "1.8" ? "base" : "11";
+
         static Assembly assembly;
 
         public TestContext TestContext { get; set; }
@@ -81,9 +124,14 @@ namespace IKVM.Tests.Runtime
         [TestInitialize]
         public async Task TestInitialize()
         {
-            if (assembly != null)
-                return;
+            assembly ??= await CompileJar("jdk25.jar", TestContext);
+        }
 
+        /// <summary>
+        /// Compiles a JAR from the test output directory with ikvmc and loads the result.
+        /// </summary>
+        internal static async Task<Assembly> CompileJar(string jar, TestContext testContext)
+        {
 #if NET472
             var ikvmTool = "net472";
             var ikvmLibs = Path.Combine(AppContext.BaseDirectory, "lib", "net472");
@@ -106,17 +154,17 @@ namespace IKVM.Tests.Runtime
             };
 
             var n = Guid.NewGuid().ToString("n");
-            var output = Path.Combine(Path.GetTempPath(), n, $"jdk25_{n}.dll");
+            var name = Path.GetFileNameWithoutExtension(jar) + "_" + n;
+            var output = Path.Combine(Path.GetTempPath(), n, name + ".dll");
             Directory.CreateDirectory(Path.GetDirectoryName(output));
 
-            var events = new List<IkvmToolDiagnosticEvent>();
-            var launcher = new IkvmImporterLauncher(Path.Combine(AppContext.BaseDirectory, "ikvmc", ikvmTool, rid), new IkvmToolDelegateDiagnosticListener(evt => { events.Add(evt); TestContext.WriteLine(evt.Message, evt.Args); }));
+            var launcher = new IkvmImporterLauncher(Path.Combine(AppContext.BaseDirectory, "ikvmc", ikvmTool, rid), new IkvmToolDelegateDiagnosticListener(evt => testContext.WriteLine(evt.Message, evt.Args)));
             var options = new IkvmImporterOptions()
             {
                 Runtime = Path.Combine(ikvmLibs, "IKVM.Runtime.dll"),
                 ResponseFile = $"{n}_ikvmc.rsp",
-                Input = { Path.Combine(AppContext.BaseDirectory, "jdk25.jar") },
-                Assembly = $"jdk25_{n}",
+                Input = { Path.Combine(AppContext.BaseDirectory, jar) },
+                Assembly = name,
                 Version = "1.0.0.0",
                 NoStdLib = true,
                 Output = output,
@@ -131,12 +179,23 @@ namespace IKVM.Tests.Runtime
                     options.References.Add(dll);
 
             (await launcher.ExecuteAsync(options)).Should().Be(0);
-            assembly = Assembly.LoadFrom(output);
+            return Assembly.LoadFrom(output);
         }
 
         protected override java.lang.Class GetFixture(string className)
         {
             return assembly.GetType(className, true);
+        }
+
+        [TestMethod]
+        public async Task MultiReleaseJar()
+        {
+            // ikvmc compiles the entries of a multi-release JAR that this IKVM's Java version would use, and skips its
+            // module-info.class
+            var mr = await CompileJar("jdk25mr.jar", TestContext);
+            var clazz = (java.lang.Class)mr.GetType("ikvm.tests.mr.Release", true);
+            ((string)clazz.getMethod("run").invoke(null)).Should().Be(ExpectedMultiReleaseResult);
+            mr.GetType("module-info").Should().BeNull();
         }
 
     }

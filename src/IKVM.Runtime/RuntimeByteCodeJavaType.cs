@@ -73,6 +73,7 @@ namespace IKVM.Runtime
         readonly string sourceFileName;
         readonly string nestHostName;
         readonly string[] nestMemberNames;
+        readonly string[] permittedSubclassNames;
 #if !IMPORTER
         byte[][] lineNumberTables;
 #endif
@@ -131,6 +132,7 @@ namespace IKVM.Runtime
             this.sourceFileName = f.SourceFileAttribute;
             this.nestHostName = f.NestHost;
             this.nestMemberNames = f.NestMembers;
+            this.permittedSubclassNames = f.PermittedSubclasses;
             if (f.IsInterface)
             {
                 // interfaces can't "override" final methods in object
@@ -161,6 +163,7 @@ namespace IKVM.Runtime
                 {
                     throw new IncompatibleClassChangeError("Class " + f.Name + " has interface " + BaseTypeWrapper.Name + " as superclass");
                 }
+                CheckPermittedSubclass(BaseTypeWrapper);
                 if (BaseTypeWrapper.TypeAsTBD == Context.Types.Delegate)
                 {
                     throw new VerifyError(BaseTypeWrapper.Name + " cannot be used as a base class");
@@ -189,6 +192,7 @@ namespace IKVM.Runtime
                 {
                     throw new IncompatibleClassChangeError("Implementing class");
                 }
+                CheckPermittedSubclass(iface);
                 this.interfaces[i] = iface;
             }
 
@@ -328,6 +332,21 @@ namespace IKVM.Runtime
         internal override string NestHostName => nestHostName;
 
         internal override bool ListsNestMember(string name) => nestMemberNames != null && Array.IndexOf(nestMemberNames, name) >= 0;
+
+        internal override bool IsSealed => permittedSubclassNames != null;
+
+        internal override bool PermitsSubclass(string name) => permittedSubclassNames == null || Array.IndexOf(permittedSubclassNames, name) >= 0;
+
+        /// <summary>
+        /// Rejects this class if the direct supertype is sealed and does not permit it (JVMS 5.3.5): a permitted
+        /// subclass is named by its PermittedSubclasses attribute and, as classes here are in unnamed modules, is in
+        /// the same run-time package.
+        /// </summary>
+        void CheckPermittedSubclass(RuntimeJavaType supertype)
+        {
+            if (supertype.IsSealed && (supertype.PermitsSubclass(Name) == false || supertype.IsPackageAccessibleFrom(this) == false))
+                throw new IncompatibleClassChangeError("class " + Name + " cannot inherit from sealed class " + supertype.Name);
+        }
 
         internal override Modifiers ReflectiveModifiers
         {

@@ -2872,6 +2872,22 @@ namespace IKVM.Runtime
 #endif
         }
 
+        /// <summary>
+        /// The exception a dynamic constant's resolution fails with when its bootstrap method (or the conversion of its
+        /// result to the constant's type) throws: a Java Error as is, anything else wrapped in a BootstrapMethodError,
+        /// as java.lang.invoke.ConstantBootstraps.makeConstant does.
+        /// </summary>
+        [HideFromJava]
+        public static Exception WrapConstantBootstrapException(Exception x)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            x = MapException<Exception>(x, MapFlags.None);
+            return x is global::java.lang.Error ? x : new global::java.lang.BootstrapMethodError("constant bootstrap method initialization exception", x);
+#endif
+        }
+
         [HideFromJava]
         public static void LinkIndyCallSite<T>(ref IndyCallSite<T> site, global::java.lang.invoke.CallSite cs, Exception x)
             where T : class, Delegate
@@ -3224,6 +3240,67 @@ namespace IKVM.Runtime
     {
 
         void SetTarget(global::java.lang.invoke.MethodHandle mh);
+
+    }
+
+    /// <summary>
+    /// The value of one dynamic constant (CONSTANT_Dynamic) of a class: resolved by calling its bootstrap method on first
+    /// use and fixed from then on. A resolution that fails with a LinkageError -- which includes the BootstrapMethodError
+    /// wrapping an exception of the bootstrap method -- fails with that same error on every later use (JVMS 5.4.3);
+    /// other errors are not remembered, and the next use resolves again.
+    /// </summary>
+    public sealed class ConstantDynamicSite
+    {
+
+        readonly Func<object> resolve;
+        object value;
+        Exception error;
+        volatile int state; // 0 unresolved, 1 resolved, 2 failed
+
+        public ConstantDynamicSite(Func<object> resolve)
+        {
+            this.resolve = resolve ?? throw new ArgumentNullException(nameof(resolve));
+        }
+
+        [HideFromJava]
+        public object GetValue()
+        {
+            return state == 1 ? value : Resolve();
+        }
+
+        [HideFromJava]
+        object Resolve()
+        {
+            lock (this)
+            {
+                if (state == 1)
+                    return value;
+                if (state == 2)
+                    throw error;
+
+                try
+                {
+                    value = resolve();
+                    state = 1;
+                    return value;
+                }
+                catch (Exception e)
+                {
+#if FIRST_PASS
+                    throw;
+#else
+                    var x = ByteCodeHelper.MapException<Exception>(e, ByteCodeHelper.MapFlags.None);
+                    if (x is global::java.lang.LinkageError)
+                    {
+                        error = x;
+                        state = 2;
+                    }
+
+                    throw x;
+#endif
+                }
+            }
+        }
 
     }
 

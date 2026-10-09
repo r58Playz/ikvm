@@ -128,6 +128,7 @@ namespace IKVM.Runtime
                                     {
 #if IMPORTER
                                         case "Lsun/reflect/CallerSensitive;":
+                                        case "Ljdk/internal/reflect/CallerSensitive;": // JDK 9+
                                             flags |= FLAG_CALLERSENSITIVE;
                                             break;
 #endif
@@ -135,9 +136,11 @@ namespace IKVM.Runtime
                                             flags |= FLAG_LAMBDAFORM_COMPILED;
                                             break;
                                         case "Ljava/lang/invoke/LambdaForm$Hidden;":
+                                        case "Ljdk/internal/vm/annotation/Hidden;": // JDK 9+
                                             flags |= FLAG_LAMBDAFORM_HIDDEN;
                                             break;
                                         case "Ljava/lang/invoke/ForceInline;":
+                                        case "Ljdk/internal/vm/annotation/ForceInline;": // JDK 9+
                                             flags |= FLAG_FORCEINLINE;
                                             break;
                                     }

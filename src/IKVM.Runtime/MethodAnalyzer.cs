@@ -544,6 +544,22 @@ namespace IKVM.Runtime
                                             case ClassFile.ConstantType.MethodType:
                                                 s.PushType(_context.JavaBase.TypeOfJavaLangInvokeMethodType);
                                                 break;
+                                            case ClassFile.ConstantType.Dynamic:
+                                                {
+                                                    var type = _classFile.GetConstantPoolConstantDynamic(new ConstantHandle(ConstantKind.Unknown, checked((ushort)inst.Arg1))).GetFieldType();
+                                                    if (type == _context.PrimitiveJavaTypeFactory.DOUBLE)
+                                                        s.PushDouble();
+                                                    else if (type == _context.PrimitiveJavaTypeFactory.FLOAT)
+                                                        s.PushFloat();
+                                                    else if (type == _context.PrimitiveJavaTypeFactory.LONG)
+                                                        s.PushLong();
+                                                    else if (type.IsPrimitive)
+                                                        s.PushInt();
+                                                    else
+                                                        s.PushType(type);
+
+                                                    break;
+                                                }
                                             default:
                                                 // NOTE this is not a VerifyError, because it cannot happen (unless we have
                                                 // a bug in ClassFile.GetConstantPoolConstantType)

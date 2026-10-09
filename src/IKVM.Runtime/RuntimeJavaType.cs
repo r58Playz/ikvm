@@ -1074,6 +1074,17 @@ namespace IKVM.Runtime
         internal virtual bool ListsNestMember(string name) => false;
 
         /// <summary>
+        /// Whether this is a sealed class or interface, which only the classes its PermittedSubclasses attribute names
+        /// may directly extend or implement (JVMS 5.3.5).
+        /// </summary>
+        internal virtual bool IsSealed => false;
+
+        /// <summary>
+        /// Whether this sealed type's PermittedSubclasses attribute names the class.
+        /// </summary>
+        internal virtual bool PermitsSubclass(string name) => true;
+
+        /// <summary>
         /// Whether this type and <paramref name="other"/> are nestmates, which may access each other's private members
         /// (JVMS 5.4.4): they name the same nest host, are in the same run-time package, and the host lists each of them
         /// that is not the host itself.

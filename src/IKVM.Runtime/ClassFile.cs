@@ -332,6 +332,7 @@ namespace IKVM.Runtime
         readonly BootstrapMethod[] bootstrapMethods;
         readonly string nestHost;
         readonly string[] nestMembers;
+        readonly string[] permittedSubclasses;
         readonly TypeAnnotationTable runtimeVisibleTypeAnnotations = TypeAnnotationTable.Empty;
 
 #if IMPORTER
@@ -456,6 +457,11 @@ namespace IKVM.Runtime
                             if (clazz.Version < 51)
                                 goto default;
                             constantpool[i] = new ConstantPoolItemInvokeDynamic(context, clazz.Constants.Read(new InvokeDynamicConstantHandle(i)));
+                            break;
+                        case ConstantKind.Dynamic:
+                            if (clazz.Version < 55)
+                                goto default;
+                            constantpool[i] = new ConstantPoolItemDynamic(context, clazz.Constants.Read(new DynamicConstantHandle(i)));
                             break;
                         case ConstantKind.String:
                             constantpool[i] = new ConstantPoolItemString(context, clazz.Constants.Read(new StringConstantHandle(i)));
@@ -694,6 +700,25 @@ namespace IKVM.Runtime
                             ValidateConstantPoolItemClass(inputClassName, nestHostAttribute.NestHost);
                             nestHost = GetConstantPoolClass(nestHostAttribute.NestHost);
                             break;
+                        case AttributeName.PermittedSubclasses:
+                            if (clazz.Version < 61)
+                                goto default;
+
+                            if (permittedSubclasses != null)
+                                throw new ClassFormatError("{0} (Multiple PermittedSubclasses attributes)", inputClassName);
+
+                            if ((access_flags & Modifiers.Final) != 0)
+                                throw new ClassFormatError("{0} (PermittedSubclasses attribute in final class file)", inputClassName);
+
+                            var permittedSubclassesAttribute = (IKVM.ByteCode.Decoding.PermittedSubclassesAttribute)attribute;
+                            permittedSubclasses = new string[permittedSubclassesAttribute.PermittedSubclasses.Count];
+                            for (int j = 0; j < permittedSubclasses.Length; j++)
+                            {
+                                ValidateConstantPoolItemClass(inputClassName, permittedSubclassesAttribute.PermittedSubclasses[j]);
+                                permittedSubclasses[j] = GetConstantPoolClass(permittedSubclassesAttribute.PermittedSubclasses[j]);
+                            }
+
+                            break;
                         case AttributeName.NestMembers:
                             if (clazz.Version < 55)
                                 goto default;
@@ -733,11 +758,19 @@ namespace IKVM.Runtime
                     }
                 }
 
-                // validate the invokedynamic entries to point into the bootstrapMethods array
+                // validate the invokedynamic and dynamic constant entries to point into the bootstrapMethods array
                 for (int i = 1; i < constantpool.Length; i++)
-                    if (constantpool[i] != null && constantpool[i] is ConstantPoolItemInvokeDynamic cpi)
-                        if (bootstrapMethods == null || cpi.BootstrapMethod >= bootstrapMethods.Length)
-                            throw new ClassFormatError("Short length on BootstrapMethods in class file");
+                {
+                    var bsmIndex = constantpool[i] switch
+                    {
+                        ConstantPoolItemInvokeDynamic cpi => cpi.BootstrapMethod,
+                        ConstantPoolItemDynamic cpd => cpd.BootstrapMethod,
+                        _ => -1,
+                    };
+
+                    if (bsmIndex >= 0 && (bootstrapMethods == null || bsmIndex >= bootstrapMethods.Length))
+                        throw new ClassFormatError("Short length on BootstrapMethods in class file");
+                }
             }
             catch (OverflowException)
             {
@@ -1150,6 +1183,11 @@ namespace IKVM.Runtime
             return SafeGetMethodref(new ConstantHandle(ConstantKind.Unknown, (ushort)slot));
         }
 
+        internal ConstantPoolItemDynamic GetConstantPoolConstantDynamic(ConstantHandle handle)
+        {
+            return (ConstantPoolItemDynamic)constantpool[handle.Slot];
+        }
+
         internal ConstantPoolItemInvokeDynamic GetInvokeDynamic(InvokeDynamicConstantHandle handle)
         {
             return (ConstantPoolItemInvokeDynamic)constantpool[handle.Slot];
@@ -1319,6 +1357,12 @@ namespace IKVM.Runtime
         /// private members (JVMS 5.4.4).
         /// </summary>
         internal bool IsInNest => nestHost != null || nestMembers != null;
+
+        /// <summary>
+        /// The classes named by the PermittedSubclasses attribute (dotted), or null if there is none, in which case the
+        /// class is not sealed (JVMS 4.7.31).
+        /// </summary>
+        internal string[] PermittedSubclasses => permittedSubclasses;
 
         internal ref readonly TypeAnnotationTable RuntimeVisibleTypeAnnotations => ref runtimeVisibleTypeAnnotations;
 

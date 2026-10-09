@@ -103,6 +103,7 @@ namespace IKVM.Runtime
         Type typeofNonNestedInnerClassAttribute;
         Type typeofNonNestedOuterClassAttribute;
         Type typeofEnclosingMethodAttribute;
+        Type typeofPermittedSubclassesAttribute;
         Type typeofMethodParametersAttribute;
         Type typeofRuntimeVisibleTypeAnnotationsAttribute;
         Type typeofConstantPoolAttribute;
@@ -158,6 +159,8 @@ namespace IKVM.Runtime
         Type TypeOfNonNestedOuterClassAttribute => typeofNonNestedOuterClassAttribute ??= LoadType(typeof(NonNestedOuterClassAttribute));
 
         Type TypeOfEnclosingMethodAttribute => typeofEnclosingMethodAttribute ??= LoadType(typeof(IKVM.Attributes.EnclosingMethodAttribute));
+
+        Type TypeOfPermittedSubclassesAttribute => typeofPermittedSubclassesAttribute ??= LoadType(typeof(IKVM.Attributes.PermittedSubclassesAttribute));
 
         Type TypeOfMethodParametersAttribute => typeofMethodParametersAttribute ??= LoadType(typeof(IKVM.Attributes.MethodParametersAttribute));
 
@@ -863,6 +866,12 @@ namespace IKVM.Runtime
 				new object[] { UnicodeUtil.EscapeInvalidSurrogates(className), UnicodeUtil.EscapeInvalidSurrogates(methodName), UnicodeUtil.EscapeInvalidSurrogates(methodSig) }));
 		}
 
+		internal void SetPermittedSubclassesAttribute(TypeBuilder tb, string[] names)
+		{
+			var con = TypeOfPermittedSubclassesAttribute.GetConstructor(new Type[] { context.Types.String.MakeArrayType() });
+			tb.SetCustomAttribute(new CustomAttributeBuilder(con, new object[] { names }));
+		}
+
 		internal void SetSignatureAttribute(TypeBuilder tb, string signature)
 		{
 			signatureAttribute ??= TypeOfSignatureAttribute.GetConstructor(new Type[] { context.Types.String });
@@ -1236,6 +1245,29 @@ namespace IKVM.Runtime
         internal bool HasEnclosingMethodAttribute(Type type)
         {
             return type.IsDefined(TypeOfEnclosingMethodAttribute, false);
+        }
+
+        /// <summary>
+        /// The permitted subclasses recorded on a type compiled from a sealed class, or null if it is not sealed.
+        /// </summary>
+        internal string[] GetPermittedSubclasses(Type type)
+        {
+#if !IMPORTER && !EXPORTER
+            var attr = type.GetCustomAttributes(typeof(IKVM.Attributes.PermittedSubclassesAttribute), false);
+            return attr.Length == 1 ? ((IKVM.Attributes.PermittedSubclassesAttribute)attr[0]).Names : null;
+#else
+            foreach (var cad in CustomAttributeData.__GetCustomAttributes(type, TypeOfPermittedSubclassesAttribute, false))
+            {
+                var args = (System.Collections.Generic.IList<CustomAttributeTypedArgument>)cad.ConstructorArguments[0].Value;
+                var names = new string[args.Count];
+                for (int i = 0; i < names.Length; i++)
+                    names[i] = (string)args[i].Value;
+
+                return names;
+            }
+
+            return null;
+#endif
         }
 
         internal IKVM.Attributes.EnclosingMethodAttribute GetEnclosingMethodAttribute(Type type)

@@ -18,7 +18,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <EmbeddedResource Include="**\*.java" Exclude="Jdk25\**" />
+        <EmbeddedResource Include="**\*.java" Exclude="Jdk25\**;Jdk25Gen\**;Jdk25Mr\**" />
         <EmbeddedResource Include="Runtime\Vfs\VfsTestResource.txt" />
     </ItemGroup>
 
@@ -26,6 +26,12 @@
          invokedynamic bootstraps, ...). Copied to jdk25\ in the output, and as jdk25.jar for ikvmc. -->
     <ItemGroup>
         <Jdk25FixtureSource Include="Jdk25\**\*.java" />
+        <!-- programs that write class files javac cannot produce (condy, a record's ObjectMethods calls without
+             java.lang.Record, a sealed class's unpermitted subclass) with the ClassFile API; run before javac -->
+        <Jdk25FixtureGenerator Include="Jdk25Gen\*.java" />
+        <!-- a multi-release JAR: base classes (with a module-info.class) and a META-INF/versions/11 overlay -->
+        <Jdk25MultiReleaseBaseSource Include="Jdk25Mr\base\**\*.java" />
+        <Jdk25MultiReleaseV11Source Include="Jdk25Mr\v11\**\*.java" />
     </ItemGroup>
 
 
@@ -36,11 +42,15 @@
         <Error Condition=" '$(Jdk25Path)' == '' " Text="IKVM.Tests compiles its class file version 69 fixtures with javac from JDK 25, which was not found." />
     </Target>
 
-    <Target Name="_CompileJdk25Fixtures" DependsOnTargets="_FindJdk25ForFixtures" Inputs="@(Jdk25FixtureSource)" Outputs="$(_Jdk25FixtureOutputPath).stamp" Condition=" '$(TargetFramework)' != '' ">
+    <Target Name="_CompileJdk25Fixtures" DependsOnTargets="_FindJdk25ForFixtures" Inputs="@(Jdk25FixtureSource);@(Jdk25FixtureGenerator);@(Jdk25MultiReleaseBaseSource);@(Jdk25MultiReleaseV11Source)" Outputs="$(_Jdk25FixtureOutputPath).stamp" Condition=" '$(TargetFramework)' != '' ">
         <RemoveDir Directories="$(_Jdk25FixtureOutputPath)" />
         <MakeDir Directories="$(_Jdk25FixtureOutputPath)" />
-        <Exec Command="&quot;$(Jdk25Path)/bin/javac&quot; --release 25 -nowarn -d &quot;$(_Jdk25FixtureOutputPath)classes&quot; @(Jdk25FixtureSource->'&quot;%(FullPath)&quot;', ' ')" />
+        <Exec Command="&quot;$(Jdk25Path)/bin/java&quot; &quot;%(Jdk25FixtureGenerator.FullPath)&quot; &quot;$(_Jdk25FixtureOutputPath)classes&quot;" />
+        <Exec Command="&quot;$(Jdk25Path)/bin/javac&quot; --release 25 -nowarn -cp &quot;$(_Jdk25FixtureOutputPath)classes&quot; -d &quot;$(_Jdk25FixtureOutputPath)classes&quot; @(Jdk25FixtureSource->'&quot;%(FullPath)&quot;', ' ')" />
         <Exec Command="&quot;$(Jdk25Path)/bin/jar&quot; -cf &quot;$(_Jdk25FixtureOutputPath)jdk25.jar&quot; -C &quot;$(_Jdk25FixtureOutputPath)classes&quot; ." />
+        <Exec Command="&quot;$(Jdk25Path)/bin/javac&quot; --release 9 -nowarn -d &quot;$(_Jdk25FixtureOutputPath)mr-base&quot; @(Jdk25MultiReleaseBaseSource->'&quot;%(FullPath)&quot;', ' ')" />
+        <Exec Command="&quot;$(Jdk25Path)/bin/javac&quot; --release 11 -nowarn -d &quot;$(_Jdk25FixtureOutputPath)mr-11&quot; @(Jdk25MultiReleaseV11Source->'&quot;%(FullPath)&quot;', ' ')" />
+        <Exec Command="&quot;$(Jdk25Path)/bin/jar&quot; --create --file &quot;$(_Jdk25FixtureOutputPath)jdk25mr.jar&quot; -C &quot;$(_Jdk25FixtureOutputPath)mr-base&quot; . --release 11 -C &quot;$(_Jdk25FixtureOutputPath)mr-11&quot; ." />
         <Touch Files="$(_Jdk25FixtureOutputPath).stamp" AlwaysCreate="true" />
     </Target>
 
@@ -49,7 +59,8 @@
             <_Jdk25FixtureClass Include="$(_Jdk25FixtureOutputPath)classes\**\*.class" />
             <None Include="@(_Jdk25FixtureClass)" Link="jdk25\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
             <None Include="$(_Jdk25FixtureOutputPath)jdk25.jar" Link="jdk25.jar" CopyToOutputDirectory="PreserveNewest" />
-            <FileWrites Include="@(_Jdk25FixtureClass);$(_Jdk25FixtureOutputPath)jdk25.jar;$(_Jdk25FixtureOutputPath).stamp" />
+            <None Include="$(_Jdk25FixtureOutputPath)jdk25mr.jar" Link="jdk25mr.jar" CopyToOutputDirectory="PreserveNewest" />
+            <FileWrites Include="@(_Jdk25FixtureClass);$(_Jdk25FixtureOutputPath)jdk25.jar;$(_Jdk25FixtureOutputPath)jdk25mr.jar;$(_Jdk25FixtureOutputPath).stamp" />
         </ItemGroup>
     </Target>
 

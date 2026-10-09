@@ -70,6 +70,7 @@ namespace IKVM.Runtime
         internal readonly MethodInfo DynamicCreateDelegate;
         internal readonly MethodInfo DynamicLoadMethodType;
         internal readonly MethodInfo DynamicLoadMethodHandle;
+        internal readonly MethodInfo WrapConstantBootstrapException;
         internal readonly MethodInfo DynamicBinderMemberLookup;
         /// <summary>Target of the generational-body trampoline; see ByteCodeHelper.BuildLazyBody.</summary>
         internal readonly MethodInfo BuildLazyBody;
@@ -158,6 +159,7 @@ namespace IKVM.Runtime
             DynamicCreateDelegate = GetHelper(typeofByteCodeHelper, "DynamicCreateDelegate");
             DynamicLoadMethodType = GetHelper(typeofByteCodeHelper, "DynamicLoadMethodType");
             DynamicLoadMethodHandle = GetHelper(typeofByteCodeHelper, "DynamicLoadMethodHandle");
+            WrapConstantBootstrapException = GetHelper(typeofByteCodeHelper, "WrapConstantBootstrapException");
             DynamicBinderMemberLookup = GetHelper(typeofByteCodeHelper, "DynamicBinderMemberLookup");
             BuildLazyBody = GetHelper(typeofByteCodeHelper, "BuildLazyBody");
             RelinkBody = GetHelper(typeofByteCodeHelper, "RelinkBody");

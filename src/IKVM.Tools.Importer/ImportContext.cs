@@ -1043,7 +1043,7 @@ namespace IKVM.Tools.Importer
 
                 bool found = false;
                 Jar jar = null;
-                foreach (var ze in zf.Entries)
+                foreach (var (name, ze) in SelectVersionedEntries(zf))
                 {
                     if (filter != null && !filter(ze))
                     {
@@ -1061,8 +1061,8 @@ namespace IKVM.Tools.Importer
                         {
                             jar = options.GetJar(file);
                         }
-                        jar.Add(ze.FullName, data);
-                        if (string.Equals(ze.FullName, "META-INF/MANIFEST.MF", StringComparison.OrdinalIgnoreCase))
+                        jar.Add(name, data);
+                        if (string.Equals(name, "META-INF/MANIFEST.MF", StringComparison.OrdinalIgnoreCase))
                         {
                             ProcessManifest(compiler, options, ze);
                         }
@@ -1081,6 +1081,65 @@ namespace IKVM.Tools.Importer
             {
                 throw new FatalCompilerErrorException(DiagnosticEvent.ErrorReadingFile(file, x.Message));
             }
+        }
+
+        /// <summary>
+        /// The entries of a JAR as the Java version being compiled for sees them (JEP 238), each with its path. In a multi-release JAR (its
+        /// manifest says Multi-Release: true) an entry under META-INF/versions/N/ for the highest N not above that version
+        /// stands in for the entry of the same path outside it, under that path; entries for later versions are left out.
+        /// A plain JAR's META-INF/versions entries are left out too: they are not classes, nor resources anyone loads.
+        /// module-info.class, which describes a JPMS module rather than being a class, is left out as well.
+        /// </summary>
+        static IEnumerable<(string Name, ZipArchiveEntry Entry)> SelectVersionedEntries(ZipArchive zf)
+        {
+            const string versionsPrefix = "META-INF/versions/";
+
+            var multiRelease = false;
+            var manifest = zf.GetEntry("META-INF/MANIFEST.MF");
+            if (manifest != null)
+            {
+                using var reader = new StreamReader(manifest.Open());
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                    if (line.StartsWith("Multi-Release:", StringComparison.OrdinalIgnoreCase) && line.Substring("Multi-Release:".Length).Trim().Equals("true", StringComparison.OrdinalIgnoreCase))
+                        multiRelease = true;
+            }
+
+            // for each path, the version whose entry is used (0 is the base entry)
+            var chosen = new Dictionary<string, (int Version, ZipArchiveEntry Entry)>(StringComparer.Ordinal);
+            var order = new List<string>();
+            foreach (var ze in zf.Entries)
+            {
+                var path = ze.FullName;
+                var version = 0;
+                if (path.StartsWith(versionsPrefix, StringComparison.Ordinal))
+                {
+                    var slash = path.IndexOf('/', versionsPrefix.Length);
+                    if (multiRelease == false || slash < 0 || int.TryParse(path.Substring(versionsPrefix.Length, slash - versionsPrefix.Length), out version) == false || version < 9 || version > JVM.JavaFeatureVersion)
+                        continue;
+
+                    path = path.Substring(slash + 1);
+                    if (path.Length == 0)
+                        continue;
+                }
+
+                if (path == "module-info.class")
+                    continue;
+
+                if (chosen.TryGetValue(path, out var current))
+                {
+                    if (version > current.Version)
+                        chosen[path] = (version, ze);
+                }
+                else
+                {
+                    chosen.Add(path, (version, ze));
+                    order.Add(path);
+                }
+            }
+
+            foreach (var path in order)
+                yield return (path, chosen[path].Entry);
         }
 
         void ProcessFile(RuntimeContext context, StaticCompiler compiler, ImportState options, IDiagnosticHandler diagnostics, DirectoryInfo baseDir, string file)

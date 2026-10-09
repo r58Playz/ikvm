@@ -40,6 +40,7 @@ namespace IKVM.Runtime
             MethodHandle,
             MethodType,
             LiveObject,     // used by anonymous class constant pool patching
+            Dynamic,        // CONSTANT_Dynamic (JDK 11): a bootstrap method computes the value
 
         }
 
