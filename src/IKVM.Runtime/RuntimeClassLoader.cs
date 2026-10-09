@@ -231,7 +231,9 @@ namespace IKVM.Runtime
 
         internal bool RemoveAsserts => (codegenoptions & CodeGenOptions.RemoveAsserts) != 0;
 
-        internal bool NoAutomagicSerialization => (codegenoptions & CodeGenOptions.NoAutomagicSerialization) != 0;
+        // .NET serialization of Java objects (through BinaryFormatter, which .NET 9 removed) is only supported with the
+        // JDK 8 class library, whose java.io has the IKVM interop streams it needs
+        internal bool NoAutomagicSerialization => JVM.JavaFeatureVersion > 8 || (codegenoptions & CodeGenOptions.NoAutomagicSerialization) != 0;
 
         internal bool DisableDynamicBinding => (codegenoptions & CodeGenOptions.DisableDynamicBinding) != 0;
 

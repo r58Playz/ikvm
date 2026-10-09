@@ -1832,6 +1832,19 @@ namespace IKVM.Tools.Importer
                                     case 'J':
                                         constant = long.Parse(f.Constant);
                                         break;
+                                    case 'I':
+                                        constant = int.Parse(f.Constant);
+                                        break;
+                                    case 'S':
+                                        constant = short.Parse(f.Constant);
+                                        break;
+                                    case 'B':
+                                        // a Java byte is a System.Byte
+                                        constant = unchecked((byte)sbyte.Parse(f.Constant));
+                                        break;
+                                    case 'Z':
+                                        constant = bool.Parse(f.Constant);
+                                        break;
                                     default:
                                         // TODO support other types
                                         throw new NotImplementedException("remapped constant field of type: " + f.Sig);

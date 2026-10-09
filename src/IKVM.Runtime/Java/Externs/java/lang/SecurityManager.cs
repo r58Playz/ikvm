@@ -46,7 +46,7 @@ namespace IKVM.Java.Externs.java.lang
                 var frame = trace.GetFrame(i);
                 var method = frame.GetMethod();
 
-                if (IKVM.Java.Externs.sun.reflect.Reflection.IsHideFromStackWalk(method))
+                if (IKVM.Runtime.StackWalkUtil.IsHideFromStackWalk(method))
                     continue;
 
                 var type = method.DeclaringType;

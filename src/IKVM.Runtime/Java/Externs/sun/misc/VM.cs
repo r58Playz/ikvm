@@ -56,7 +56,7 @@ namespace IKVM.Java.Externs.sun.misc
                     continue;
 
                 // not to be considered from Java
-                if (global::IKVM.Java.Externs.sun.reflect.Reflection.IsHideFromStackWalk(m))
+                if (global::IKVM.Runtime.StackWalkUtil.IsHideFromStackWalk(m))
                     continue;
 
                 if (m.DeclaringType != null && JVM.Context.ClassLoaderFactory.GetJavaTypeFromType(m.DeclaringType) is RuntimeJavaType tw and not null)

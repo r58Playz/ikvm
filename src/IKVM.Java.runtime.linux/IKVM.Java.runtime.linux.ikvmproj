@@ -3,6 +3,7 @@
 
     <PropertyGroup>
         <TargetFrameworks>net6.0;net8.0</TargetFrameworks>
+        <TargetFrameworks Condition=" '$(IkvmJdk)' != '8' ">net8.0</TargetFrameworks>
         <PackageId>IKVM.Java.runtime.linux</PackageId>
         <IkvmJavaRuntimeIdentifier>linux</IkvmJavaRuntimeIdentifier>
         <EnableDefaultItems>false</EnableDefaultItems>
@@ -13,7 +14,7 @@
         <None Include="UnixConstants.java" />
     </ItemGroup>
 
-    <ItemGroup>
+    <ItemGroup Condition=" '$(IkvmJdk)' == '8' ">
         <Compile Include="SocketOptionRegistry.java" />
         <Compile Include="UnixConstants.java" />
     </ItemGroup>

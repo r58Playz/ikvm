@@ -1,0 +1,64 @@
+<!--
+
+    IKVM.OpenJdk.Make
+
+    Builds the JDK 25 class library with the JDK's own build: runs configure (once per configuration) and make for the
+    modules in IKVM.Java.runtime.jdk25.props, into $(OpenJdkBuildDir). The IKVM.Java projects reference this project,
+    so make runs once however many of them are built.
+
+    Needs what the JDK build needs on the host: bash, GNU make, autoconf, a C/C++ compiler (configure checks for one
+    even though only Java code is built) and a JDK 25 to build with.
+
+-->
+
+<Project Sdk="Microsoft.Build.NoTargets">
+    <PropertyGroup>
+        <TargetFramework>netstandard2.0</TargetFramework>
+        <IkvmJdkFlavors>25</IkvmJdkFlavors>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <Import Project="..\IKVM.Java\jdk25\IKVM.Java.runtime.jdk25.props" />
+
+    <Target Name="_OpenJdkMakeFindJdk">
+        <!-- JAVA_HOME only as a last resort: in a build of both flavors it is likely the JDK 8 one. -->
+        <FindJdk Family="25" Condition=" '$(OpenJdkBootJdk)' == '' ">
+            <Output TaskParameter="JdkPath" PropertyName="OpenJdkBootJdk" />
+        </FindJdk>
+        <PropertyGroup>
+            <OpenJdkBootJdk Condition=" '$(OpenJdkBootJdk)' == '' ">$(JAVA_HOME)</OpenJdkBootJdk>
+        </PropertyGroup>
+        <Error Condition=" '$(OpenJdkBootJdk)' == '' " Text="No JDK 25 to build the JDK 25 class library with. Install one, or set OpenJdkBootJdk." />
+    </Target>
+
+    <Target Name="OpenJdkConfigure" DependsOnTargets="_OpenJdkMakeFindJdk">
+        <ItemGroup>
+            <_OpenJdkConfigureArg Include="--with-boot-jdk=$(OpenJdkBootJdk.TrimEnd('\').TrimEnd('/'))" />
+            <_OpenJdkConfigureArg Include="--with-debug-level=release" />
+            <_OpenJdkConfigureArg Include="--with-jvm-variants=server" />
+            <_OpenJdkConfigureArg Include="--disable-warnings-as-errors" />
+            <_OpenJdkConfigureArg Include="--with-version-string=$(OpenJdkVersionNumber)+$(OpenJdkBuildNumber)" />
+            <_OpenJdkConfigureArg Include="--with-version-date=$(OpenJdkVersionDate)" />
+            <_OpenJdkConfigureArg Include="--with-vendor-name=IKVM" />
+        </ItemGroup>
+
+        <PropertyGroup>
+            <_OpenJdkConfigureCommand>bash &quot;$(OpenJdkDir)configure&quot; @(_OpenJdkConfigureArg->'&quot;%(Identity)&quot;', ' ')</_OpenJdkConfigureCommand>
+            <_OpenJdkConfigureStamp>$(OpenJdkBuildDir)ikvm-configure.cmd</_OpenJdkConfigureStamp>
+            <_OpenJdkConfigured Condition=" Exists('$(OpenJdkBuildDir)spec.gmk') And Exists('$(_OpenJdkConfigureStamp)') And '$([System.IO.File]::ReadAllText($(_OpenJdkConfigureStamp)).Trim())' == '$(_OpenJdkConfigureCommand)' ">true</_OpenJdkConfigured>
+        </PropertyGroup>
+
+        <MakeDir Directories="$(OpenJdkBuildDir)" />
+        <Exec Command="$(_OpenJdkConfigureCommand)" WorkingDirectory="$(OpenJdkBuildDir)" Condition=" '$(_OpenJdkConfigured)' != 'true' " />
+        <WriteLinesToFile File="$(_OpenJdkConfigureStamp)" Lines="$(_OpenJdkConfigureCommand)" Overwrite="true" Condition=" '$(_OpenJdkConfigured)' != 'true' " />
+    </Target>
+
+    <Target Name="OpenJdkMake" DependsOnTargets="OpenJdkConfigure" AfterTargets="Build">
+        <Exec Command="make -C &quot;$(OpenJdkBuildDir.TrimEnd('\').TrimEnd('/'))&quot; JOBS=$(OpenJdkMakeJobs) LOG=warn @(OpenJdkModule->'%(Identity)-java', ' ')" />
+    </Target>
+
+    <Target Name="OpenJdkClean" AfterTargets="Clean">
+        <RemoveDir Directories="$(OpenJdkBuildDir)" />
+    </Target>
+
+</Project>

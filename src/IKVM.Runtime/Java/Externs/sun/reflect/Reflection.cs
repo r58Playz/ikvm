@@ -39,55 +39,6 @@ namespace IKVM.Java.Externs.sun.reflect
     static class Reflection
     {
 
-        static readonly ConditionalWeakTable<MethodBase, Lazy<HideFromJavaFlags>> hideFromJavaFlagCache = new ConditionalWeakTable<MethodBase, Lazy<HideFromJavaFlags>>();
-
-        /// <summary>
-        /// Gets the <see cref="HideFromJavaFlags"/> that should be considered applied to the given method.
-        /// </summary>
-        /// <param name="mb"></param>
-        /// <returns></returns>
-        internal static HideFromJavaFlags GetHideFromJavaFlags(MethodBase mb)
-        {
-            return hideFromJavaFlagCache.GetValue(mb, _ => new Lazy<HideFromJavaFlags>(() => GetHideFromJavaFlagsImpl(_), true)).Value;
-        }
-
-        /// <summary>
-        /// Gets the <see cref="HideFromJavaFlags"/> that should be considered applied to the given method.
-        /// </summary>
-        /// <param name="mb"></param>
-        /// <returns></returns>
-        static HideFromJavaFlags GetHideFromJavaFlagsImpl(MethodBase mb)
-        {
-#if FIRST_PASS
-            throw new NotImplementedException();
-#else
-            return mb.Name.StartsWith("__<", StringComparison.Ordinal) ? HideFromJavaFlags.All : JVM.Context.AttributeHelper.GetHideFromJavaFlags(mb);
-#endif
-        }
-
-        /// <summary>
-        /// Returns <c>true</c> if the given method should not be considered in walks of the stack from the point of view of Java.
-        /// </summary>
-        /// <param name="mb"></param>
-        /// <returns></returns>
-        internal static bool IsHideFromStackWalk(MethodBase mb)
-        {
-#if FIRST_PASS
-            throw new NotImplementedException();
-#else
-            var type = mb.DeclaringType;
-            if (type == null ||
-                type.Assembly == typeof(object).Assembly ||
-                type.Assembly == typeof(Reflection).Assembly ||
-                type == typeof(global::java.lang.reflect.Method) ||
-                type == typeof(global::java.lang.reflect.Constructor) ||
-                (GetHideFromJavaFlags(mb) & HideFromJavaFlags.StackWalk) != 0)
-                return true;
-
-            return false;
-#endif
-        }
-
         public static global::java.lang.Class getCallerClass()
         {
 #if FIRST_PASS
@@ -113,12 +64,12 @@ namespace IKVM.Java.Externs.sun.reflect
                 if (method == null)
                     return null;
 
-                if (IsHideFromStackWalk(method))
+                if (StackWalkUtil.IsHideFromStackWalk(method))
                     continue;
 
                 // HACK we skip HideFromJavaFlags.StackTrace too because we want to skip the LambdaForm methods
                 // that are used by late binding
-                if ((GetHideFromJavaFlags(method) & HideFromJavaFlags.StackTrace) != 0)
+                if ((StackWalkUtil.GetHideFromJavaFlags(method) & HideFromJavaFlags.StackTrace) != 0)
                     continue;
 
                 if (--realFramesToSkip == 0)

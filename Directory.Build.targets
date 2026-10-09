@@ -8,7 +8,7 @@
     </PropertyGroup>
 
     <!-- A project that only exists in some flavors declares them in IkvmJdkFlavors (e.g. "8"). -->
-    <Target Name="_IkvmCheckJdkFlavor">
+    <Target Name="_IkvmCheckJdkFlavor" Condition=" '$(MSBuildIsRestoring)' != 'true' ">
         <Error Condition=" !$([System.String]::Copy(';$(IkvmSupportedJdks);').Contains(';$(IkvmJdk);')) " Text="IkvmJdk=$(IkvmJdk) is not a supported JDK flavor (supported: $(IkvmSupportedJdks))." />
         <Error Condition=" '$(IkvmJdkFlavors)' != '' And !$([System.String]::Copy(';$(IkvmJdkFlavors);').Contains(';$(IkvmJdk);')) " Text="$(MSBuildProjectName) is not part of the JDK $(IkvmJdk) flavor (only: $(IkvmJdkFlavors))." />
     </Target>

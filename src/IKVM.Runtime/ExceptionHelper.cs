@@ -365,7 +365,7 @@ namespace IKVM.Runtime
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            return (IKVM.Java.Externs.sun.reflect.Reflection.GetHideFromJavaFlags(mb) & HideFromJavaFlags.StackTrace) != 0 || (mb.DeclaringType == typeof(ikvm.runtime.Util) && mb.Name == "mapException");
+            return (StackWalkUtil.GetHideFromJavaFlags(mb) & HideFromJavaFlags.StackTrace) != 0 || (mb.DeclaringType == typeof(ikvm.runtime.Util) && mb.Name == "mapException");
 #endif
         }
 

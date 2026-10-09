@@ -6,6 +6,7 @@
         <PackageId>IKVM.Java.runtime.osx</PackageId>
         <IkvmJavaRuntimeIdentifier>osx</IkvmJavaRuntimeIdentifier>
         <EnableDefaultItems>false</EnableDefaultItems>
+        <IkvmJdkFlavors>8</IkvmJdkFlavors>
     </PropertyGroup>
 
     <ItemGroup>

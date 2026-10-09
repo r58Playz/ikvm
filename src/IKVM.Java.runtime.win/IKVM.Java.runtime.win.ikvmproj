@@ -6,6 +6,7 @@
         <PackageId>IKVM.Java.runtime.win</PackageId>
         <IkvmJavaRuntimeIdentifier>win</IkvmJavaRuntimeIdentifier>
         <EnableDefaultItems>false</EnableDefaultItems>
+        <IkvmJdkFlavors>8</IkvmJdkFlavors>
     </PropertyGroup>
 
     <ItemGroup>

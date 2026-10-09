@@ -13,12 +13,14 @@
 
     <Import Project="$(MSBuildThisFileDirectory)..\IKVM.MSBuild\buildTransitive\IKVM.MSBuild.targets" />
     <Import Project="$(MSBuildThisFileDirectory)..\..\IKVM.deps.targets" />
-    <Import Project="$(MSBuildThisFileDirectory)..\..\targets\openjdk.buildtools.targets" />
+    <Import Project="$(MSBuildThisFileDirectory)..\..\targets\openjdk.buildtools.targets" Condition=" '$(IkvmJdk)' == '8' " />
+    <Import Project="$(MSBuildThisFileDirectory)jdk25\IKVM.Java.runtime.jdk25.targets" Condition=" '$(IkvmJdk)' == '25' " />
 
     <Target Name="FindJdk">
-        <!-- If JAVA_HOME is explicitly set (e.g., from GitHub Actions setup-java), use it directly -->
+        <!-- If JAVA_HOME is explicitly set (e.g., from GitHub Actions setup-java), use it directly; but not for JDK 25,
+             where it is likely the JDK 8 the other flavor builds with -->
         <PropertyGroup>
-            <JdkPath Condition=" '$(JAVA_HOME)' != '' ">$(JAVA_HOME)</JdkPath>
+            <JdkPath Condition=" '$(JAVA_HOME)' != '' And '$(IkvmJdk)' == '8' ">$(JAVA_HOME)</JdkPath>
         </PropertyGroup>
         <!-- Otherwise, fall back to searching for the JDK this flavor is built with -->
         <FindJdk Family="$(IkvmJdk)" Condition=" '$(JdkPath)' == '' ">
@@ -49,7 +51,7 @@
         <Error Text="Could not locate javac executable." Condition=" '$(JavaCompilerPath)' == '' " />
     </Target>
 
-    <PropertyGroup>
+    <PropertyGroup Condition=" '$(IkvmJdk)' == '8' ">
         <GenerateDependsOn>
             BuildJdkBuildTools;
             $(GenerateDependsOn);

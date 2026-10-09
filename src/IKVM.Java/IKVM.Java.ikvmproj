@@ -3,6 +3,7 @@
 
     <PropertyGroup>
         <TargetFrameworks>net472;net6.0;net8.0</TargetFrameworks>
+        <TargetFrameworks Condition=" '$(IkvmJdk)' != '8' ">net8.0</TargetFrameworks>
         <PackageId>IKVM.Java</PackageId>
         <IkvmJavaRuntimeIdentifier>ref</IkvmJavaRuntimeIdentifier>
         <EnableDefaultItems>false</EnableDefaultItems>
@@ -27,7 +28,7 @@
         <None Include="*.targets" />
     </ItemGroup>
 
-    <ItemGroup>
+    <ItemGroup Condition=" '$(IkvmJdk)' == '8' ">
         <Compile Include="SocketOptionRegistry.java" />
     </ItemGroup>
 
@@ -45,7 +46,8 @@
 		</ItemGroup>
 	</Target>
     
-    <Target Name="ConfigureJavaPlugins" BeforeTargets="CompileJava;_CompileJavaResponseFile" DependsOnTargets="DownloadMavenArtifacts">
+    <!-- JDK 8 only: in the JDK 25 flavor javac compiles just IKVM's sources, the JDK's classes come from its own build -->
+    <Target Name="ConfigureJavaPlugins" BeforeTargets="CompileJava;_CompileJavaResponseFile" DependsOnTargets="DownloadMavenArtifacts" Condition=" '$(IkvmJdk)' == '8' ">
 		<ItemGroup>
 			<_Jars Remove="@(_Jars)" />
 			<_Jars Include="$(IntermediateOutputPath)maven\*.jar" />

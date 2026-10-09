@@ -1,0 +1,52 @@
+<!--
+
+    IKVM.Java.runtime.jdk25.props
+
+    The JDK 25 class library. Imported by the IKVM.Java projects and by IKVM.OpenJdk.Make.
+
+    The JDK's own build compiles the modules below (IKVM.OpenJdk.Make runs its configure and make), so the class
+    files, generated sources and resources are exactly the JDK's. IKVM's sources in local\ are compiled against that
+    output: classes in IKVM's own packages, and replacements for JDK classes, which take the place of the JDK's class
+    of the same name and its nested classes. ikvmc then compiles both, with map.xml, into IKVM.Java.
+
+-->
+
+<Project>
+    <PropertyGroup>
+        <MSBuildAllProjects>$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <OpenJdkBuildDir>$([MSBuild]::NormalizeDirectory('$(IkvmArtifactsDir)', 'openjdk-build'))</OpenJdkBuildDir>
+        <OpenJdkModulesDir>$([MSBuild]::NormalizeDirectory('$(OpenJdkBuildDir)', 'jdk', 'modules'))</OpenJdkModulesDir>
+        <OpenJdkMakeJobs Condition=" '$(OpenJdkMakeJobs)' == '' ">4</OpenJdkMakeJobs>
+    </PropertyGroup>
+
+    <!-- The modules IKVM.Java is made of. -->
+    <ItemGroup>
+        <OpenJdkModule Include="java.base" />
+        <OpenJdkModule Include="java.compiler" />
+        <OpenJdkModule Include="java.datatransfer" />
+        <OpenJdkModule Include="java.desktop" />
+        <OpenJdkModule Include="java.instrument" />
+        <OpenJdkModule Include="java.logging" />
+        <OpenJdkModule Include="java.management" />
+        <OpenJdkModule Include="java.naming" />
+        <OpenJdkModule Include="java.net.http" />
+        <OpenJdkModule Include="java.prefs" />
+        <OpenJdkModule Include="java.scripting" />
+        <OpenJdkModule Include="java.security.sasl" />
+        <OpenJdkModule Include="java.sql" />
+        <OpenJdkModule Include="java.transaction.xa" />
+        <OpenJdkModule Include="java.xml" />
+        <OpenJdkModule Include="java.xml.crypto" />
+        <OpenJdkModule Include="jdk.charsets" />
+        <OpenJdkModule Include="jdk.crypto.ec" />
+        <OpenJdkModule Include="jdk.jfr" />
+        <OpenJdkModule Include="jdk.localedata" />
+        <OpenJdkModule Include="jdk.management" />
+        <OpenJdkModule Include="jdk.unsupported" />
+        <OpenJdkModule Include="jdk.zipfs" />
+    </ItemGroup>
+
+</Project>

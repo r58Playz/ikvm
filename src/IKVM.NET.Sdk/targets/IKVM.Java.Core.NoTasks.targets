@@ -199,6 +199,7 @@ Value = b.ToString();
 			<_JavaCompilerArgs Include="-processors" Condition=" '@(JavaCompilerProcessors)' != '' " />
 			<_JavaCompilerArgs Include="$(JavaCompilerProcessors, ',')" Condition=" '@(JavaCompilerProcessors)' != '' " />
 			<_JavaCompilerArgs Include="@(JavaCompilerPlugins->'&quot;-Xplugin:%(Identity)&quot;')" Condition=" '@(JavaCompilerPlugins)' != '' " />
+            <_JavaCompilerArgs Include="@(JavaCompilerArgs)" />
             <_JavaCompilerArgs Include="@(_JavaCompilerArgsCompile->'%(FullPath)')" />
         </ItemGroup>
         <WriteLinesToFile File="$(_CompileJavaResponseFile)" Lines="@(_JavaCompilerArgs)" Overwrite="true" WriteOnlyWhenDifferent="true" />

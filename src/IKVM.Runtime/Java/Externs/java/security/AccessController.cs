@@ -81,7 +81,7 @@ namespace IKVM.Java.Externs.java.security
                     global::java.lang.Class caller = callerID.getCallerClass();
                     protection_domain = caller == null ? null : IKVM.Java.Externs.java.lang.Class.getProtectionDomain0(caller);
                 }
-                else if (IKVM.Java.Externs.sun.reflect.Reflection.IsHideFromStackWalk(method))
+                else if (StackWalkUtil.IsHideFromStackWalk(method))
                 {
                     continue;
                 }

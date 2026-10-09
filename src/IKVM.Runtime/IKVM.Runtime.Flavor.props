@@ -5,9 +5,11 @@
     Selects the JDK-flavor-specific sources of IKVM.Runtime. Imported by every project that compiles them:
     IKVM.Runtime, IKVM.Runtime-ref, IKVM.Tools.Importer and IKVM.Tools.Exporter.
 
-    The JDK 8 sources stay where they have always been. Their JDK 25 counterparts live in a parallel Jdk25\ tree
-    (Jdk25\Java\Externs, Jdk25\Accessors, Jdk25\Util). A shared class whose flavors differ a lot is split into
-    X.cs (shared) plus X.Jdk8.cs / X.Jdk25.cs partials; small differences use #if JDK25.
+    The JDK 8 sources stay where they have always been. Natives are implemented per flavor: the JDK 8 externs in
+    Java\Externs\{java,sun}, the JDK 25 ones in a parallel Jdk25\Java\Externs tree. Accessors bind to Java members
+    by name at run time, so they are shared; one that only one flavor uses is named X.Jdk8.cs or X.Jdk25.cs, like a
+    shared class whose flavors differ a lot (X.cs plus X.Jdk8.cs / X.Jdk25.cs partials). Small differences use
+    #if JDK25.
 
     IkvmRuntimeFlavorExclude holds the full paths of the other flavor's files.
 
@@ -27,12 +29,8 @@
 
     <ItemGroup Condition=" '$(IkvmJdk)' != '8' ">
         <IkvmRuntimeFlavorExclude Include="$(IkvmRuntimeDir)Java\Externs\java\**\*.cs" />
-        <IkvmRuntimeFlavorExclude Include="$(IkvmRuntimeDir)Java\Externs\sun\**\*.cs" />
-        <IkvmRuntimeFlavorExclude Include="$(IkvmRuntimeDir)Accessors\Java\**\*.cs" />
-        <IkvmRuntimeFlavorExclude Include="$(IkvmRuntimeDir)Accessors\Sun\**\*.cs" />
-        <IkvmRuntimeFlavorExclude Include="$(IkvmRuntimeDir)Accessors\Com\**\*.cs" />
-        <IkvmRuntimeFlavorExclude Include="$(IkvmRuntimeDir)Util\Java\**\*.cs" />
-        <IkvmRuntimeFlavorExclude Include="$(IkvmRuntimeDir)Util\Sun\**\*.cs" />
+        <!-- JDK 25's sun.misc.Unsafe has no natives: its jdk.internal.misc.Unsafe ones share JDK 8's implementation -->
+        <IkvmRuntimeFlavorExclude Include="$(IkvmRuntimeDir)Java\Externs\sun\**\*.cs" Exclude="$(IkvmRuntimeDir)Java\Externs\sun\misc\Unsafe.cs" />
         <IkvmRuntimeFlavorExclude Include="$(IkvmRuntimeDir)**\*.Jdk8.cs" />
     </ItemGroup>
 

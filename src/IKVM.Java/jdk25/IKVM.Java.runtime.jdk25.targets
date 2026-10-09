@@ -1,0 +1,59 @@
+<!--
+
+    IKVM.Java.runtime.jdk25.targets
+
+    Feeds the JDK 25 build's output (see IKVM.Java.runtime.jdk25.props) to javac and ikvmc.
+
+-->
+
+<Project>
+    <PropertyGroup>
+        <MSBuildAllProjects>$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+    </PropertyGroup>
+
+    <!--
+        IKVM's sources are compiled against the JDK's modules, as patches to the modules they are part of: local\<module>\
+        holds the sources of <module>, IKVM's own packages being part of java.base. A patched module also reads the
+        unnamed module, the cli.* stubs on the class path. (javac only allows a boot class path below release 9.)
+    -->
+    <Target Name="_OpenJdkJavaCompilerArgs" BeforeTargets="_CompileJavaResponseFile;_ResolveClasspathFiles" DependsOnTargets="GetReferenceBootClasspath">
+        <ItemGroup>
+            <_OpenJdkOverlayModule Include="$([System.IO.Directory]::GetDirectories('$(IkvmJavaFlavorDir)local'))" />
+            <_OpenJdkOverlayModule Remove="@(_OpenJdkOverlayModule)" Condition=" '%(Filename)%(Extension)' == 'META-INF' " />
+            <Classpath Include="@(BootClasspath)" />
+            <BootClasspath Remove="@(BootClasspath)" />
+            <JavaCompilerArgs Include="--system none" />
+            <JavaCompilerArgs Include="--module-path &quot;$(OpenJdkModulesDir.TrimEnd('\').TrimEnd('/'))&quot;" />
+            <JavaCompilerArgs Include="@(_OpenJdkOverlayModule->'--patch-module %(Filename)%(Extension)=&quot;%(FullPath)&quot;')" />
+            <JavaCompilerArgs Include="@(_OpenJdkOverlayModule->'--add-reads %(Filename)%(Extension)=ALL-UNNAMED')" />
+            <JavaCompilerArgs Include="-XDstringConcat=inline" />
+            <JavaCompilerArgs Include="-Xlint:-options" />
+        </ItemGroup>
+    </Target>
+
+    <!--
+        The JDK's classes go to ikvmc as they are, except where local\ replaces a source file: then its class and the
+        nested classes compiled from it come from IKVM's version. module-info is not a class.
+    -->
+    <Target Name="_OpenJdkConvert" AfterTargets="CompileJava">
+        <ItemGroup>
+            <_OpenJdkReplaced Include="@(OpenJdkOverlaySource->'$(OpenJdkModulesDir)%(RecursiveDir)%(Filename).class')" />
+            <_OpenJdkReplaced Include="@(OpenJdkOverlaySource->'$(OpenJdkModulesDir)%(RecursiveDir)%(Filename)$*.class')" />
+            <_OpenJdkReplaced Include="$(OpenJdkModulesDir)*\module-info.class" />
+            <!-- the classes map.xml maps onto .NET types (their nested classes stay) -->
+            <_OpenJdkReplaced Include="$(OpenJdkModulesDir)java.base\java\lang\Object.class" />
+            <_OpenJdkReplaced Include="$(OpenJdkModulesDir)java.base\java\lang\String.class" />
+            <_OpenJdkReplaced Include="$(OpenJdkModulesDir)java.base\java\lang\Throwable.class" />
+            <_OpenJdkReplaced Include="$(OpenJdkModulesDir)java.base\java\lang\Comparable.class" />
+            <_OpenJdkReplaced Include="$(OpenJdkModulesDir)java.base\java\lang\AutoCloseable.class" />
+            <Convert Include="$(OpenJdkModulesDir)%(OpenJdkModule.Identity)\**\*.class" Exclude="@(_OpenJdkReplaced)" />
+        </ItemGroup>
+
+        <!-- the files the JDK build copies next to a module's classes; its _the.* files are the build's own -->
+        <ItemGroup>
+            <_OpenJdkResource Include="$(OpenJdkModulesDir)%(OpenJdkModule.Identity)\**\*" Exclude="$(OpenJdkModulesDir)%(OpenJdkModule.Identity)\**\*.class;$(OpenJdkModulesDir)%(OpenJdkModule.Identity)\_the.*" />
+            <JavaResource Include="@(_OpenJdkResource)" ResourcePath="$([System.String]::Copy('%(RecursiveDir)%(Filename)%(Extension)').Replace('\', '/'))" />
+        </ItemGroup>
+    </Target>
+
+</Project>

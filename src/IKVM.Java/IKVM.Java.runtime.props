@@ -35,6 +35,19 @@
     <Import Project="IKVM.Java.runtime.jaxp.props" Condition=" '$(IkvmJdk)' == '8' " />
     <Import Project="IKVM.Java.runtime.jaxws.props" Condition=" '$(IkvmJdk)' == '8' " />
 
+    <!-- The JDK 25 class library: the modules built by the JDK's own build. -->
+    <Import Project="jdk25\IKVM.Java.runtime.jdk25.props" Condition=" '$(IkvmJdk)' == '25' " />
+
+    <PropertyGroup Condition=" '$(IkvmJdk)' == '25' ">
+        <LangVersion>25</LangVersion>
+        <JavaVersion>25</JavaVersion>
+    </PropertyGroup>
+
+    <ItemGroup Condition=" '$(IkvmJdk)' == '25' ">
+        <ProjectReference Include="$(MSBuildThisFileDirectory)..\IKVM.OpenJdk.Make\IKVM.OpenJdk.Make.msbuildproj" ReferenceOutputAssembly="false" Private="false" PrivateAssets="All" SkipGetTargetFrameworkProperties="true" GlobalPropertiesToRemove="TargetFramework;RuntimeIdentifier" />
+        <OpenJdkOverlaySource Include="$(IkvmJavaFlavorDir)local\**\*.java" />
+    </ItemGroup>
+
     <PropertyGroup>
         <AssemblyName>IKVM.Java</AssemblyName>
         <ProduceReferenceAssembly>false</ProduceReferenceAssembly>

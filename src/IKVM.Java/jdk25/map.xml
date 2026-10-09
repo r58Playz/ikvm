@@ -1,0 +1,1978 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  Copyright (C) 2002-2015 Jeroen Frijters 
+
+  This software is provided 'as-is', without any express or implied
+  warranty.  In no event will the authors be held liable for any damages
+  arising from the use of this software.
+
+  Permission is granted to anyone to use this software for any purpose,
+  including commercial applications, and to alter it and redistribute it
+  freely, subject to the following restrictions:
+
+  1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+  2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+  3. This notice may not be removed or altered from any source distribution.
+
+  Jeroen Frijters
+  jeroen@frijters.net
+  
+-->
+<root xmlns="http://ikvm.net/schemas/mapxml">
+    <assembly>
+        <class name="java.lang.Object" shadows="System.Object" modifiers="public">
+            <attribute type="System.SerializableAttribute" sig="()V" />
+            <field name="__&lt;init&gt;" sig="Z" modifiers="private final">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+                <attribute type="System.Runtime.CompilerServices.SpecialNameAttribute" sig="()V" />
+                <attribute type="System.ComponentModel.EditorBrowsableAttribute" sig="(Lcli.System.ComponentModel.EditorBrowsableState;)V">
+                    <parameter>Never</parameter>
+                </attribute>
+                <attribute type="System.NonSerializedAttribute" sig="()V" />
+            </field>
+            <constructor sig="()V" modifiers="public">
+                <body>
+                    <ldarg_0 />
+                    <call type="System.Object" name=".ctor" sig="()V" />
+                    <ldarg_0 />
+                    <ldc_i4_1 />
+                    <stfld class="java.lang.Object" name="__&lt;init&gt;" sig="Z" />
+                    <ret />
+                </body>
+            </constructor>
+            <method name="notifyAll" sig="()V" modifiers="public final">
+                <body>
+                    <ldarg_0 />
+                    <call type="System.Threading.Monitor" name="PulseAll" sig="(Ljava.lang.Object;)V" />
+                    <ret />
+                </body>
+            </method>
+            <method name="notify" sig="()V" modifiers="public final">
+                <body>
+                    <ldarg_0 />
+                    <call type="System.Threading.Monitor" name="Pulse" sig="(Ljava.lang.Object;)V" />
+                    <ret />
+                </body>
+            </method>
+            <!-- the runtime implements Java's interruptible wait on top of System.Threading.Monitor -->
+            <method name="wait" sig="()V" modifiers="public final">
+                <throws class="java.lang.InterruptedException" />
+                <body>
+                    <ldarg_0 />
+                    <ldc_i4_0 />
+                    <conv_i8 />
+                    <call type="IKVM.Java.Externs.java.lang.Object" name="wait" sig="(Ljava.lang.Object;J)V" />
+                    <ret />
+                </body>
+            </method>
+            <method name="wait" sig="(J)V" modifiers="public final">
+                <parameter name="timeoutMillis" />
+                <throws class="java.lang.InterruptedException" />
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <call type="IKVM.Java.Externs.java.lang.Object" name="wait" sig="(Ljava.lang.Object;J)V" />
+                    <ret />
+                </body>
+            </method>
+            <method name="wait" sig="(JI)V" modifiers="public final">
+                <parameter name="timeoutMillis" />
+                <parameter name="nanos" />
+                <throws class="java.lang.InterruptedException" />
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <ldarg_2 />
+                    <call type="IKVM.Java.Externs.java.lang.Object" name="wait" sig="(Ljava.lang.Object;JI)V" />
+                    <ret />
+                </body>
+            </method>
+            <method name="getClass" sig="()Ljava.lang.Class;" modifiers="public final">
+                <attribute type="IKVM.Attributes.SignatureAttribute" sig="(Ljava.lang.String;)V">
+                    <parameter>()Ljava/lang/Class&lt;+Ljava/lang/Object;&gt;;</parameter>
+                </attribute>
+                <body>
+                    <ldarg_0 />
+                    <call class="ikvm.runtime.Util" name="getClassFromObject" sig="(Ljava.lang.Object;)Ljava.lang.Class;" />
+                    <ret />
+                </body>
+            </method>
+            <method name="clone" sig="()Ljava.lang.Object;" modifiers="protected">
+                <throws class="java.lang.CloneNotSupportedException" />
+                <body>
+                    <ldarg_0 />
+                    <isinst class="java.lang.Cloneable" />
+                    <brtrue name="ok" />
+                    <newobj class="java.lang.CloneNotSupportedException" name="&lt;init&gt;" sig="()V" />
+                    <throw />
+                    <label name="ok" />
+                    <ldarg_0 />
+                    <call type="System.Object" name="MemberwiseClone" sig="()Ljava.lang.Object;" />
+                    <ret />
+                </body>
+                <alternateBody>
+                    <ldarg_0 />
+                    <isinst type="System.Array" />
+                    <dup />
+                    <brfalse name="not_array" />
+                    <call type="System.Array" name="Clone" sig="()Ljava.lang.Object;" />
+                    <ret />
+                    <label name="not_array" />
+                    <pop />
+                    <ldarg_0 />
+                    <isinst class="java.lang.Cloneable" />
+                    <brfalse name="not_cloneable" />
+                    <!--
+		              This means we're Cloneable, but not derived from java.lang.Object or java.lang.Throwable.
+		              It also means that we must have been invoked thru reflection (or by code in the java.lang package),
+		              so it is OK to use reflection to call Object.MemberwiseClone().
+		            -->
+                    <ldtoken type="System.Object" />
+                    <call type="System.Type" name="GetTypeFromHandle" sig="(Lcli.System.RuntimeTypeHandle;)Lcli.System.Type;" />
+                    <ldstr value="MemberwiseClone" />
+                    <ldc_i4 value="36" />
+                    <ldnull />
+                    <ldsfld type="System.Type" name="EmptyTypes" sig="[Lcli.SystemType;" />
+                    <ldnull />
+                    <callvirt type="System.Type" name="GetMethod" sig="(Ljava.lang.String;Lcli.System.Reflection.BindingFlags;Lcli.System.Reflection.Binder;[Lcli.System.Type;[Lcli.System.Reflection.ParameterModifier;)Lcli.System.Reflection.MethodInfo;" />
+                    <ldarg_0 />
+                    <ldnull />
+                    <callvirt type="System.Reflection.MethodInfo" name="Invoke" sig="(Ljava.lang.Object;[Ljava.lang.Object;)Ljava.lang.Object;" />
+                    <ret />
+                    <label name="not_cloneable" />
+                    <newobj class="java.lang.CloneNotSupportedException" name="&lt;init&gt;" sig="()V" />
+                    <throw />
+                </alternateBody>
+            </method>
+            <method name="toStringImpl" sig="(Ljava.lang.Object;)Ljava.lang.String;" modifiers="private static">
+                <body>
+                    <ldarg_0 />
+                    <callvirt class="java.lang.Object" name="getClass" sig="()Ljava.lang.Class;" />
+                    <call class="java.lang.Class" name="getName" sig="()Ljava.lang.String;" />
+                    <ldstr value="@" />
+                    <ldarg_0 />
+                    <callvirt class="java.lang.Object" name="hashCode" sig="()I" />
+                    <call class="java.lang.Integer" name="toHexString" sig="(I)Ljava.lang.String;" />
+                    <call type="System.String" name="Concat" sig="(Ljava.lang.String;Ljava.lang.String;Ljava.lang.String;)Ljava.lang.String;" />
+                    <ret />
+                </body>
+            </method>
+            <method name="toString" sig="()Ljava.lang.String;" modifiers="public">
+                <override name="ToString" />
+                <body>
+                    <ldarg_0 />
+                    <call class="java.lang.Object" name="toStringImpl" sig="(Ljava.lang.Object;)Ljava.lang.String;" />
+                    <ret />
+                </body>
+                <alternateBody>
+                    <ldarg_0 />
+                    <isinst type="System.Array" />
+                    <brfalse name="skip" />
+                    <ldarg_0 />
+                    <call class="java.lang.Object" name="toStringImpl" sig="(Ljava.lang.Object;)Ljava.lang.String;" />
+                    <br name="end" />
+                    <label name="skip" />
+                    <ldarg_0 />
+                    <callvirt type="System.Object" name="ToString" sig="()Ljava.lang.String;" />
+                    <label name="end" />
+                    <ret />
+                </alternateBody>
+                <nonvirtualAlternateBody>
+                    <ldarg_0 />
+                    <call class="java.lang.Object" name="toStringImpl" sig="(Ljava.lang.Object;)Ljava.lang.String;" />
+                    <ret />
+                </nonvirtualAlternateBody>
+            </method>
+            <method name="hashCode" sig="()I" modifiers="public">
+                <override name="GetHashCode" />
+                <nonvirtualAlternateBody>
+                    <ldarg_0 />
+                    <call type="System.Runtime.CompilerServices.RuntimeHelpers" name="GetHashCode" sig="(Ljava.lang.Object;)I" />
+                    <ret />
+                </nonvirtualAlternateBody>
+            </method>
+            <method name="equals" sig="(Ljava.lang.Object;)Z" modifiers="public">
+                <parameter name="obj" />
+                <override name="Equals" />
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <ceq />
+                    <ret />
+                </body>
+                <alternateBody>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <callvirt type="System.Object" name="Equals" sig="(Ljava.lang.Object;)Z" />
+                    <ret />
+                </alternateBody>
+                <nonvirtualAlternateBody>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <ceq />
+                    <ret />
+                </nonvirtualAlternateBody>
+            </method>
+            <method name="finalize" sig="()V" modifiers="protected">
+                <throws class="java.lang.Throwable" />
+                <!-- NOTE we don't override Finalize, because that would be bad for performance,
+		             instead, the compiler contains a hack to lazily override Finalize when a class
+		             overrides our finalize
+		             TODO consider adding code to constructor (in debug builds) to detect that someone
+		             has overriden our finalize from another .NET language (if no intermediate Java base class
+		             has overriden finalize, the lazy override of Object.Finalize hasn't kicked in and finalize
+		             will never be called)
+		        -->
+                <body>
+                    <ldarg_0 />
+                    <call type="System.Object" name="Finalize" sig="()V" />
+                    <ret />
+                </body>
+                <alternateBody>
+                    <!-- if code in the java.lang package explicitly invokes finalize on a non java.lang.Object
+			             derived object	we just ignore it -->
+                    <ret />
+                </alternateBody>
+            </method>
+        </class>
+        <!--
+            java.lang.String is System.String. Its members are implemented by StringHelper (local\java.base\java\lang),
+            whose instance methods take the string as their first argument.
+
+            JDK 25 keeps a String's characters in a byte[] with a coder (LATIN1 or UTF16), and the class library uses
+            that representation directly. To it, our strings look as if compact strings were disabled: COMPACT_STRINGS
+            is false, coder() is always UTF16 and the byte[] members use StringUTF16's layout.
+        -->
+        <class name="java.lang.String" shadows="System.String" modifiers="public final">
+            <implements class="java.io.Serializable" />
+            <implements class="java.lang.Comparable" />
+            <implements class="java.lang.CharSequence" />
+            <implements class="java.lang.constant.Constable" />
+            <implements class="java.lang.constant.ConstantDesc" />
+            <attribute type="IKVM.Attributes.SignatureAttribute" sig="(Ljava.lang.String;)V">
+                <parameter>Ljava/lang/Object;Ljava/io/Serializable;Ljava/lang/Comparable&lt;Ljava/lang/String;&gt;;Ljava/lang/CharSequence;Ljava/lang/constant/Constable;Ljava/lang/constant/ConstantDesc;</parameter>
+            </attribute>
+            <attribute type="IKVM.Attributes.NonNestedInnerClassAttribute" sig="(Ljava.lang.String;)V">
+                <parameter>java.lang.String$CaseInsensitiveComparator</parameter>
+            </attribute>
+            <field name="serialVersionUID" sig="J" modifiers="private static final" constant="-6849794470754667710" />
+            <field name="COMPACT_STRINGS" sig="Z" modifiers="static final" constant="false" />
+            <field name="LATIN1" sig="B" modifiers="static final" constant="0" />
+            <field name="UTF16" sig="B" modifiers="static final" constant="1" />
+            <constructor sig="()V" modifiers="public">
+                <alternateBody>
+                    <ldstr value="" />
+                    <call type="System.String" name="Copy" sig="(Ljava.lang.String;)Ljava.lang.String;" />
+                    <ret />
+                </alternateBody>
+            </constructor>
+            <constructor sig="(Ljava.lang.String;)V" modifiers="public">
+                <parameter name="original" />
+                <redirect class="cli.System.String" name="Copy" sig="(Ljava.lang.String;)Ljava.lang.String;" />
+            </constructor>
+            <constructor sig="([C)V" modifiers="public">
+                <parameter name="value" />
+                <alternateBody>
+                    <!-- force a NullPointerException if the array is null -->
+                    <ldarg_0 />
+                    <ldlen />
+                    <pop />
+                    <ldarg_0 />
+                    <newobj type="System.String" name=".ctor" sig="([C)V" />
+                    <ret />
+                </alternateBody>
+            </constructor>
+            <constructor sig="([CII)V" modifiers="public">
+                <parameter name="value" />
+                <parameter name="offset" />
+                <parameter name="count" />
+            </constructor>
+            <constructor sig="([III)V" modifiers="public">
+                <parameter name="codePoints" />
+                <parameter name="offset" />
+                <parameter name="count" />
+                <redirect class="java.lang.StringHelper" name="NewString" sig="([III)Ljava.lang.String;" />
+            </constructor>
+            <constructor sig="([BIII)V" modifiers="public">
+                <parameter name="ascii" />
+                <parameter name="hibyte" />
+                <parameter name="offset" />
+                <parameter name="count" />
+                <attribute type="System.ObsoleteAttribute" sig="()V" />
+                <redirect class="java.lang.StringHelper" name="NewString" sig="([BIII)Ljava.lang.String;" />
+            </constructor>
+            <constructor sig="([BI)V" modifiers="public">
+                <parameter name="ascii" />
+                <parameter name="hibyte" />
+                <attribute type="System.ObsoleteAttribute" sig="()V" />
+                <redirect class="java.lang.StringHelper" name="NewString" sig="([BI)Ljava.lang.String;" />
+            </constructor>
+            <constructor sig="([BIILjava.lang.String;)V" modifiers="public">
+                <parameter name="bytes" />
+                <parameter name="offset" />
+                <parameter name="length" />
+                <parameter name="charsetName" />
+                <throws class="java.io.UnsupportedEncodingException" />
+                <redirect class="java.lang.StringHelper" name="NewString" sig="([BIILjava.lang.String;)Ljava.lang.String;" />
+            </constructor>
+            <constructor sig="([BIILjava.nio.charset.Charset;)V" modifiers="public">
+                <parameter name="bytes" />
+                <parameter name="offset" />
+                <parameter name="length" />
+                <parameter name="charset" />
+                <redirect class="java.lang.StringHelper" name="NewString" sig="([BIILjava.nio.charset.Charset;)Ljava.lang.String;" />
+            </constructor>
+            <constructor sig="([BLjava.lang.String;)V" modifiers="public">
+                <parameter name="bytes" />
+                <parameter name="charsetName" />
+                <throws class="java.io.UnsupportedEncodingException" />
+                <redirect class="java.lang.StringHelper" name="NewString" sig="([BLjava.lang.String;)Ljava.lang.String;" />
+            </constructor>
+            <constructor sig="([BLjava.nio.charset.Charset;)V" modifiers="public">
+                <parameter name="bytes" />
+                <parameter name="charset" />
+                <redirect class="java.lang.StringHelper" name="NewString" sig="([BLjava.nio.charset.Charset;)Ljava.lang.String;" />
+            </constructor>
+            <constructor sig="([BII)V" modifiers="public">
+                <parameter name="bytes" />
+                <parameter name="offset" />
+                <parameter name="length" />
+                <redirect class="java.lang.StringHelper" name="NewString" sig="([BII)Ljava.lang.String;" />
+            </constructor>
+            <constructor sig="([B)V" modifiers="public">
+                <parameter name="bytes" />
+                <redirect class="java.lang.StringHelper" name="NewString" sig="([B)Ljava.lang.String;" />
+            </constructor>
+            <constructor sig="(Ljava.lang.StringBuffer;)V" modifiers="public">
+                <parameter name="buffer" />
+                <redirect class="java.lang.StringHelper" name="NewString" sig="(Ljava.lang.StringBuffer;)Ljava.lang.String;" />
+            </constructor>
+            <constructor sig="(Ljava.lang.StringBuilder;)V" modifiers="public">
+                <parameter name="builder" />
+                <redirect class="java.lang.StringHelper" name="NewString" sig="(Ljava.lang.StringBuilder;)Ljava.lang.String;" />
+            </constructor>
+            <!-- package private constructors the class library uses -->
+            <constructor sig="(Ljava.lang.AbstractStringBuilder;Ljava.lang.Void;)V" modifiers="">
+                <redirect class="java.lang.StringHelper" name="NewString" sig="(Ljava.lang.AbstractStringBuilder;Ljava.lang.Void;)Ljava.lang.String;" />
+            </constructor>
+            <constructor sig="([BB)V" modifiers="">
+                <redirect class="java.lang.StringHelper" name="NewString" sig="([BB)Ljava.lang.String;" />
+            </constructor>
+            <method name="length" sig="()I" modifiers="public">
+                <redirect name="get_Length" />
+            </method>
+            <method name="isEmpty" sig="()Z" modifiers="public">
+                <body>
+                    <ldarg_0 />
+                    <callvirt type="System.String" name="get_Length" sig="()I" />
+                    <ldc_i4_0 />
+                    <ceq />
+                    <ret />
+                </body>
+            </method>
+            <method name="charAt" sig="(I)C" modifiers="public" nonullcheck="true">
+                <parameter name="index" />
+                <body>
+                    <ldarg_1 />
+                    <ldarg_0 />
+                    <callvirt type="System.String" name="get_Length" sig="()I" />
+                    <bge_un name="throw" />
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <callvirt type="System.String" name="get_Chars" sig="(I)C" />
+                    <ret />
+                    <label name="throw" />
+                    <ldarg_1 />
+                    <ldarg_0 />
+                    <callvirt type="System.String" name="get_Length" sig="()I" />
+                    <call class="java.lang.StringHelper" name="checkIndex" sig="(II)V" />
+                    <ldc_i4_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="codePointAt" sig="(I)I" modifiers="public">
+                <parameter name="index" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;I)I" />
+            </method>
+            <method name="codePointBefore" sig="(I)I" modifiers="public">
+                <parameter name="index" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;I)I" />
+            </method>
+            <method name="codePointCount" sig="(II)I" modifiers="public">
+                <parameter name="beginIndex" />
+                <parameter name="endIndex" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;II)I" />
+            </method>
+            <method name="offsetByCodePoints" sig="(II)I" modifiers="public">
+                <parameter name="index" />
+                <parameter name="codePointOffset" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;II)I" />
+            </method>
+            <method name="getChars" sig="(II[CI)V" modifiers="public">
+                <parameter name="srcBegin" />
+                <parameter name="srcEnd" />
+                <parameter name="dst" />
+                <parameter name="dstBegin" />
+                <redirect class="java.lang.StringHelper" sig="(Lcli.System.String;II[CI)V" />
+            </method>
+            <method name="getBytes" sig="(II[BI)V" modifiers="public">
+                <parameter name="srcBegin" />
+                <parameter name="srcEnd" />
+                <parameter name="dst" />
+                <parameter name="dstBegin" />
+                <attribute type="System.ObsoleteAttribute" sig="()V" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;II[BI)V" />
+            </method>
+            <method name="getBytes" sig="(Ljava.lang.String;)[B" modifiers="public">
+                <parameter name="charsetName" />
+                <throws class="java.io.UnsupportedEncodingException" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.String;)[B" />
+            </method>
+            <method name="getBytes" sig="(Ljava.nio.charset.Charset;)[B" modifiers="public">
+                <parameter name="charset" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.nio.charset.Charset;)[B" />
+            </method>
+            <method name="getBytes" sig="()[B" modifiers="public">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)[B" />
+            </method>
+            <!-- we have an equals here to make sure that it shows up as a declared method in reflection -->
+            <method name="equals" sig="(Ljava.lang.Object;)Z" modifiers="public">
+                <parameter name="anObject" />
+            </method>
+            <method name="contentEquals" sig="(Ljava.lang.StringBuffer;)Z" modifiers="public">
+                <parameter name="sb" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.StringBuffer;)Z" />
+            </method>
+            <method name="contentEquals" sig="(Ljava.lang.CharSequence;)Z" modifiers="public">
+                <parameter name="cs" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.CharSequence;)Z" />
+            </method>
+            <method name="equalsIgnoreCase" sig="(Ljava.lang.String;)Z" modifiers="public">
+                <parameter name="anotherString" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.String;)Z" />
+            </method>
+            <method name="compareTo" sig="(Ljava.lang.String;)I" modifiers="public">
+                <parameter name="anotherString" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.String;)I" />
+            </method>
+            <method name="compareTo" sig="(Ljava.lang.Object;)I" modifiers="public bridge synthetic">
+                <parameter name="o" />
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <castclass type="System.String" />
+                    <call class="java.lang.StringHelper" name="compareTo" sig="(Ljava.lang.String;Ljava.lang.String;)I" />
+                    <ret />
+                </body>
+            </method>
+            <method name="compareToIgnoreCase" sig="(Ljava.lang.String;)I" modifiers="public">
+                <parameter name="str" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.String;)I" />
+            </method>
+            <method name="regionMatches" sig="(ILjava.lang.String;II)Z" modifiers="public">
+                <parameter name="toffset" />
+                <parameter name="other" />
+                <parameter name="ooffset" />
+                <parameter name="len" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;ILjava.lang.String;II)Z" />
+            </method>
+            <method name="regionMatches" sig="(ZILjava.lang.String;II)Z" modifiers="public">
+                <parameter name="ignoreCase" />
+                <parameter name="toffset" />
+                <parameter name="other" />
+                <parameter name="ooffset" />
+                <parameter name="len" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;ZILjava.lang.String;II)Z" />
+            </method>
+            <method name="startsWith" sig="(Ljava.lang.String;I)Z" modifiers="public">
+                <parameter name="prefix" />
+                <parameter name="toffset" />
+                <body>
+                    <ldarg_0 />
+                    <ldarg_2 />
+                    <ldarg_1 />
+                    <ldc_i4_0 />
+                    <ldarg_1 />
+                    <callvirt type="System.String" name="get_Length" sig="()I" />
+                    <call class="java.lang.StringHelper" name="regionMatches" sig="(Ljava.lang.String;ILjava.lang.String;II)Z" />
+                    <ret />
+                </body>
+            </method>
+            <method name="startsWith" sig="(Ljava.lang.String;)Z" modifiers="public">
+                <parameter name="prefix" />
+                <body>
+                    <ldarg_0 />
+                    <ldc_i4_0 />
+                    <ldarg_1 />
+                    <ldc_i4_0 />
+                    <ldarg_1 />
+                    <callvirt type="System.String" name="get_Length" sig="()I" />
+                    <call class="java.lang.StringHelper" name="regionMatches" sig="(Ljava.lang.String;ILjava.lang.String;II)Z" />
+                    <ret />
+                </body>
+            </method>
+            <method name="endsWith" sig="(Ljava.lang.String;)Z" modifiers="public">
+                <parameter name="suffix" />
+                <body>
+                    <ldarg_0 />
+                    <ldarg_0 />
+                    <callvirt type="System.String" name="get_Length" sig="()I" />
+                    <ldarg_1 />
+                    <callvirt type="System.String" name="get_Length" sig="()I" />
+                    <sub />
+                    <ldarg_1 />
+                    <ldc_i4_0 />
+                    <ldarg_1 />
+                    <callvirt type="System.String" name="get_Length" sig="()I" />
+                    <call class="java.lang.StringHelper" name="regionMatches" sig="(Ljava.lang.String;ILjava.lang.String;II)Z" />
+                    <ret />
+                </body>
+            </method>
+            <method name="hashCode" sig="()I" modifiers="public">
+                <redirect class="java.lang.StringHelper" name="hashCode" sig="(Lcli.System.String;)I" />
+            </method>
+            <method name="indexOf" sig="(I)I" modifiers="public">
+                <parameter name="ch" />
+                <redirect class="java.lang.StringHelper" sig="(Lcli.System.String;I)I" />
+            </method>
+            <method name="indexOf" sig="(II)I" modifiers="public">
+                <parameter name="ch" />
+                <parameter name="fromIndex" />
+                <redirect class="java.lang.StringHelper" sig="(Lcli.System.String;II)I" />
+            </method>
+            <method name="indexOf" sig="(III)I" modifiers="public">
+                <parameter name="ch" />
+                <parameter name="beginIndex" />
+                <parameter name="endIndex" />
+                <redirect class="java.lang.StringHelper" name="indexOfRange" sig="(Lcli.System.String;III)I" />
+            </method>
+            <method name="lastIndexOf" sig="(I)I" modifiers="public">
+                <parameter name="ch" />
+                <redirect class="java.lang.StringHelper" sig="(Lcli.System.String;I)I" />
+            </method>
+            <method name="lastIndexOf" sig="(II)I" modifiers="public">
+                <parameter name="ch" />
+                <parameter name="fromIndex" />
+                <redirect class="java.lang.StringHelper" sig="(Lcli.System.String;II)I" />
+            </method>
+            <method name="indexOf" sig="(Ljava.lang.String;)I" modifiers="public">
+                <parameter name="str" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.String;)I" />
+            </method>
+            <method name="indexOf" sig="(Ljava.lang.String;I)I" modifiers="public">
+                <parameter name="str" />
+                <parameter name="fromIndex" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.String;I)I" />
+            </method>
+            <method name="indexOf" sig="(Ljava.lang.String;II)I" modifiers="public">
+                <parameter name="str" />
+                <parameter name="beginIndex" />
+                <parameter name="endIndex" />
+                <redirect class="java.lang.StringHelper" name="indexOfRange" sig="(Ljava.lang.String;Ljava.lang.String;II)I" />
+            </method>
+            <method name="lastIndexOf" sig="(Ljava.lang.String;)I" modifiers="public">
+                <parameter name="str" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.String;)I" />
+            </method>
+            <method name="lastIndexOf" sig="(Ljava.lang.String;I)I" modifiers="public">
+                <parameter name="str" />
+                <parameter name="fromIndex" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.String;I)I" />
+            </method>
+            <method name="substring" sig="(I)Ljava.lang.String;" modifiers="public">
+                <parameter name="beginIndex" />
+                <redirect class="java.lang.StringHelper" sig="(Lcli.System.String;I)Ljava.lang.String;" />
+            </method>
+            <method name="substring" sig="(II)Ljava.lang.String;" modifiers="public">
+                <parameter name="beginIndex" />
+                <parameter name="endIndex" />
+                <redirect class="java.lang.StringHelper" sig="(Lcli.System.String;II)Ljava.lang.String;" />
+            </method>
+            <method name="subSequence" sig="(II)Ljava.lang.CharSequence;" modifiers="public">
+                <parameter name="beginIndex" />
+                <parameter name="endIndex" />
+                <redirect class="java.lang.StringHelper" name="substring" sig="(Lcli.System.String;II)Ljava.lang.String;" />
+            </method>
+            <method name="concat" sig="(Ljava.lang.String;)Ljava.lang.String;" modifiers="public">
+                <parameter name="str" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.String;)Ljava.lang.String;" />
+            </method>
+            <method name="replace" sig="(CC)Ljava.lang.String;" modifiers="public">
+                <parameter name="oldChar" />
+                <parameter name="newChar" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;CC)Ljava.lang.String;" />
+            </method>
+            <method name="matches" sig="(Ljava.lang.String;)Z" modifiers="public">
+                <parameter name="regex" />
+                <body>
+                    <ldarg_1 />
+                    <ldarg_0 />
+                    <call class="java.util.regex.Pattern" name="matches" sig="(Ljava.lang.String;Ljava.lang.CharSequence;)Z" />
+                    <ret />
+                </body>
+            </method>
+            <method name="contains" sig="(Ljava.lang.CharSequence;)Z" modifiers="public">
+                <parameter name="s" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.CharSequence;)Z" />
+            </method>
+            <method name="replaceFirst" sig="(Ljava.lang.String;Ljava.lang.String;)Ljava.lang.String;" modifiers="public">
+                <parameter name="regex" />
+                <parameter name="replacement" />
+                <body>
+                    <ldarg_1 />
+                    <call class="java.util.regex.Pattern" name="compile" sig="(Ljava.lang.String;)Ljava.util.regex.Pattern;" />
+                    <ldarg_0 />
+                    <callvirt class="java.util.regex.Pattern" name="matcher" sig="(Ljava.lang.CharSequence;)Ljava.util.regex.Matcher;" />
+                    <ldarg_2 />
+                    <callvirt class="java.util.regex.Matcher" name="replaceFirst" sig="(Ljava.lang.String;)Ljava.lang.String;" />
+                    <ret />
+                </body>
+            </method>
+            <method name="replaceAll" sig="(Ljava.lang.String;Ljava.lang.String;)Ljava.lang.String;" modifiers="public">
+                <parameter name="regex" />
+                <parameter name="replacement" />
+                <body>
+                    <ldarg_1 />
+                    <call class="java.util.regex.Pattern" name="compile" sig="(Ljava.lang.String;)Ljava.util.regex.Pattern;" />
+                    <ldarg_0 />
+                    <callvirt class="java.util.regex.Pattern" name="matcher" sig="(Ljava.lang.CharSequence;)Ljava.util.regex.Matcher;" />
+                    <ldarg_2 />
+                    <callvirt class="java.util.regex.Matcher" name="replaceAll" sig="(Ljava.lang.String;)Ljava.lang.String;" />
+                    <ret />
+                </body>
+            </method>
+            <method name="replace" sig="(Ljava.lang.CharSequence;Ljava.lang.CharSequence;)Ljava.lang.String;" modifiers="public">
+                <parameter name="target" />
+                <parameter name="replacement" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.CharSequence;Ljava.lang.CharSequence;)Ljava.lang.String;" />
+            </method>
+            <method name="split" sig="(Ljava.lang.String;I)[Ljava.lang.String;" modifiers="public">
+                <parameter name="regex" />
+                <parameter name="limit" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.String;I)[Ljava.lang.String;" />
+            </method>
+            <method name="splitWithDelimiters" sig="(Ljava.lang.String;I)[Ljava.lang.String;" modifiers="public">
+                <parameter name="regex" />
+                <parameter name="limit" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.String;I)[Ljava.lang.String;" />
+            </method>
+            <method name="split" sig="(Ljava.lang.String;)[Ljava.lang.String;" modifiers="public">
+                <parameter name="regex" />
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <ldc_i4_0 />
+                    <call class="java.lang.StringHelper" name="split" sig="(Ljava.lang.String;Ljava.lang.String;I)[Ljava.lang.String;" />
+                    <ret />
+                </body>
+            </method>
+            <method name="join" sig="(Ljava.lang.CharSequence;[Ljava.lang.CharSequence;)Ljava.lang.String;" modifiers="public static">
+                <parameter name="delimiter" />
+                <parameter name="elements">
+                    <attribute type="System.ParamArrayAttribute" sig="()V" />
+                </parameter>
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="join" sig="(Ljava.lang.CharSequence;Ljava.lang.Iterable;)Ljava.lang.String;" modifiers="public static">
+                <parameter name="delimiter" />
+                <parameter name="elements" />
+                <attribute type="IKVM.Attributes.SignatureAttribute" sig="(Ljava.lang.String;)V">
+                    <parameter>(Ljava/lang/CharSequence;Ljava/lang/Iterable&lt;+Ljava/lang/CharSequence;&gt;;)Ljava/lang/String;</parameter>
+                </attribute>
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="toLowerCase" sig="(Ljava.util.Locale;)Ljava.lang.String;" modifiers="public">
+                <parameter name="locale" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.util.Locale;)Ljava.lang.String;" />
+            </method>
+            <method name="toLowerCase" sig="()Ljava.lang.String;" modifiers="public">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)Ljava.lang.String;" />
+            </method>
+            <method name="toUpperCase" sig="(Ljava.util.Locale;)Ljava.lang.String;" modifiers="public">
+                <parameter name="locale" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.util.Locale;)Ljava.lang.String;" />
+            </method>
+            <method name="toUpperCase" sig="()Ljava.lang.String;" modifiers="public">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)Ljava.lang.String;" />
+            </method>
+            <method name="trim" sig="()Ljava.lang.String;" modifiers="public">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)Ljava.lang.String;" />
+            </method>
+            <method name="strip" sig="()Ljava.lang.String;" modifiers="public">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)Ljava.lang.String;" />
+            </method>
+            <method name="stripLeading" sig="()Ljava.lang.String;" modifiers="public">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)Ljava.lang.String;" />
+            </method>
+            <method name="stripTrailing" sig="()Ljava.lang.String;" modifiers="public">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)Ljava.lang.String;" />
+            </method>
+            <method name="isBlank" sig="()Z" modifiers="public">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)Z" />
+            </method>
+            <method name="lines" sig="()Ljava.util.stream.Stream;" modifiers="public">
+                <attribute type="IKVM.Attributes.SignatureAttribute" sig="(Ljava.lang.String;)V">
+                    <parameter>()Ljava/util/stream/Stream&lt;Ljava/lang/String;&gt;;</parameter>
+                </attribute>
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)Ljava.util.stream.Stream;" />
+            </method>
+            <method name="indent" sig="(I)Ljava.lang.String;" modifiers="public">
+                <parameter name="n" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;I)Ljava.lang.String;" />
+            </method>
+            <method name="stripIndent" sig="()Ljava.lang.String;" modifiers="public">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)Ljava.lang.String;" />
+            </method>
+            <method name="translateEscapes" sig="()Ljava.lang.String;" modifiers="public">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)Ljava.lang.String;" />
+            </method>
+            <method name="transform" sig="(Ljava.util.function.Function;)Ljava.lang.Object;" modifiers="public">
+                <parameter name="f" />
+                <attribute type="IKVM.Attributes.SignatureAttribute" sig="(Ljava.lang.String;)V">
+                    <parameter>&lt;R:Ljava/lang/Object;&gt;(Ljava/util/function/Function&lt;-Ljava/lang/String;+TR;&gt;;)TR;</parameter>
+                </attribute>
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.util.function.Function;)Ljava.lang.Object;" />
+            </method>
+            <!-- we have a toString here to make sure that it shows up as a declared method in reflection -->
+            <method name="toString" sig="()Ljava.lang.String;" modifiers="public" />
+            <!-- default interface methods we should inherit from CharSequence (currently this isn't done automatically) -->
+            <method name="chars" sig="()Ljava.util.stream.IntStream;" modifiers="public">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)Ljava.util.stream.IntStream;" />
+            </method>
+            <method name="codePoints" sig="()Ljava.util.stream.IntStream;" modifiers="public">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)Ljava.util.stream.IntStream;" />
+            </method>
+            <method name="toCharArray" sig="()[C" modifiers="public">
+                <redirect name="ToCharArray" />
+            </method>
+            <method name="format" sig="(Ljava.lang.String;[Ljava.lang.Object;)Ljava.lang.String;" modifiers="public static">
+                <parameter name="format" />
+                <parameter name="args">
+                    <attribute type="System.ParamArrayAttribute" sig="()V" />
+                </parameter>
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="format" sig="(Ljava.util.Locale;Ljava.lang.String;[Ljava.lang.Object;)Ljava.lang.String;" modifiers="public static">
+                <parameter name="l" />
+                <parameter name="format" />
+                <parameter name="args">
+                    <attribute type="System.ParamArrayAttribute" sig="()V" />
+                </parameter>
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="formatted" sig="([Ljava.lang.Object;)Ljava.lang.String;" modifiers="public">
+                <parameter name="args">
+                    <attribute type="System.ParamArrayAttribute" sig="()V" />
+                </parameter>
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;[Ljava.lang.Object;)Ljava.lang.String;" />
+            </method>
+            <method name="valueOf" sig="(Ljava.lang.Object;)Ljava.lang.String;" modifiers="public static">
+                <parameter name="obj" />
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="valueOf" sig="([C)Ljava.lang.String;" modifiers="public static">
+                <parameter name="data" />
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="valueOf" sig="([CII)Ljava.lang.String;" modifiers="public static">
+                <parameter name="data" />
+                <parameter name="offset" />
+                <parameter name="count" />
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="copyValueOf" sig="([CII)Ljava.lang.String;" modifiers="public static">
+                <parameter name="data" />
+                <parameter name="offset" />
+                <parameter name="count" />
+                <redirect class="java.lang.StringHelper" name="valueOf" />
+            </method>
+            <method name="copyValueOf" sig="([C)Ljava.lang.String;" modifiers="public static">
+                <parameter name="data" />
+                <redirect class="java.lang.StringHelper" name="valueOf" />
+            </method>
+            <method name="valueOf" sig="(Z)Ljava.lang.String;" modifiers="public static">
+                <parameter name="b" />
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="valueOf" sig="(C)Ljava.lang.String;" modifiers="public static">
+                <parameter name="c" />
+                <body>
+                    <ldarg_0 />
+                    <ldc_i4_1 />
+                    <newobj type="System.String" name=".ctor" sig="(CI)V" />
+                    <ret />
+                </body>
+            </method>
+            <method name="valueOf" sig="(I)Ljava.lang.String;" modifiers="public static">
+                <parameter name="i" />
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="valueOf" sig="(J)Ljava.lang.String;" modifiers="public static">
+                <parameter name="l" />
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="valueOf" sig="(F)Ljava.lang.String;" modifiers="public static">
+                <parameter name="f" />
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="valueOf" sig="(D)Ljava.lang.String;" modifiers="public static">
+                <parameter name="d" />
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="intern" sig="()Ljava.lang.String;" modifiers="public">
+                <redirect type="System.String" name="Intern" sig="(Ljava.lang.String;)Ljava.lang.String;" />
+            </method>
+            <method name="repeat" sig="(I)Ljava.lang.String;" modifiers="public">
+                <parameter name="count" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;I)Ljava.lang.String;" />
+            </method>
+            <method name="describeConstable" sig="()Ljava.util.Optional;" modifiers="public">
+                <attribute type="IKVM.Attributes.SignatureAttribute" sig="(Ljava.lang.String;)V">
+                    <parameter>()Ljava/util/Optional&lt;Ljava/lang/String;&gt;;</parameter>
+                </attribute>
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)Ljava.util.Optional;" />
+            </method>
+            <method name="resolveConstantDesc" sig="(Ljava.lang.invoke.MethodHandles$Lookup;)Ljava.lang.String;" modifiers="public">
+                <parameter name="lookup" />
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.invoke.MethodHandles$Lookup;)Ljava.lang.String;" />
+            </method>
+            <method name="resolveConstantDesc" sig="(Ljava.lang.invoke.MethodHandles$Lookup;)Ljava.lang.Object;" modifiers="public bridge synthetic">
+                <parameter name="lookup" />
+                <throws class="java.lang.ReflectiveOperationException" />
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <call class="java.lang.StringHelper" name="resolveConstantDesc" sig="(Ljava.lang.String;Ljava.lang.invoke.MethodHandles$Lookup;)Ljava.lang.String;" />
+                    <ret />
+                </body>
+            </method>
+            <!-- package private methods the class library uses, mostly with String's byte[] representation -->
+            <method name="coder" sig="()B" modifiers="">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)B" />
+            </method>
+            <method name="value" sig="()[B" modifiers="">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)[B" />
+            </method>
+            <method name="isLatin1" sig="()Z" modifiers="">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;)Z" />
+            </method>
+            <method name="getBytes" sig="([BIB)V" modifiers="">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;[BIB)V" />
+            </method>
+            <method name="getBytes" sig="([BIIBI)V" modifiers="">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;[BIIBI)V" />
+            </method>
+            <method name="bytesCompatible" sig="(Ljava.nio.charset.Charset;)Z" modifiers="">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.nio.charset.Charset;)Z" />
+            </method>
+            <method name="copyToSegmentRaw" sig="(Ljava.lang.foreign.MemorySegment;J)V" modifiers="">
+                <redirect class="java.lang.StringHelper" sig="(Ljava.lang.String;Ljava.lang.foreign.MemorySegment;J)V" />
+            </method>
+            <method name="newStringUTF8NoRepl" sig="([BIIZ)Ljava.lang.String;" modifiers="static">
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="newStringNoRepl" sig="([BLjava.nio.charset.Charset;)Ljava.lang.String;" modifiers="static">
+                <throws class="java.nio.charset.CharacterCodingException" />
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="getBytesUTF8NoRepl" sig="(Ljava.lang.String;)[B" modifiers="static">
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="getBytesNoRepl" sig="(Ljava.lang.String;Ljava.nio.charset.Charset;)[B" modifiers="static">
+                <throws class="java.nio.charset.CharacterCodingException" />
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="decodeASCII" sig="([BI[CII)I" modifiers="static">
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="join" sig="(Ljava.lang.String;Ljava.lang.String;Ljava.lang.String;[Ljava.lang.String;I)Ljava.lang.String;" modifiers="static">
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="indexOf" sig="([BBILjava.lang.String;I)I" modifiers="static">
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="lastIndexOf" sig="([BBILjava.lang.String;I)I" modifiers="static">
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="repeatCopyRest" sig="([BIII)V" modifiers="static">
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="checkIndex" sig="(II)V" modifiers="static">
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="checkOffset" sig="(II)V" modifiers="static">
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="checkBoundsOffCount" sig="(III)I" modifiers="static">
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="checkBoundsBeginEnd" sig="(III)V" modifiers="static">
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <method name="valueOfCodePoint" sig="(I)Ljava.lang.String;" modifiers="static">
+                <redirect class="java.lang.StringHelper" />
+            </method>
+            <field name="CASE_INSENSITIVE_ORDER" sig="Ljava.util.Comparator;" modifiers="public static final">
+                <attribute type="IKVM.Attributes.SignatureAttribute" sig="(Ljava.lang.String;)V">
+                    <parameter>Ljava/util/Comparator&lt;Ljava/lang/String;&gt;;</parameter>
+                </attribute>
+            </field>
+            <clinit>
+                <body>
+                    <newobj class="java.lang.String$CaseInsensitiveComparator" name="&lt;init&gt;" sig="()V" />
+                    <stsfld class="java.lang.String" name="CASE_INSENSITIVE_ORDER" sig="Ljava.util.Comparator;" />
+                    <ret />
+                </body>
+            </clinit>
+        </class>
+        <!-- JDK 25's compares the strings' byte[]s -->
+        <class name="java.lang.String$CaseInsensitiveComparator">
+            <method name="compare" sig="(Ljava.lang.String;Ljava.lang.String;)I">
+                <body>
+                    <ldarg_1 />
+                    <ldarg_2 />
+                    <call class="java.lang.StringHelper" name="compareIgnoreCase" sig="(Ljava.lang.String;Ljava.lang.String;)I" />
+                    <ret />
+                </body>
+            </method>
+        </class>
+        <class name="java.lang.Throwable" shadows="System.Exception" modifiers="public">
+            <implements class="java.io.Serializable" />
+            <attribute type="System.SerializableAttribute" sig="()V" />
+            <field name="serialVersionUID" sig="J" modifiers="private static final" constant="-3042686055658047285" />
+            <field name="serialPersistentFields" sig="[Ljava.io.ObjectStreamField;" modifiers="private static final" />
+            <field name="jfrTracing" sig="Z" modifiers="static" />
+            <field name="suppressFillInStackTrace" sig="Z" modifiers="static">
+                <attribute type="System.ThreadStaticAttribute" sig="()V" />
+            </field>
+            <field name="UNASSIGNED_STACK" sig="[Ljava.lang.StackTraceElement;" modifiers="static final" />
+            <field name="SUPPRESSED_SENTINEL" sig="Ljava.util.List;" modifiers="static final" />
+            <field name="detailMessage" sig="Ljava.lang.String;" />
+            <field name="cause" sig="Ljava.lang.Throwable;" />
+            <field name="original" sig="Ljava.lang.Throwable;" />
+            <field name="stackTrace" sig="[Ljava.lang.StackTraceElement;" />
+            <field name="tracePart1" sig="Lcli.System.Diagnostics.StackTrace;" />
+            <field name="tracePart2" sig="Lcli.System.Diagnostics.StackTrace;" />
+            <field name="suppressedExceptions" sig="Ljava.util.List;" />
+            <clinit>
+                <body>
+                    <call class="cli.IKVM.Runtime.ExceptionHelper" name="GetPersistentFields" sig="()[Ljava.lang.Object;" />
+                    <castclass class="[Ljava.io.ObjectStreamField;" />
+                    <stsfld class="java.lang.Throwable" name="serialPersistentFields" sig="[Ljava.io.ObjectStreamField;" />
+                    <ldc_i4_0 />
+                    <newarr sig="Ljava.lang.StackTraceElement;" />
+                    <stsfld class="java.lang.Throwable" name="UNASSIGNED_STACK" sig="[Ljava.lang.StackTraceElement;" />
+                    <ldc_i4_0 />
+                    <newobj class="java.util.ArrayList" name="&lt;init&gt;" sig="(I)V" />
+                    <call class="java.util.Collections" name="unmodifiableList" sig="(Ljava.util.List;)Ljava.util.List;" />
+                    <stsfld class="java.lang.Throwable" name="SUPPRESSED_SENTINEL" sig="Ljava.util.List;" />
+                    <ret />
+                </body>
+            </clinit>
+            <method name="__&lt;suppressFillInStackTrace&gt;" sig="()V" modifiers="public static">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+                <attribute type="System.ComponentModel.EditorBrowsableAttribute" sig="(Lcli.System.ComponentModel.EditorBrowsableState;)V">
+                    <parameter>Never</parameter>
+                </attribute>
+                <body>
+                    <ldc_i4_1 />
+                    <stsfld class="java.lang.Throwable" name="suppressFillInStackTrace" sig="Z" />
+                    <ret />
+                </body>
+            </method>
+            <method name="__mapImpl" sig="(Ljava.lang.Throwable;)Ljava.lang.Throwable;" modifiers="static">
+                <body>
+                    <!-- this emits the conversion code based on the <exceptionMappings /> defined below -->
+                    <exceptionMapping />
+                </body>
+            </method>
+            <method name="__&lt;unmap&gt;" sig="(Ljava.lang.Throwable;)Ljava.lang.Throwable;" modifiers="public static">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+                <attribute type="System.ComponentModel.EditorBrowsableAttribute" sig="(Lcli.System.ComponentModel.EditorBrowsableState;)V">
+                    <parameter>Never</parameter>
+                </attribute>
+                <body>
+                    <ldarg_0 />
+                    <call type="IKVM.Runtime.ExceptionHelper" name="UnmapException" sig="(Ljava.lang.Throwable;)Ljava.lang.Throwable;" />
+                    <ret />
+                </body>
+            </method>
+            <method name="__&lt;fixate&gt;" sig="(Ljava.lang.Throwable;)Ljava.lang.Throwable;" modifiers="public static">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+                <attribute type="System.ComponentModel.EditorBrowsableAttribute" sig="(Lcli.System.ComponentModel.EditorBrowsableState;)V">
+                    <parameter>Never</parameter>
+                </attribute>
+                <body>
+                    <ldarg_0 />
+                    <call type="IKVM.Runtime.ExceptionHelper" name="FixateException" sig="(Ljava.lang.Throwable;)V" />
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="readObject" sig="(Ljava.io.ObjectInputStream;)V" modifiers="private">
+                <throws class="java.io.IOException" />
+                <throws class="java.lang.ClassNotFoundException" />
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <call class="cli.IKVM.Runtime.ExceptionHelper" name="ReadObject" sig="(Ljava.lang.Throwable;Ljava.lang.Object;)V" />
+                    <ret />
+                </body>
+            </method>
+            <method name="writeObject" sig="(Ljava.io.ObjectOutputStream;)V" modifiers="private">
+                <throws class="java.io.IOException" />
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <call class="cli.IKVM.Runtime.ExceptionHelper" name="WriteObject" sig="(Ljava.lang.Throwable;Ljava.lang.Object;)V" />
+                    <ret />
+                </body>
+            </method>
+            <constructor sig="()V" modifiers="public">
+                <body>
+                    <!-- Start field initialization -->
+                    <ldarg_0 />
+                    <ldsfld class="java.lang.Throwable" name="UNASSIGNED_STACK" sig="[Ljava.lang.StackTraceElement;" />
+                    <stfld class="java.lang.Throwable" name="stackTrace" sig="[Ljava.lang.StackTraceElement;" />
+                    <ldarg_0 />
+                    <ldsfld class="java.lang.Throwable" name="SUPPRESSED_SENTINEL" sig="Ljava.util.List;" />
+                    <stfld class="java.lang.Throwable" name="suppressedExceptions" sig="Ljava.util.List;" />
+                    <!-- End field initialization -->
+                    <ldarg_0 />
+                    <ldstr value="" />
+                    <call type="System.Exception" name=".ctor" sig="(Ljava.lang.String;)V" />
+                    <ldarg_0 />
+                    <ldarg_0 />
+                    <stfld class="java.lang.Throwable" name="cause" sig="Ljava.lang.Throwable;" />
+                    <!-- Start fillInStackTrace call -->
+                    <ldsfld class="java.lang.Throwable" name="suppressFillInStackTrace" sig="Z" />
+                    <ldc_i4_0 />
+                    <stsfld class="java.lang.Throwable" name="suppressFillInStackTrace" sig="Z" />
+                    <brtrue name="skipFillInStackTrace" />
+                    <ldarg_0 />
+                    <callvirt class="java.lang.Throwable" name="fillInStackTrace" sig="()Ljava.lang.Throwable;" />
+                    <pop />
+                    <label name="skipFillInStackTrace" />
+                    <!-- End fillInStackTrace call -->
+                    <ret />
+                </body>
+            </constructor>
+            <constructor sig="(Ljava.lang.String;)V" modifiers="public">
+                <parameter name="message" />
+                <body>
+                    <!-- Start field initialization -->
+                    <ldarg_0 />
+                    <ldsfld class="java.lang.Throwable" name="UNASSIGNED_STACK" sig="[Ljava.lang.StackTraceElement;" />
+                    <stfld class="java.lang.Throwable" name="stackTrace" sig="[Ljava.lang.StackTraceElement;" />
+                    <ldarg_0 />
+                    <ldsfld class="java.lang.Throwable" name="SUPPRESSED_SENTINEL" sig="Ljava.util.List;" />
+                    <stfld class="java.lang.Throwable" name="suppressedExceptions" sig="Ljava.util.List;" />
+                    <!-- End field initialization -->
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <call type="IKVM.Runtime.ExceptionHelper" name="FilterMessage" sig="(Ljava.lang.String;)Ljava.lang.String;" />
+                    <call type="System.Exception" name=".ctor" sig="(Ljava.lang.String;)V" />
+                    <ldarg_0 />
+                    <ldarg_0 />
+                    <stfld class="java.lang.Throwable" name="cause" sig="Ljava.lang.Throwable;" />
+                    <!-- Start fillInStackTrace call -->
+                    <ldsfld class="java.lang.Throwable" name="suppressFillInStackTrace" sig="Z" />
+                    <ldc_i4_0 />
+                    <stsfld class="java.lang.Throwable" name="suppressFillInStackTrace" sig="Z" />
+                    <brtrue name="skipFillInStackTrace" />
+                    <ldarg_0 />
+                    <callvirt class="java.lang.Throwable" name="fillInStackTrace" sig="()Ljava.lang.Throwable;" />
+                    <pop />
+                    <label name="skipFillInStackTrace" />
+                    <!-- End fillInStackTrace call -->
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <stfld class="java.lang.Throwable" name="detailMessage" sig="Ljava.lang.String;" />
+                    <ret />
+                </body>
+            </constructor>
+            <constructor sig="(Ljava.lang.String;Ljava.lang.Throwable;)V" modifiers="public">
+                <parameter name="message" />
+                <parameter name="cause" />
+                <body>
+                    <!-- Start field initialization -->
+                    <ldarg_0 />
+                    <ldsfld class="java.lang.Throwable" name="UNASSIGNED_STACK" sig="[Ljava.lang.StackTraceElement;" />
+                    <stfld class="java.lang.Throwable" name="stackTrace" sig="[Ljava.lang.StackTraceElement;" />
+                    <ldarg_0 />
+                    <ldsfld class="java.lang.Throwable" name="SUPPRESSED_SENTINEL" sig="Ljava.util.List;" />
+                    <stfld class="java.lang.Throwable" name="suppressedExceptions" sig="Ljava.util.List;" />
+                    <!-- End field initialization -->
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <call type="IKVM.Runtime.ExceptionHelper" name="FilterMessage" sig="(Ljava.lang.String;)Ljava.lang.String;" />
+                    <ldarg_2 />
+                    <call type="System.Exception" name=".ctor" sig="(Ljava.lang.String;Ljava.lang.Throwable;)V" />
+                    <ldarg_0 />
+                    <ldarg_0 />
+                    <stfld class="java.lang.Throwable" name="cause" sig="Ljava.lang.Throwable;" />
+                    <!-- Start fillInStackTrace call -->
+                    <ldsfld class="java.lang.Throwable" name="suppressFillInStackTrace" sig="Z" />
+                    <ldc_i4_0 />
+                    <stsfld class="java.lang.Throwable" name="suppressFillInStackTrace" sig="Z" />
+                    <brtrue name="skipFillInStackTrace" />
+                    <ldarg_0 />
+                    <callvirt class="java.lang.Throwable" name="fillInStackTrace" sig="()Ljava.lang.Throwable;" />
+                    <pop />
+                    <label name="skipFillInStackTrace" />
+                    <!-- End fillInStackTrace call -->
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <stfld class="java.lang.Throwable" name="detailMessage" sig="Ljava.lang.String;" />
+                    <ldarg_0 />
+                    <ldarg_2 />
+                    <stfld class="java.lang.Throwable" name="cause" sig="Ljava.lang.Throwable;" />
+                    <ret />
+                </body>
+            </constructor>
+            <constructor sig="(Ljava.lang.Throwable;)V" modifiers="public">
+                <parameter name="cause" />
+                <body>
+                    <!-- Start field initialization -->
+                    <ldarg_0 />
+                    <ldsfld class="java.lang.Throwable" name="UNASSIGNED_STACK" sig="[Ljava.lang.StackTraceElement;" />
+                    <stfld class="java.lang.Throwable" name="stackTrace" sig="[Ljava.lang.StackTraceElement;" />
+                    <ldarg_0 />
+                    <ldsfld class="java.lang.Throwable" name="SUPPRESSED_SENTINEL" sig="Ljava.util.List;" />
+                    <stfld class="java.lang.Throwable" name="suppressedExceptions" sig="Ljava.util.List;" />
+                    <!-- End field initialization -->
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <call type="IKVM.Runtime.ExceptionHelper" name="GetMessageFromCause" sig="(Ljava.lang.Throwable;)Ljava.lang.String;" />
+                    <ldarg_1 />
+                    <call type="System.Exception" name=".ctor" sig="(Ljava.lang.String;Ljava.lang.Throwable;)V" />
+                    <ldarg_0 />
+                    <ldarg_0 />
+                    <stfld class="java.lang.Throwable" name="cause" sig="Ljava.lang.Throwable;" />
+                    <!-- Start fillInStackTrace call -->
+                    <ldsfld class="java.lang.Throwable" name="suppressFillInStackTrace" sig="Z" />
+                    <ldc_i4_0 />
+                    <stsfld class="java.lang.Throwable" name="suppressFillInStackTrace" sig="Z" />
+                    <brtrue name="skipFillInStackTrace" />
+                    <ldarg_0 />
+                    <callvirt class="java.lang.Throwable" name="fillInStackTrace" sig="()Ljava.lang.Throwable;" />
+                    <pop />
+                    <label name="skipFillInStackTrace" />
+                    <!-- End fillInStackTrace call -->
+                    <ldarg_1 />
+                    <brfalse name="no_cause" />
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <callvirt class="java.lang.Throwable" name="toString" sig="()Ljava.lang.String;" />
+                    <stfld class="java.lang.Throwable" name="detailMessage" sig="Ljava.lang.String;" />
+                    <label name="no_cause" />
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <stfld class="java.lang.Throwable" name="cause" sig="Ljava.lang.Throwable;" />
+                    <ret />
+                </body>
+            </constructor>
+            <constructor sig="(Ljava.lang.String;Ljava.lang.Throwable;ZZ)V" modifiers="protected">
+                <parameter name="message" />
+                <parameter name="cause" />
+                <parameter name="enableSuppression" />
+                <parameter name="writableStackTrace" />
+                <body>
+                    <!-- Start field initialization -->
+                    <ldarg_0 />
+                    <ldsfld class="java.lang.Throwable" name="UNASSIGNED_STACK" sig="[Ljava.lang.StackTraceElement;" />
+                    <stfld class="java.lang.Throwable" name="stackTrace" sig="[Ljava.lang.StackTraceElement;" />
+                    <ldarg_0 />
+                    <ldsfld class="java.lang.Throwable" name="SUPPRESSED_SENTINEL" sig="Ljava.util.List;" />
+                    <stfld class="java.lang.Throwable" name="suppressedExceptions" sig="Ljava.util.List;" />
+                    <!-- End field initialization -->
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <call type="IKVM.Runtime.ExceptionHelper" name="FilterMessage" sig="(Ljava.lang.String;)Ljava.lang.String;" />
+                    <ldarg_2 />
+                    <call type="System.Exception" name=".ctor" sig="(Ljava.lang.String;Ljava.lang.Throwable;)V" />
+                    <ldarg_s argNum="4" />
+                    <brfalse name="else" />
+                    <!-- Start fillInStackTrace call -->
+                    <ldsfld class="java.lang.Throwable" name="suppressFillInStackTrace" sig="Z" />
+                    <ldc_i4_0 />
+                    <stsfld class="java.lang.Throwable" name="suppressFillInStackTrace" sig="Z" />
+                    <brtrue name="skipFillInStackTrace" />
+                    <ldarg_0 />
+                    <callvirt class="java.lang.Throwable" name="fillInStackTrace" sig="()Ljava.lang.Throwable;" />
+                    <pop />
+                    <label name="skipFillInStackTrace" />
+                    <!-- End fillInStackTrace call -->
+                    <br name="endif" />
+                    <label name="else" />
+                    <ldarg_0 />
+                    <ldnull />
+                    <stfld class="java.lang.Throwable" name="stackTrace" sig="[Ljava.lang.StackTraceElement;" />
+                    <label name="endif" />
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <stfld class="java.lang.Throwable" name="detailMessage" sig="Ljava.lang.String;" />
+                    <ldarg_0 />
+                    <ldarg_2 />
+                    <stfld class="java.lang.Throwable" name="cause" sig="Ljava.lang.Throwable;" />
+                    <ldarg_3 />
+                    <brtrue name="end" />
+                    <ldarg_0 />
+                    <ldnull />
+                    <stfld class="java.lang.Throwable" name="suppressedExceptions" sig="Ljava.util.List;" />
+                    <label name="end" />
+                    <ret />
+                </body>
+            </constructor>
+            <method name="printStackTrace" sig="()V" modifiers="public">
+                <redirect class="java.lang.ThrowableHelper" sig="(Ljava.lang.Throwable;)V" />
+            </method>
+            <method name="printStackTrace" sig="(Ljava.io.PrintStream;)V" modifiers="public">
+                <parameter name="s" />
+                <redirect class="java.lang.ThrowableHelper" sig="(Ljava.lang.Throwable;Ljava.io.PrintStream;)V" />
+            </method>
+            <method name="printStackTrace" sig="(Ljava.io.PrintWriter;)V" modifiers="public">
+                <parameter name="s" />
+                <redirect class="java.lang.ThrowableHelper" sig="(Ljava.lang.Throwable;Ljava.io.PrintWriter;)V" />
+            </method>
+            <method name="getMessage" sig="()Ljava.lang.String;" modifiers="public">
+                <body>
+                    <ldarg_0 />
+                    <ldfld class="java.lang.Throwable" name="detailMessage" sig="Ljava.lang.String;" />
+                    <ret />
+                </body>
+                <alternateBody>
+                    <ldarg_0 />
+                    <callvirt class="cli.System.Exception" name="get_Message" sig="()Ljava.lang.String;" />
+                    <ret />
+                </alternateBody>
+            </method>
+            <method name="getLocalizedMessage" sig="()Ljava.lang.String;" modifiers="public">
+                <redirect class="cli.IKVM.Runtime.ExceptionHelper" name="GetLocalizedMessage" sig="(Ljava.lang.Throwable;)Ljava.lang.String;" />
+            </method>
+            <method name="fillInStackTrace" sig="()Ljava.lang.Throwable;" modifiers="public">
+                <body>
+                    <ldarg_0 />
+                    <call type="System.Threading.Monitor" name="Enter" sig="(Ljava.lang.Object;)V" />
+                    <exceptionBlock>
+                        <try>
+                            <ldarg_0 />
+                            <ldfld class="java.lang.Throwable" name="stackTrace" sig="[Ljava.lang.StackTraceElement;" />
+                            <brfalse name="leave" />
+                            <!--
+	                    stackTrace = UNASSIGNED_STACK;
+                            tracePart1 = null;
+                            tracePart2 = new cli.System.Diagnostics.StackTrace(true);
+                            -->
+                            <ldarg_0 />
+                            <ldsfld class="java.lang.Throwable" name="UNASSIGNED_STACK" sig="[Ljava.lang.StackTraceElement;" />
+                            <stfld class="java.lang.Throwable" name="stackTrace" sig="[Ljava.lang.StackTraceElement;" />
+                            <ldarg_0 />
+                            <ldnull />
+                            <stfld class="java.lang.Throwable" name="tracePart1" sig="Lcli.System.Diagnostics.StackTrace;" />
+                            <ldarg_0 />
+                            <ldc_i4_1 />
+                            <newobj type="System.Diagnostics.StackTrace" name=".ctor" sig="(Z)V" />
+                            <stfld class="java.lang.Throwable" name="tracePart2" sig="Lcli.System.Diagnostics.StackTrace;" />
+                            <label name="leave" />
+                            <leave name="end" />
+                        </try>
+                        <finally>
+                            <ldarg_0 />
+                            <call type="System.Threading.Monitor" name="Exit" sig="(Ljava.lang.Object;)V" />
+                            <endfinally />
+                        </finally>
+                    </exceptionBlock>
+                    <label name="end" />
+                    <ldarg_0 />
+                    <ret />
+                </body>
+                <alternateBody>
+                    <ldarg_0 />
+                    <call type="IKVM.Runtime.ExceptionHelper" name="FillInStackTrace" sig="(Ljava.lang.Throwable;)V" />
+                    <ldarg_0 />
+                    <ret />
+                </alternateBody>
+            </method>
+            <method name="initCause" sig="(Ljava.lang.Throwable;)Ljava.lang.Throwable;" modifiers="public">
+                <parameter name="cause" />
+                <body>
+                    <ldarg_0 />
+                    <call type="System.Threading.Monitor" name="Enter" sig="(Ljava.lang.Object;)V" />
+                    <exceptionBlock>
+                        <try>
+                            <ldarg_0 />
+                            <ldarg_0 />
+                            <ldfld class="java.lang.Throwable" name="cause" sig="Ljava.lang.Throwable;" />
+                            <ldarg_1 />
+                            <call type="IKVM.Runtime.ExceptionHelper" name="CheckInitCause" sig="(Ljava.lang.Throwable;Ljava.lang.Throwable;Ljava.lang.Throwable;)V" />
+                            <ldarg_0 />
+                            <ldarg_1 />
+                            <stfld class="java.lang.Throwable" name="cause" sig="Ljava.lang.Throwable;" />
+                            <leave name="end" />
+                        </try>
+                        <finally>
+                            <ldarg_0 />
+                            <call type="System.Threading.Monitor" name="Exit" sig="(Ljava.lang.Object;)V" />
+                            <endfinally />
+                        </finally>
+                    </exceptionBlock>
+                    <label name="end" />
+                    <ldarg_0 />
+                    <ret />
+                </body>
+                <alternateBody>
+                    <!-- non-Java exception cannot have its cause changed, so we call checkInitCause in a way that will always throw -->
+                    <ldarg_0 />
+                    <ldnull />
+                    <ldnull />
+                    <call type="IKVM.Runtime.ExceptionHelper" name="CheckInitCause" sig="(Ljava.lang.Throwable;Ljava.lang.Throwable;Ljava.lang.Throwable;)V" />
+                    <ldarg_0 />
+                    <ret />
+                </alternateBody>
+            </method>
+            <method name="getCause" sig="()Ljava.lang.Throwable;" modifiers="public">
+                <body>
+                    <ldarg_0 />
+                    <call type="IKVM.Runtime.ExceptionHelper" name="GetCause" sig="(Ljava.lang.Throwable;)Ljava.lang.Throwable;" />
+                    <ret />
+                </body>
+                <alternateBody>
+                    <ldarg_0 />
+                    <call class="cli.System.Exception" name="get_InnerException" sig="()Ljava.lang.Throwable;" />
+                    <ret />
+                </alternateBody>
+            </method>
+            <method name="getStackTrace" sig="()[Ljava.lang.StackTraceElement;" modifiers="public">
+                <body>
+                    <ldarg_0 />
+                    <call class="cli.IKVM.Runtime.ExceptionHelper" name="GetOurStackTrace" sig="(Ljava.lang.Throwable;)[Ljava.lang.Object;" />
+                    <castclass class="[Ljava.lang.StackTraceElement;" />
+                    <callvirt type="System.Array" name="Clone" sig="()Ljava.lang.Object;" />
+                    <castclass class="[Ljava.lang.StackTraceElement;" />
+                    <ret />
+                </body>
+            </method>
+            <method name="getOurStackTrace" sig="()[Ljava.lang.StackTraceElement;" modifiers="private">
+                <body>
+                    <ldarg_0 />
+                    <call class="cli.IKVM.Runtime.ExceptionHelper" name="GetOurStackTrace" sig="(Ljava.lang.Throwable;)[Ljava.lang.Object;" />
+                    <castclass class="[Ljava.lang.StackTraceElement;" />
+                    <ret />
+                </body>
+            </method>
+            <method name="setStackTrace" sig="([Ljava.lang.StackTraceElement;)V" modifiers="public">
+                <parameter name="stackTrace" />
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <call class="cli.IKVM.Runtime.ExceptionHelper" name="SetStackTrace" sig="(Ljava.lang.Throwable;[Ljava.lang.Object;)V" />
+                    <ret/>
+                </body>
+            </method>
+            <method name="toString" sig="()Ljava.lang.String;" modifiers="public">
+                <redirect class="cli.IKVM.Runtime.ExceptionHelper" name="ToString" sig="(Ljava.lang.Throwable;)Ljava.lang.String;" />
+            </method>
+            <method name="addSuppressed" sig="(Ljava.lang.Throwable;)V" modifiers="public final">
+                <parameter name="exception" />
+                <redirect class="cli.IKVM.Runtime.ExceptionHelper" name="AddSuppressed" sig="(Ljava.lang.Throwable;Ljava.lang.Throwable;)V" />
+            </method>
+            <method name="getSuppressed" sig="()[Ljava.lang.Throwable;" modifiers="public final">
+                <redirect class="cli.IKVM.Runtime.ExceptionHelper" name="GetSuppressed" sig="(Ljava.lang.Throwable;)[Ljava.lang.Throwable;" />
+            </method>
+            <method name="setCause" sig="(Ljava.lang.Throwable;)V" modifiers="final">
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <stfld class="java.lang.Throwable" name="cause" sig="Ljava.lang.Throwable;" />
+                    <ret />
+                </body>
+                <alternateBody>
+                    <!-- a non-Java exception has no cause of its own to set -->
+                    <ret />
+                </alternateBody>
+            </method>
+        </class>
+        <class name="java.lang.ThrowableHelper">
+            <method name="getOurStackTrace" sig="(Ljava.lang.Throwable;)[Ljava.lang.StackTraceElement;">
+                <body>
+                    <ldarg_0 />
+                    <call class="cli.IKVM.Runtime.ExceptionHelper" name="GetOurStackTrace" sig="(Ljava.lang.Throwable;)[Ljava.lang.Object;" />
+                    <castclass class="[Ljava.lang.StackTraceElement;" />
+                    <ret />
+                </body>
+            </method>
+        </class>
+        <class name="java.lang.Comparable" shadows="System.IComparable" modifiers="public abstract interface">
+            <attribute type="IKVM.Attributes.SignatureAttribute" sig="(Ljava.lang.String;)V">
+                <parameter>&lt;T:Ljava/lang/Object;&gt;Ljava/lang/Object;</parameter>
+            </attribute>
+            <method name="compareTo" sig="(Ljava.lang.Object;)I" modifiers="public abstract">
+                <attribute type="IKVM.Attributes.SignatureAttribute" sig="(Ljava.lang.String;)V">
+                    <parameter>(TT;)I</parameter>
+                </attribute>
+                <parameter name="o" />
+                <override name="CompareTo" />
+            </method>
+        </class>
+        <class name="java.lang.AutoCloseable" shadows="System.IDisposable" modifiers="public abstract interface">
+            <method name="close" sig="()V" modifiers="public abstract">
+                <throws class="java.lang.Exception" />
+                <override name="Dispose" />
+            </method>
+        </class>
+        <class name="java.lang.Class">
+            <field name="typeWrapper" sig="Lcli.IKVM.Runtime.RuntimeJavaType;" modifiers="">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+            </field>
+        </class>
+        <class name="java.lang.ClassLoader">
+            <field name="wrapper" sig="Lcli.IKVM.Runtime.RuntimeClassLoader;" modifiers="">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+            </field>
+        </class>
+        <!-- JDK 25's Thread is used as it is: the runtime implements its natives, and keeps its state of the thread here -->
+        <class name="java.lang.Thread">
+            <field name="vmThread" sig="Ljava.lang.Object;" modifiers="">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+            </field>
+            <field name="parkLock" sig="Ljava.lang.Object;" modifiers="">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+            </field>
+            <field name="parkState" sig="I" modifiers="">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+            </field>
+        </class>
+        <class name="java.lang.reflect.Constructor">
+            <method name="_slot" sig="()I">
+                <body>
+                    <ldarg_0 />
+                    <ldfld class="java.lang.reflect.Constructor" name="slot" sig="I" />
+                    <ret />
+                </body>
+            </method>
+        </class>
+        <class name="java.lang.reflect.Executable">
+            <method name="_slot" sig="()I" modifiers="abstract" attributes="NewSlot Virtual" />
+        </class>
+        <class name="java.lang.reflect.Field">
+            <method name="_slot" sig="()I">
+                <body>
+                    <ldarg_0 />
+                    <ldfld class="java.lang.reflect.Field" name="slot" sig="I" />
+                    <ret />
+                </body>
+            </method>
+        </class>
+        <class name="java.lang.reflect.Method">
+            <method name="_slot" sig="()I">
+                <body>
+                    <ldarg_0 />
+                    <ldfld class="java.lang.reflect.Method" name="slot" sig="I" />
+                    <ret />
+                </body>
+            </method>
+        </class>
+        <class name="java.util.AbstractCollection">
+            <!-- We're adding an Add(object) method to allow collection initializers and Xml (soap) serialization to magically work -->
+            <!-- NOTE Modifiers.Final and MethodAttributes.NewSlot is recognized by AotTypeWrapper.MapModifiers() as a magic combination that generates a non-virtual method -->
+            <method name="Add" sig="(Ljava.lang.Object;)V" modifiers="public final" attributes="NewSlot">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+                <attribute type="System.ComponentModel.EditorBrowsableAttribute" sig="(Lcli.System.ComponentModel.EditorBrowsableState;)V">
+                    <parameter>Never</parameter>
+                </attribute>
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <callvirt class="java.util.AbstractCollection" name="add" sig="(Ljava.lang.Object;)Z" />
+                    <pop />
+                    <ret />
+                </body>
+            </method>
+        </class>
+        <class name="java.util.AbstractMap">
+            <!-- NOTE the compiler will not magically make all Maps enumerable, so we manually implement IEnumerable here -->
+            <implements class="cli.System.Collections.IEnumerable" />
+            <method name="System.Collections.IEnumerable.GetEnumerator" sig="()Lcli.System.Collections.IEnumerator;" modifiers="private" attributes="NewSlot Virtual Final">
+                <override class="cli.System.Collections.IEnumerable" name="GetEnumerator" />
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+                <body>
+                    <ldarg_0 />
+                    <newobj class="ikvm.lang.MapEnumerator" name="&lt;init&gt;" sig="(Ljava.util.Map;)V" />
+                    <ret />
+                </body>
+            </method>
+            <!-- We're adding an Add(object,object) method to allow collection initializers to magically work -->
+            <!-- NOTE Modifiers.Final and MethodAttributes.NewSlot is recognized by AotTypeWrapper.MapModifiers() as a magic combination that generates a non-virtual method -->
+            <method name="Add" sig="(Ljava.lang.Object;Ljava.lang.Object;)V" modifiers="public final" attributes="NewSlot">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+                <attribute type="System.ComponentModel.EditorBrowsableAttribute" sig="(Lcli.System.ComponentModel.EditorBrowsableState;)V">
+                    <parameter>Never</parameter>
+                </attribute>
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <ldarg_2 />
+                    <callvirt class="java.util.AbstractMap" name="put" sig="(Ljava.lang.Object;Ljava.lang.Object;)Ljava.lang.Object;" />
+                    <pop />
+                    <ret />
+                </body>
+            </method>
+        </class>
+        <class name="ikvm.lang.CIL">
+            <method name="unbox_byte" sig="(Ljava.lang.Object;)B">
+                <body>
+                    <ldarg_0 />
+                    <unbox type="System.Byte" />
+                    <ldind_i1 />
+                    <ret />
+                </body>
+            </method>
+            <method name="unbox_boolean" sig="(Ljava.lang.Object;)Z">
+                <body>
+                    <ldarg_0 />
+                    <unbox type="System.Boolean" />
+                    <ldind_i1 />
+                    <ret />
+                </body>
+            </method>
+            <method name="unbox_short" sig="(Ljava.lang.Object;)S">
+                <body>
+                    <ldarg_0 />
+                    <unbox type="System.Int16" />
+                    <ldind_i2 />
+                    <ret />
+                </body>
+            </method>
+            <method name="unbox_char" sig="(Ljava.lang.Object;)C">
+                <body>
+                    <ldarg_0 />
+                    <unbox type="System.Char" />
+                    <ldind_i2 />
+                    <ret />
+                </body>
+            </method>
+            <method name="unbox_int" sig="(Ljava.lang.Object;)I">
+                <body>
+                    <ldarg_0 />
+                    <unbox type="System.Int32" />
+                    <ldind_i4 />
+                    <ret />
+                </body>
+            </method>
+            <method name="unbox_float" sig="(Ljava.lang.Object;)F">
+                <body>
+                    <ldarg_0 />
+                    <unbox type="System.Single" />
+                    <ldind_r4 />
+                    <ret />
+                </body>
+            </method>
+            <method name="unbox_long" sig="(Ljava.lang.Object;)J">
+                <body>
+                    <ldarg_0 />
+                    <unbox type="System.Int64" />
+                    <ldind_i8 />
+                    <ret />
+                </body>
+            </method>
+            <method name="unbox_double" sig="(Ljava.lang.Object;)D">
+                <body>
+                    <ldarg_0 />
+                    <unbox type="System.Double" />
+                    <ldind_r8 />
+                    <ret />
+                </body>
+            </method>
+            <method name="box_byte" sig="(B)Lcli.System.Byte;">
+                <body>
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="box_boolean" sig="(Z)Lcli.System.Boolean;">
+                <body>
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="box_short" sig="(S)Lcli.System.Int16;">
+                <body>
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="box_char" sig="(C)Lcli.System.Char;">
+                <body>
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="box_int" sig="(I)Lcli.System.Int32;">
+                <body>
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="box_float" sig="(F)Lcli.System.Single;">
+                <body>
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="box_long" sig="(J)Lcli.System.Int64;">
+                <body>
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="box_double" sig="(D)Lcli.System.Double;">
+                <body>
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="box_sbyte" sig="(B)Lcli.System.SByte;">
+                <body>
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="box_ushort" sig="(S)Lcli.System.UInt16;">
+                <body>
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="box_uint" sig="(I)Lcli.System.UInt32;">
+                <body>
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="box_ulong" sig="(J)Lcli.System.UInt64;">
+                <body>
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="unbox_sbyte" sig="(Lcli.System.SByte;)B">
+                <body>
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="unbox_ushort" sig="(Lcli.System.UInt16;)S">
+                <body>
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="unbox_uint" sig="(Lcli.System.UInt32;)I">
+                <body>
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+            <method name="unbox_ulong" sig="(Lcli.System.UInt64;)J">
+                <body>
+                    <ldarg_0 />
+                    <ret />
+                </body>
+            </method>
+        </class>
+        <class name="java.lang.Byte">
+            <implements class="cli.System.IFormattable">
+                <method name="ToString" sig="(Ljava.lang.String;Lcli.System.IFormatProvider;)Ljava.lang.String;">
+                    <redirect class="ikvm.internal.Formatter" name="ToString" sig="(Ljava.lang.Byte;Ljava.lang.String;Lcli.System.IFormatProvider;)Ljava.lang.String;" />
+                </method>
+            </implements>
+        </class>
+        <class name="java.lang.Short">
+            <implements class="cli.System.IFormattable">
+                <method name="ToString" sig="(Ljava.lang.String;Lcli.System.IFormatProvider;)Ljava.lang.String;">
+                    <redirect class="ikvm.internal.Formatter" name="ToString" sig="(Ljava.lang.Short;Ljava.lang.String;Lcli.System.IFormatProvider;)Ljava.lang.String;" />
+                </method>
+            </implements>
+        </class>
+        <class name="java.lang.Integer">
+            <implements class="cli.System.IFormattable">
+                <method name="ToString" sig="(Ljava.lang.String;Lcli.System.IFormatProvider;)Ljava.lang.String;">
+                    <redirect class="ikvm.internal.Formatter" name="ToString" sig="(Ljava.lang.Integer;Ljava.lang.String;Lcli.System.IFormatProvider;)Ljava.lang.String;" />
+                </method>
+            </implements>
+            <method name="compareUnsigned" sig="(II)I">
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <bge_un name="ge" />
+                    <ldc_i4_m1 />
+                    <ret />
+                    <label name="ge" />
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <bne_un name="ne" />
+                    <ldc_i4_0 />
+                    <ret />
+                    <label name="ne" />
+                    <ldc_i4_1 />
+                    <ret />
+                </body>
+            </method>
+            <method name="divideUnsigned" sig="(II)I">
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <div_un />
+                    <ret />
+                </body>
+            </method>
+            <method name="remainderUnsigned" sig="(II)I">
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <rem_un />
+                    <ret />
+                </body>
+            </method>
+        </class>
+        <class name="java.lang.Long">
+            <implements class="cli.System.IFormattable">
+                <method name="ToString" sig="(Ljava.lang.String;Lcli.System.IFormatProvider;)Ljava.lang.String;">
+                    <redirect class="ikvm.internal.Formatter" name="ToString" sig="(Ljava.lang.Long;Ljava.lang.String;Lcli.System.IFormatProvider;)Ljava.lang.String;" />
+                </method>
+            </implements>
+            <method name="compareUnsigned" sig="(JJ)I">
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <bge_un name="ge" />
+                    <ldc_i4_m1 />
+                    <ret />
+                    <label name="ge" />
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <bne_un name="ne" />
+                    <ldc_i4_0 />
+                    <ret />
+                    <label name="ne" />
+                    <ldc_i4_1 />
+                    <ret />
+                </body>
+            </method>
+            <method name="divideUnsigned" sig="(JJ)J">
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <div_un />
+                    <ret />
+                </body>
+            </method>
+            <method name="remainderUnsigned" sig="(JJ)J">
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <rem_un />
+                    <ret />
+                </body>
+            </method>
+        </class>
+        <class name="java.lang.Float">
+            <implements class="cli.System.IFormattable">
+                <method name="ToString" sig="(Ljava.lang.String;Lcli.System.IFormatProvider;)Ljava.lang.String;">
+                    <redirect class="ikvm.internal.Formatter" name="ToString" sig="(Ljava.lang.Float;Ljava.lang.String;Lcli.System.IFormatProvider;)Ljava.lang.String;" />
+                </method>
+            </implements>
+        </class>
+        <class name="java.lang.Double">
+            <implements class="cli.System.IFormattable">
+                <method name="ToString" sig="(Ljava.lang.String;Lcli.System.IFormatProvider;)Ljava.lang.String;">
+                    <redirect class="ikvm.internal.Formatter" name="ToString" sig="(Ljava.lang.Double;Ljava.lang.String;Lcli.System.IFormatProvider;)Ljava.lang.String;" />
+                </method>
+            </implements>
+        </class>
+        <class name="jdk.internal.reflect.Reflection">
+            <!-- the dynamic version of the getCallerClass() intrinsic, for methods that do not get a CallerID; we
+                 manually hook it up to prevent inlining and tail-call optimizations -->
+            <method name="getCallerClass" sig="(I)Ljava.lang.Class;" modifiers="static">
+                <attribute type="System.Runtime.CompilerServices.MethodImplAttribute" sig="(Lcli.System.Runtime.CompilerServices.MethodImplOptions;)V">
+                    <parameter>NoInlining</parameter>
+                </attribute>
+                <body>
+                    <ldarg_0 />
+                    <call type="IKVM.Java.Externs.jdk.internal.reflect.Reflection" name="getCallerClass" sig="(I)Ljava.lang.Class;" />
+                    <stloc name="class" class="java.lang.Class" />
+                    <!-- "leave" is to thwart tail-call optimization -->
+                    <leave name="x" />
+                    <label name="x" />
+                    <ldloc name="class" />
+                    <ret />
+                </body>
+            </method>
+        </class>
+        <class name="java.lang.StackTraceElement">
+            <attribute type="System.SerializableAttribute" sig="()V" />
+        </class>
+        <class name="java.lang.invoke.CallSite">
+            <field name="ics" sig="Lcli.IKVM.Runtime.IIndyCallSite;" modifiers="">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+            </field>
+        </class>
+        <class name="java.lang.invoke.MemberName">
+            <field name="vmtarget" sig="Ljava.lang.Object;" modifiers="">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+            </field>
+            <!-- memoizes the entry point a void-returning invokeBasic against this member dispatches to -->
+            <field name="voidAdapter" sig="Ljava.lang.Object;" modifiers="">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+            </field>
+            <constructor sig="(Ljava.lang.reflect.Method;Z)V">
+                <replace-method-call class="java.lang.invoke.MethodHandleNatives" name="init" sig="(Ljava.lang.invoke.MemberName;Ljava.lang.Object;)V">
+                    <code>
+                        <ldarg_2 />
+                        <call type="IKVM.Java.Externs.java.lang.invoke.MethodHandleNatives" name="init" sig="(Ljava.lang.invoke.MemberName;Ljava.lang.Object;Z)V" />
+                    </code>
+                </replace-method-call>
+            </constructor>
+            <method name="_clazz" sig="(Ljava.lang.Class;)V" modifiers="final">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <stfld class="java.lang.invoke.MemberName" name="clazz" sig="Ljava.lang.Class;" />
+                    <ret />
+                </body>
+            </method>
+            <method name="_name" sig="(Ljava.lang.String;)V" modifiers="final">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <stfld class="java.lang.invoke.MemberName" name="name" sig="Ljava.lang.String;" />
+                    <ret />
+                </body>
+            </method>
+            <method name="_type" sig="(Ljava.lang.invoke.MethodType;)V" modifiers="final">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <stfld class="java.lang.invoke.MemberName" name="type" sig="Ljava.lang.Object;" />
+                    <ret />
+                </body>
+            </method>
+            <method name="_flags" sig="()I" modifiers="final">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+                <body>
+                    <ldarg_0 />
+                    <ldfld class="java.lang.invoke.MemberName" name="flags" sig="I" />
+                    <ret />
+                </body>
+            </method>
+            <method name="_flags" sig="(I)V" modifiers="final">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <stfld class="java.lang.invoke.MemberName" name="flags" sig="I" />
+                    <ret />
+                </body>
+            </method>
+        </class>
+        <class name="sun.security.provider.SeedGenerator">
+            <method name="getSystemEntropy" sig="()[B">
+                <prologue>
+                    <exceptionBlock>
+                        <try>
+                            <ldc_i4 value="20" />
+                            <newarr sig="B" />
+                            <stloc name="buf" class="[B" />
+                            <newobj class="cli.System.Security.Cryptography.RNGCryptoServiceProvider" name="&lt;init&gt;" sig="()V" />
+                            <ldloc name="buf" />
+                            <callvirt type="System.Security.Cryptography.RandomNumberGenerator" name="GetBytes" sig="([B)V" />
+                            <leave name="return" />
+                        </try>
+                        <catch type="System.Security.Cryptography.CryptographicException">
+                            <leave name="continue" />
+                        </catch>
+                    </exceptionBlock>
+                    <label name="return" />
+                    <ldloc name="buf" />
+                    <ret />
+                    <label name="continue" />
+                </prologue>
+            </method>
+        </class>
+    </assembly>
+    <exceptionMappings>
+        <exception src="System.NullReferenceException" dst="java.lang.NullPointerException" />
+        <!-- many of the String and Object methods throw ArgumentNullException where Java throws an NPE -->
+        <exception src="System.ArgumentNullException" dst="java.lang.NullPointerException" />
+        <exception src="System.IndexOutOfRangeException" dst="java.lang.ArrayIndexOutOfBoundsException" />
+        <!-- HACK for String methods, we remap ArgumentOutOfRangeException to StringIndexOutOfBoundsException -->
+        <exception src="System.ArgumentOutOfRangeException" dst="java.lang.StringIndexOutOfBoundsException" />
+        <exception src="System.InvalidCastException" dst="java.lang.ClassCastException">
+            <code>
+                <callvirt type="System.Exception" name="get_Message" sig="()Ljava.lang.String;" />
+                <newobj class="java.lang.ClassCastException" name="&lt;init&gt;" sig="(Ljava.lang.String;)V" />
+            </code>
+        </exception>
+        <!-- NOTE we "map" to java.lang.Error, because that is the base class of all possible mappings.
+             The * in front of the class name means that all subclasses can be thrown as well.
+        -->
+        <exception src="System.TypeInitializationException" dst="*java.lang.Error">
+            <code>
+                <!-- this code is unreachable, TypeInitializationException is handled explicitly in ExceptionHelper.java -->
+            </code>
+        </exception>
+        <exception src="System.Threading.SynchronizationLockException" dst="java.lang.IllegalMonitorStateException" />
+        <exception src="System.OutOfMemoryException" dst="java.lang.OutOfMemoryError" />
+        <exception src="System.DivideByZeroException" dst="java.lang.ArithmeticException">
+            <code>
+                <pop />
+                <ldstr value="/ by zero" />
+                <newobj class="java.lang.ArithmeticException" name="&lt;init&gt;" sig="(Ljava.lang.String;)V" />
+            </code>
+        </exception>
+        <exception src="System.ArrayTypeMismatchException" dst="java.lang.ArrayStoreException" />
+        <exception src="System.StackOverflowException" dst="java.lang.StackOverflowError" />
+        <exception src="System.Threading.ThreadAbortException" dst="java.lang.ThreadDeath">
+            <code>
+                <castclass type="System.Threading.ThreadAbortException" />
+                <call type="System.Threading.ThreadAbortException" name="get_ExceptionState" sig="()Ljava.lang.Object;" />
+                <isinst class="java.lang.ThreadDeath" />
+                <dup />
+                <brtrue name="end" />
+                <pop />
+                <newobj class="java.lang.ThreadDeath" name="&lt;init&gt;" sig="()V" />
+                <label name="end" />
+                <!-- NOTE we do this last because ResetAbort clears the ExceptionState of the ThreadAbortException (why?) -->
+                <!-- TODO we should put an exception handler around the ResetAbort call, because it will throw a ThreadStateException
+		             if no Abort is pending (someone could have thrown the exception manually, or we could have called on a 
+		             previous handler that turned out not to be match for this exception type) -->
+                <stloc name="x" class="java.lang.ThreadDeath" />
+                <exceptionBlock>
+                    <try>
+                        <!-- TODO instead of catching the ThreadStateException, we should check the ThreadState
+			     before calling ResetAbort -->
+                        <call type="System.Threading.Thread" name="ResetAbort" sig="()V" />
+                        <leave name="next" />
+                    </try>
+                    <catch type="System.Threading.ThreadStateException">
+                        <!-- ignore the exception -->
+                        <leave name="next" />
+                    </catch>
+                </exceptionBlock>
+                <label name="next" />
+                <ldloc name="x" />
+            </code>
+        </exception>
+        <!-- TODO make sure the originating method was from an IKVM.NET generated assembly, because if it was
+	         generated by non-Java code, this remapping is obviously bogus. -->
+        <exception src="System.OverflowException" dst="java.lang.NegativeArraySizeException" />
+    </exceptionMappings>
+</root>

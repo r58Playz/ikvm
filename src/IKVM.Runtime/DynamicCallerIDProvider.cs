@@ -55,7 +55,7 @@ namespace IKVM.Runtime
                 if (method == null)
                     return ikvm.@internal.CallerID.create(null, null);
 
-                if (IKVM.Java.Externs.sun.reflect.Reflection.IsHideFromStackWalk(method))
+                if (StackWalkUtil.IsHideFromStackWalk(method))
                     continue;
 
                 var caller = JVM.Context.ClassLoaderFactory.GetJavaTypeFromType(method.DeclaringType);

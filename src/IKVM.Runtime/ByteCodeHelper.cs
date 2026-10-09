@@ -44,8 +44,13 @@ using System.Reflection.Emit;
 
 #if EXPORTER == false
 
-using IKVM.Java.Externs.java.lang.invoke;
 using IKVM.Runtime.Accessors.Java.Lang;
+
+#endif
+
+#if FIRST_PASS == false && EXPORTER == false
+
+using IKVM.Java.Externs.java.lang.invoke;
 
 #endif
 
