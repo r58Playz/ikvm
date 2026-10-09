@@ -1,0 +1,28 @@
+<Project>
+    <Import Sdk="IKVM.Clang.Sdk" Project="Sdk.props" />
+    <Import Project="$(MSBuildThisFileDirectory)..\..\..\targets\openjdk25.lib.props" />
+
+    <!-- JDK 25's libzip, with its bundled zlib -->
+    <PropertyGroup>
+        <TargetName>zip</TargetName>
+        <OutputType>dll</OutputType>
+        <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+        <EnableDefaultHeaderItems>false</EnableDefaultHeaderItems>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\libjvm\libjvm.clangproj" />
+        <ProjectReference Include="..\libiava\libiava.clangproj" />
+    </ItemGroup>
+    <ItemGroup Condition=" '$(TargetIdentifier)' != '' ">
+        <Compile Include="$(OpenJdkSrcDir)java.base\share\native\libzip\*.c" />
+        <Compile Include="$(OpenJdkSrcDir)java.base\share\native\libzip\zlib\*.c" />
+        <Compile Update="@(Compile)" LanguageStandard="c11" />
+        <IncludeDirectories Include="$(OpenJdkSrcDir)java.base\share\native\libzip" />
+        <IncludeDirectories Include="$(OpenJdkSrcDir)java.base\share\native\libzip\zlib" />
+        <PreprocessorDefinitions Include="USE_MMAP" Condition=" '$(OpenJdkTargetOsType)' == 'unix' " />
+        <AdditionalCompileOptions Include="-Wno-deprecated-non-prototype" />
+    </ItemGroup>
+
+    <Import Sdk="IKVM.Clang.Sdk" Project="Sdk.targets" />
+    <Import Project="$(MSBuildThisFileDirectory)..\..\..\targets\openjdk.lib.targets" />
+</Project>

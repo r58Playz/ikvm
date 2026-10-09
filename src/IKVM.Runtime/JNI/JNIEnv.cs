@@ -1322,6 +1322,11 @@ namespace IKVM.Runtime.JNI
                 if (s.IndexOf('.') < 0)
                 {
                     var fw = GetFieldImpl(tw, n, s.Replace('/', '.'));
+#if JDK25 && FIRST_PASS == false
+                    // the fields of String that libjava reads, which IKVM's strings do not have
+                    if (fw == null && isStatic == false && tw == tw.Context.JavaBase.TypeOfJavaLangString)
+                        fw = RuntimeStringJniJavaField.Get(tw.Context, n, s);
+#endif
                     if (fw != null)
                         if (fw.IsStatic == isStatic)
                             return fw.Cookie;

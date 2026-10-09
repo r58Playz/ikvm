@@ -101,6 +101,13 @@ namespace IKVM.Runtime.Accessors
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
+            // a constant (a static final with a constant value, such as JDK 9+'s generated UnixConstants) has no storage
+            if (Field.IsLiteral)
+            {
+                var value = (TField)Field.GetRawConstantValue();
+                return () => value;
+            }
+
             var dm = DynamicMethodUtil.Create($"__<FieldAccessorGet>__{Type.Name.Replace(".", "_")}__{Field.Name}", Type, false, typeof(TField), Array.Empty<Type>());
             var il = JVM.Context.CodeEmitterFactory.Create(dm);
 

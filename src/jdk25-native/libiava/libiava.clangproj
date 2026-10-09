@@ -1,0 +1,44 @@
+<Project>
+    <Import Sdk="IKVM.Clang.Sdk" Project="Sdk.props" />
+    <Import Project="$(MSBuildThisFileDirectory)..\..\..\targets\openjdk25.lib.props" />
+
+    <!-- JDK 25's libjava, named iava for IKVM -->
+    <PropertyGroup>
+        <TargetName>iava</TargetName>
+        <OutputType>dll</OutputType>
+        <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+        <EnableDefaultHeaderItems>false</EnableDefaultHeaderItems>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\libjvm\libjvm.clangproj" />
+    </ItemGroup>
+    <ItemGroup Condition=" '$(TargetIdentifier)' != '' ">
+        <Compile Include="$(OpenJdkSrcDir)java.base\share\native\libjava\*.c" />
+        <Compile Include="$(OpenJdkSrcDir)java.base\$(OpenJdkTargetOsType)\native\libjava\*.c" />
+        <Compile Include="$(OpenJdkSrcDir)java.base\$(OpenJdkTargetOs)\native\libjava\*.c" />
+        <Compile Update="@(Compile)" LanguageStandard="c11" />
+        <PreprocessorDefinitions Include="ARCHPROPNAME" Value="&quot;$(OpenJdkTargetCpuOsArch)&quot;" />
+        <!-- for ProcessImpl_md.c, which checks jspawnhelper's version -->
+        <PreprocessorDefinitions Include="@(OpenJdkVersionDefinitions)" />
+        <Dependencies Include="dl" Condition="$(TargetIdentifier.StartsWith('linux-'))" />
+    </ItemGroup>
+
+    <!-- the natives of the VM's interfaces, which the runtime implements -->
+    <ItemGroup>
+        <LibJavaExclude Include="Array.c;BootLoader.c;CDS.c;Class.c;ClassLoader.c;ConstantPool.c;Continuation.c;ContinuationSupport.c" />
+        <LibJavaExclude Include="Double.c;Executable.c;Field.c;Finalizer.c;Float.c;ForeignLinkerSupport.c;LambdaProxyClassArchive.c" />
+        <LibJavaExclude Include="Module.c;NativeAccessors.c;NativeLibraries.c;NullPointerException.c;Object.c;PhantomReference.c" />
+        <LibJavaExclude Include="PreviewFeatures.c;Reference.c;Reflection.c;Runtime.c;Shutdown.c;Signal.c;StackFrameInfo.c" />
+        <LibJavaExclude Include="StackStreamFactory.c;StackTraceElement.c;String.c;System.c;Thread.c;ThreadSnapshot.c;Throwable.c" />
+        <LibJavaExclude Include="VirtualThread.c;VM.c;VMSupport.c" />
+    </ItemGroup>
+
+    <Target Name="_LibJavaExclude" BeforeTargets="PrepareCompile">
+        <ItemGroup>
+            <Compile Remove="@(LibJavaExclude)" MatchOnMetadata="Filename" />
+        </ItemGroup>
+    </Target>
+
+    <Import Sdk="IKVM.Clang.Sdk" Project="Sdk.targets" />
+    <Import Project="$(MSBuildThisFileDirectory)..\..\..\targets\openjdk.lib.targets" />
+</Project>

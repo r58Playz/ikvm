@@ -108,6 +108,11 @@ enum OSReturn
 
 #endif
 
+/* JDK 9+ no longer defines it */
+#ifndef JVM_INTERFACE_VERSION
+#define JVM_INTERFACE_VERSION 4
+#endif
+
 jint JNICALL JVM_GetInterfaceVersion()
 {
     return JVM_INTERFACE_VERSION;
@@ -290,6 +295,12 @@ jint JNICALL JVM_ActiveProcessorCount()
 }
 
 jboolean JNICALL JVM_IsUseContainerSupport()
+{
+    return JNI_FALSE;
+}
+
+/* JDK 17+ (jdk.internal.platform.CgroupMetrics) */
+jboolean JNICALL JVM_IsContainerized()
 {
     return JNI_FALSE;
 }
@@ -1016,15 +1027,17 @@ void* os_dll_load(const char* filename, char* ebuf, int ebuflen)
 #endif
 
 #ifndef __EMSCRIPTEN__
-void* JNICALL JVM_LoadLibrary(const char* name)
+void* JNICALL JVM_LoadLibrary(IKVM_LOADLIBRARY_PARAMS)
 {
     char ebuf[1024];
     void* load_result;
     load_result = os_dll_load(name, ebuf, sizeof ebuf);
     if (load_result == NULL) {
-        char msg[1024];
-        jio_snprintf(msg, sizeof msg, "%s: %s", name, ebuf);
-        JVM_ThrowException("java/lang/UnsatisfiedLinkError", (const char*)msg);
+        if (IKVM_LOADLIBRARY_THROWS) {
+            char msg[1024];
+            jio_snprintf(msg, sizeof msg, "%s: %s", name, ebuf);
+            JVM_ThrowException("java/lang/UnsatisfiedLinkError", (const char*)msg);
+        }
         return NULL;
     }
 
@@ -1303,6 +1316,11 @@ inline int os_open(const char *path, int oflag, int mode)
   }
   return fd;
 }
+#endif
+
+/* JDK 9+ no longer defines it */
+#ifndef JVM_EEXIST
+#define JVM_EEXIST -100
 #endif
 
 jint JNICALL JVM_Open(const char *fname, jint flags, jint mode)

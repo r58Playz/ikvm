@@ -96,7 +96,12 @@ namespace IKVM.Runtime
 
         delegate void JVM_InitDelegate(JVMInvokeInterface* iface);
 
+#if JDK25
+        // JDK 25's says whether to throw when the library does not load
+        delegate nint JVM_LoadLibraryDelegate([MarshalAs(UnmanagedType.LPUTF8Str)] string name, byte throwException);
+#else
         delegate nint JVM_LoadLibraryDelegate([MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+#endif
 
         delegate void JVM_UnloadLibraryDelegate(nint handle);
 
@@ -573,7 +578,11 @@ namespace IKVM.Runtime
             try
             {
                 JVM.Context.Diagnostics.GenericJniTrace($"{nameof(LibJvm)}.{nameof(JVM_LoadLibrary)}: {name}");
+#if JDK25
+                var h = _JVM_LoadLibrary(name, 0);
+#else
                 var h = _JVM_LoadLibrary(name);
+#endif
                 JVM.Context.Diagnostics.GenericJniTrace($"{nameof(LibJvm)}.{nameof(JVM_LoadLibrary)}: {name} => {h}");
                 return h;
             }

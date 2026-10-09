@@ -45,18 +45,7 @@ namespace IKVM.Runtime
         internal BootstrapClassLoader(RuntimeContext context) :
             base(context, context.Resolver.ResolveBaseAssembly().AsReflection(), [typeof(object).Assembly.FullName, typeof(Uri).Assembly.FullName])
         {
-#if FIRST_PASS == false && IMPORTER == false && EXPORTER == false && JDK25
-            // without the JDK 25 native libraries, which are not built yet, a native the runtime does not implement fails
-            // when it is called
-            try
-            {
-                RegisterNativeLibrary(LibJava.Instance.Handle);
-            }
-            catch (TypeInitializationException)
-            {
-
-            }
-#elif FIRST_PASS == false && IMPORTER == false && EXPORTER == false
+#if FIRST_PASS == false && IMPORTER == false && EXPORTER == false
             RegisterNativeLibrary(LibJava.Instance.Handle);
 #endif
         }

@@ -1,0 +1,37 @@
+<Project>
+    <Import Sdk="IKVM.Clang.Sdk" Project="Sdk.props" />
+    <Import Project="$(MSBuildThisFileDirectory)..\..\..\targets\openjdk25.lib.props" />
+
+    <!-- JDK 25's libnio -->
+    <PropertyGroup>
+        <TargetName>nio</TargetName>
+        <OutputType>dll</OutputType>
+        <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+        <EnableDefaultHeaderItems>false</EnableDefaultHeaderItems>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\libjvm\libjvm.clangproj" />
+        <ProjectReference Include="..\libiava\libiava.clangproj" />
+        <ProjectReference Include="..\libnet\libnet.clangproj" />
+    </ItemGroup>
+    <ItemGroup Condition=" '$(TargetIdentifier)' != '' ">
+        <Compile Include="$(OpenJdkSrcDir)java.base\share\native\libnio\*.c" />
+        <Compile Include="$(OpenJdkSrcDir)java.base\share\native\libnio\ch\*.c" />
+        <Compile Include="$(OpenJdkSrcDir)java.base\$(OpenJdkTargetOsType)\native\libnio\*.c" />
+        <Compile Include="$(OpenJdkSrcDir)java.base\$(OpenJdkTargetOsType)\native\libnio\ch\*.c" />
+        <Compile Include="$(OpenJdkSrcDir)java.base\$(OpenJdkTargetOsType)\native\libnio\fs\*.c" />
+        <Compile Include="$(OpenJdkSrcDir)java.base\$(OpenJdkTargetOs)\native\libnio\ch\*.c" />
+        <Compile Include="$(OpenJdkSrcDir)java.base\$(OpenJdkTargetOs)\native\libnio\fs\*.c" />
+        <Compile Update="@(Compile)" LanguageStandard="c11" />
+        <IncludeDirectories Include="$(OpenJdkSrcDir)java.base\share\native\libnio" />
+        <IncludeDirectories Include="$(OpenJdkSrcDir)java.base\share\native\libnio\ch" />
+        <IncludeDirectories Include="$(OpenJdkSrcDir)java.base\$(OpenJdkTargetOsType)\native\libnio\ch" />
+        <IncludeDirectories Include="$(OpenJdkSrcDir)java.base\$(OpenJdkTargetOsType)\native\libnio\fs" />
+        <IncludeDirectories Include="$(OpenJdkSrcDir)java.base\share\native\libnet" />
+        <IncludeDirectories Include="$(OpenJdkSrcDir)java.base\$(OpenJdkTargetOsType)\native\libnet" />
+        <Dependencies Include="dl;pthread" Condition="$(TargetIdentifier.StartsWith('linux-'))" />
+    </ItemGroup>
+
+    <Import Sdk="IKVM.Clang.Sdk" Project="Sdk.targets" />
+    <Import Project="$(MSBuildThisFileDirectory)..\..\..\targets\openjdk.lib.targets" />
+</Project>

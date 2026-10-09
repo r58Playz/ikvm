@@ -1,0 +1,24 @@
+<Project>
+    <Import Sdk="IKVM.Clang.Sdk" Project="Sdk.props" />
+    <Import Project="$(MSBuildThisFileDirectory)..\..\..\targets\openjdk25.lib.props" />
+
+    <!-- IKVM's libjvm (src\libjvm), built against JDK 25's jni.h and jvm.h -->
+    <PropertyGroup>
+        <TargetName>jvm</TargetName>
+        <OutputType>dll</OutputType>
+        <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+        <EnableDefaultHeaderItems>false</EnableDefaultHeaderItems>
+        <IkvmLibJvmDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)..\..\libjvm'))</IkvmLibJvmDir>
+    </PropertyGroup>
+    <ItemGroup>
+        <AdditionalCompileOptions Include="-Wno-dll-attribute-on-redeclaration" />
+        <Compile Include="$(IkvmLibJvmDir)jvm.cpp" LanguageStandard="c++11" />
+        <Compile Include="$(IkvmLibJvmDir)jni.c;$(IkvmLibJvmDir)jni_vargs.c;$(IkvmLibJvmDir)jvm_emscripten_dynlib.c" LanguageStandard="c99" />
+    </ItemGroup>
+    <ItemGroup Condition="$(TargetIdentifier.StartsWith('linux-'))">
+        <AdditionalLinkOptions Include="-Wl,--version-script=$(IkvmLibJvmDir)mapfile-vers" />
+    </ItemGroup>
+
+    <Import Sdk="IKVM.Clang.Sdk" Project="Sdk.targets" />
+    <Import Project="$(MSBuildThisFileDirectory)..\..\..\targets\openjdk.lib.targets" />
+</Project>

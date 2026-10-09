@@ -61,7 +61,7 @@
 
 /* ── JVM_LoadLibrary ─────────────────────────────────────────────────────── */
 
-void* JNICALL JVM_LoadLibrary(const char* name)
+void* JNICALL JVM_LoadLibrary(IKVM_LOADLIBRARY_PARAMS)
 {
     int i;
     for (i = 0; jvm_static_libs[i].path != NULL; i++) {
@@ -75,7 +75,7 @@ void* JNICALL JVM_LoadLibrary(const char* name)
         }
     }
 
-    {
+    if (IKVM_LOADLIBRARY_THROWS) {
         char msg[1024];
         snprintf(msg, sizeof msg,
                  "%s: not found in Emscripten static library registry"

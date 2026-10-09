@@ -1,0 +1,84 @@
+<!--
+
+    openjdk25.lib.props
+
+    Applies at the top of any native library project of the JDK 25 flavor, which builds from the JDK 9+ source layout
+    (src/<module>/<os>/native/lib<name>) and the headers the JDK's make generated (IKVM.OpenJdk.Make). The flags are
+    those of the JDK's make (CFLAGS_JDKLIB, SetupJdkLibrary).
+
+-->
+
+<Project>
+    <PropertyGroup>
+        <MSBuildAllProjects>$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+        <IkvmJdkFlavors>25</IkvmJdkFlavors>
+    </PropertyGroup>
+
+    <Import Project="$(MSBuildThisFileDirectory)lib.props" />
+
+    <PropertyGroup>
+        <OpenJdkBuildDir>$([MSBuild]::NormalizeDirectory('$(IkvmArtifactsDir)', 'openjdk-build'))</OpenJdkBuildDir>
+        <OpenJdkSupportDir>$([MSBuild]::NormalizeDirectory('$(OpenJdkBuildDir)', 'support'))</OpenJdkSupportDir>
+        <OpenJdkSrcDir>$([MSBuild]::NormalizeDirectory('$(OpenJdkDir)', 'src'))</OpenJdkSrcDir>
+    </PropertyGroup>
+
+    <!-- the JNI headers javac generates, and the copies of jni.h and the like -->
+    <ItemGroup>
+        <ProjectReference Include="$(MSBuildThisFileDirectory)..\src\IKVM.OpenJdk.Make\IKVM.OpenJdk.Make.msbuildproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="TargetIdentifier;TargetFramework;RuntimeIdentifier" />
+    </ItemGroup>
+
+    <PropertyGroup Condition="$(TargetIdentifier.StartsWith('linux-'))">
+        <OpenJdkTargetOs>linux</OpenJdkTargetOs>
+        <OpenJdkTargetOsType>unix</OpenJdkTargetOsType>
+        <OpenJdkTargetCpuOsArch Condition="$(TargetIdentifier.EndsWith('-x64'))">amd64</OpenJdkTargetCpuOsArch>
+        <OpenJdkTargetCpuOsArch Condition="$(TargetIdentifier.EndsWith('-arm64'))">aarch64</OpenJdkTargetCpuOsArch>
+        <PositionIndependentCode>true</PositionIndependentCode>
+    </PropertyGroup>
+
+    <!-- CFLAGS_JDKLIB -->
+    <ItemGroup Condition=" '$(TargetIdentifier)' != '' ">
+        <PreprocessorDefinitions Include="IKVM_JDK" Value="25" />
+        <PreprocessorDefinitions Include="NDEBUG" />
+        <PreprocessorDefinitions Include="_LP64" Value="1" Condition="$(TargetIdentifier.EndsWith('64'))" />
+        <PreprocessorDefinitions Include="ARCH" Value="&quot;$(OpenJdkTargetCpuOsArch)&quot;" />
+        <PreprocessorDefinitions Include="_LITTLE_ENDIAN" />
+        <AdditionalCompileOptions Include="-fno-strict-aliasing;-fvisibility=hidden" />
+    </ItemGroup>
+    <ItemGroup Condition="$(TargetIdentifier.StartsWith('linux-'))">
+        <PreprocessorDefinitions Include="LIBC" Value="gnu" />
+        <PreprocessorDefinitions Include="_GNU_SOURCE;_REENTRANT;LINUX" />
+        <PreprocessorDefinitions Include="_FILE_OFFSET_BITS" Value="64" />
+        <Dependencies Include="c" />
+    </ItemGroup>
+
+    <!-- the include directories of every JDK library -->
+    <ItemGroup Condition=" '$(TargetIdentifier)' != '' ">
+        <IncludeDirectories Include="$(OpenJdkSupportDir)modules_include\java.base" />
+        <IncludeDirectories Include="$(OpenJdkSupportDir)modules_include\java.base\$(OpenJdkTargetOs)" />
+        <IncludeDirectories Include="$(OpenJdkSrcDir)hotspot\share\include" />
+        <IncludeDirectories Include="$(OpenJdkSrcDir)hotspot\os\posix\include" Condition=" '$(OpenJdkTargetOsType)' == 'unix' " />
+        <IncludeDirectories Include="$(OpenJdkSrcDir)java.base\share\native\libjava" />
+        <IncludeDirectories Include="$(OpenJdkSrcDir)java.base\$(OpenJdkTargetOsType)\native\libjava" />
+        <IncludeDirectories Include="$(OpenJdkSupportDir)headers\java.base" />
+    </ItemGroup>
+
+    <!-- the version, for jdk_util.c and ProcessImpl_md.c (VERSION_CFLAGS) -->
+    <ItemGroup>
+        <OpenJdkVersionDefinitions Include="VERSION_FEATURE" Value="$(OpenJdkFeatureVersion)" />
+        <OpenJdkVersionDefinitions Include="VERSION_INTERIM" Value="$(OpenJdkInterimVersion)" />
+        <OpenJdkVersionDefinitions Include="VERSION_UPDATE" Value="$(OpenJdkUpdateVersion)" />
+        <OpenJdkVersionDefinitions Include="VERSION_PATCH" Value="$(OpenJdkPatchVersion)" />
+        <OpenJdkVersionDefinitions Include="VERSION_EXTRA1" Value="0" />
+        <OpenJdkVersionDefinitions Include="VERSION_EXTRA2" Value="0" />
+        <OpenJdkVersionDefinitions Include="VERSION_EXTRA3" Value="0" />
+        <OpenJdkVersionDefinitions Include="VERSION_PRE" Value="&quot;&quot;" />
+        <OpenJdkVersionDefinitions Include="VERSION_BUILD" Value="$(OpenJdkBuildNumber)" />
+        <OpenJdkVersionDefinitions Include="VERSION_OPT" Value="&quot;&quot;" />
+        <OpenJdkVersionDefinitions Include="VERSION_NUMBER" Value="&quot;$(OpenJdkVersionNumber)&quot;" />
+        <OpenJdkVersionDefinitions Include="VERSION_STRING" Value="&quot;$(OpenJdkFullVersion)&quot;" />
+        <OpenJdkVersionDefinitions Include="VERSION_SHORT" Value="&quot;$(OpenJdkVersionNumber)&quot;" />
+        <OpenJdkVersionDefinitions Include="VERSION_SPECIFICATION" Value="&quot;$(OpenJdkFeatureVersion)&quot;" />
+        <OpenJdkVersionDefinitions Include="VENDOR" Value="&quot;$(ProductName)&quot;" />
+    </ItemGroup>
+
+</Project>

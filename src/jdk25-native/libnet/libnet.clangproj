@@ -1,0 +1,27 @@
+<Project>
+    <Import Sdk="IKVM.Clang.Sdk" Project="Sdk.props" />
+    <Import Project="$(MSBuildThisFileDirectory)..\..\..\targets\openjdk25.lib.props" />
+
+    <!-- JDK 25's libnet -->
+    <PropertyGroup>
+        <TargetName>net</TargetName>
+        <OutputType>dll</OutputType>
+        <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+        <EnableDefaultHeaderItems>false</EnableDefaultHeaderItems>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\libjvm\libjvm.clangproj" />
+        <ProjectReference Include="..\libiava\libiava.clangproj" />
+    </ItemGroup>
+    <ItemGroup Condition=" '$(TargetIdentifier)' != '' ">
+        <Compile Include="$(OpenJdkSrcDir)java.base\share\native\libnet\*.c" />
+        <Compile Include="$(OpenJdkSrcDir)java.base\$(OpenJdkTargetOsType)\native\libnet\*.c" />
+        <Compile Update="@(Compile)" LanguageStandard="c11" />
+        <IncludeDirectories Include="$(OpenJdkSrcDir)java.base\share\native\libnet" />
+        <IncludeDirectories Include="$(OpenJdkSrcDir)java.base\$(OpenJdkTargetOsType)\native\libnet" />
+        <Dependencies Include="dl" Condition="$(TargetIdentifier.StartsWith('linux-'))" />
+    </ItemGroup>
+
+    <Import Sdk="IKVM.Clang.Sdk" Project="Sdk.targets" />
+    <Import Project="$(MSBuildThisFileDirectory)..\..\..\targets\openjdk.lib.targets" />
+</Project>

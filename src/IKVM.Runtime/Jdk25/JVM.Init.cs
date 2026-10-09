@@ -1,5 +1,7 @@
 using System.Runtime.CompilerServices;
 
+using IKVM.Runtime.JNI;
+
 namespace IKVM.Runtime
 {
 
@@ -54,6 +56,32 @@ namespace IKVM.Runtime
             RuntimeHelpers.RunClassConstructor(typeof(java.lang.invoke.MethodHandleNatives).TypeHandle);
 
             Internal.SystemAccessor.InvokeInitPhase3();
+        }
+
+        /// <summary>
+        /// Calls libjava's InitializeEncoding, which it exports for the VM: libjava's natives convert strings with the
+        /// platform's encoding (sun.jnu.encoding). It initializes Charset, so it must not run before System's
+        /// initPhase1 has set JavaLangAccess.
+        /// </summary>
+        /// <param name="encoding"></param>
+        internal static unsafe void InitializeLibJavaEncoding(string encoding)
+        {
+            var initializeEncoding = LibJvm.Instance.JVM_FindLibraryEntry(LibJava.Instance.Handle, "InitializeEncoding");
+            if (initializeEncoding == 0)
+                throw new InternalException("libiava has no InitializeEncoding.");
+
+            var name = System.Text.Encoding.UTF8.GetBytes(encoding + "\0");
+            var frame = new JNIFrame();
+            var env = frame.Enter(ikvm.@internal.CallerID.create(typeof(java.lang.System).TypeHandle));
+            try
+            {
+                fixed (byte* p = name)
+                    ((delegate* unmanaged<nint, byte*, void>)initializeEncoding)(env, p);
+            }
+            finally
+            {
+                frame.Leave();
+            }
         }
 
 #endif

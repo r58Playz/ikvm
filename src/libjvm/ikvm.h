@@ -23,6 +23,16 @@ typedef struct JVMInvokeInterface {
 
 extern JVMInvokeInterface *jvmii;
 
+/* the JDK the library is built for (IKVM_JDK, 8 if not defined): JDK 25's JVM_LoadLibrary says whether to throw when
+ * the library does not load */
+#if defined(IKVM_JDK) && IKVM_JDK >= 25
+#define IKVM_LOADLIBRARY_PARAMS const char* name, jboolean throwException
+#define IKVM_LOADLIBRARY_THROWS throwException
+#else
+#define IKVM_LOADLIBRARY_PARAMS const char* name
+#define IKVM_LOADLIBRARY_THROWS JNI_TRUE
+#endif
+
 JNIEXPORT void JNICALL JVM_Init(JVMInvokeInterface *p_jvmii);
 
 JNIEXPORT void JNICALL JVM_ThrowException(const char *name, const char *msg);

@@ -126,6 +126,11 @@ namespace IKVM.Java.Externs.jdk.@internal.util
                 p[_user_home_NDX] = GetUserHome();
                 p[_user_name_NDX] = GetUserName();
 
+#if FIRST_PASS == false
+                // as libjava's platformProperties, set up the encoding its natives convert strings with
+                JVM.InitializeLibJavaEncoding(p[_sun_jnu_encoding_NDX]);
+#endif
+
                 return p;
             }
 
