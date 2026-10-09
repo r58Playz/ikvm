@@ -91,7 +91,12 @@ namespace IKVM.Runtime.Accessors.Java.Lang
         /// <summary>
         /// Invokes the 'loadClassInternal' method.
         /// </summary>
+#if JDK25
+        // a JDK 9+ VM calls loadClass, there being no loadClassInternal
+        public object InvokeLoadClassInternal(object self, string name) => GetMethod(ref loadClassInternal, "loadClass", JavaLangClass, typeof(string)).Invoker(self, name);
+#else
         public object InvokeLoadClassInternal(object self, string name) => GetMethod(ref loadClassInternal, nameof(loadClassInternal), JavaLangClass, typeof(string)).Invoker(self, name);
+#endif
 
         /// <summary>
         /// Invokes the 'findNatve' method.

@@ -127,6 +127,9 @@ namespace IKVM.Java.Externs.java.lang
         /// </summary>
         static global::java.lang.Class DefineClass(global::java.lang.ClassLoader loader, string name, IKVM.ByteCode.Decoding.ClassFile clazz, global::java.security.ProtectionDomain pd, string source)
         {
+            // a binary name, or (from Lookup.defineClass) an internal one
+            name = name?.Replace('/', '.');
+
             try
             {
                 var runtimeClassLoader = JVM.Context.ClassLoaderFactory.GetClassLoaderWrapper(loader);
