@@ -52,6 +52,27 @@
         <OpenJdkSpecificationVendor>Oracle Corporation</OpenJdkSpecificationVendor>
     </PropertyGroup>
 
+    <!-- jdk25u (upstream, not yet forked); values from its make/conf/version-numbers.conf -->
+    <PropertyGroup Label="OpenJDK Info" Condition=" '$(IkvmJdk)' == '25' ">
+        <OpenJdkDir>$(MSBuildThisFileDirectory)ext\openjdk25\</OpenJdkDir>
+        <OpenJdkFeatureVersion>25</OpenJdkFeatureVersion>
+        <OpenJdkInterimVersion>0</OpenJdkInterimVersion>
+        <OpenJdkUpdateVersion>4</OpenJdkUpdateVersion>
+        <OpenJdkPatchVersion>1</OpenJdkPatchVersion>
+        <OpenJdkBuildNumber>1</OpenJdkBuildNumber>
+        <OpenJdkVersionDate>2026-08-18</OpenJdkVersionDate>
+        <OpenJdkClassFileMajorVersion>69</OpenJdkClassFileMajorVersion>
+        <OpenJdkClassFileMinorVersion>0</OpenJdkClassFileMinorVersion>
+        <OpenJdkVersionNumber>$(OpenJdkFeatureVersion).$(OpenJdkInterimVersion).$(OpenJdkUpdateVersion).$(OpenJdkPatchVersion)</OpenJdkVersionNumber>
+        <OpenJdkVersion>OpenJDK $(OpenJdkVersionNumber)+$(OpenJdkBuildNumber)</OpenJdkVersion>
+        <OpenJdkFullVersion>$(OpenJdkVersionNumber)+$(OpenJdkBuildNumber)</OpenJdkFullVersion>
+        <OpenJdkVendor>Oracle</OpenJdkVendor>
+        <OpenJdkImplementationVersion>$(OpenJdkVersionNumber)</OpenJdkImplementationVersion>
+        <OpenJdkImplementationVendor>Oracle Corporation</OpenJdkImplementationVendor>
+        <OpenJdkSpecificationVersion>$(OpenJdkFeatureVersion)</OpenJdkSpecificationVersion>
+        <OpenJdkSpecificationVendor>Oracle Corporation</OpenJdkSpecificationVendor>
+    </PropertyGroup>
+
     <ItemGroup>
         <Authors Include="Jeroen Frijters" />
         <Authors Include="Jerome Haltom" />
