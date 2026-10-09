@@ -47,7 +47,7 @@
         <IkvmImageItem Include="ikvm\net8.0\**\*" TargetFramework="net8.0" RuntimeIdentifier="any" ImagePath="%(RecursiveDir)%(Filename)%(Extension)" />
     </ItemGroup>
 
-    <ItemGroup>
+    <ItemGroup Condition=" '$(IkvmJdk)' == '8' ">
         <IkvmImageItem Include="$(OpenJdkDir)jdk\src\share\lib\management\**\*" TargetFramework="any" RuntimeIdentifier="any" ImagePath="lib\management\%(RecursiveDir)%(Filename)%(Extension)" />
         <IkvmImageItem Include="$(OpenJdkDir)jdk\src\share\lib\logging.properties" TargetFramework="any" RuntimeIdentifier="any" ImagePath="lib\%(Filename)%(Extension)" />
         <IkvmImageItem Include="$(OpenJdkDir)jdk\src\share\classes\sun\print\*.properties*" TargetFramework="any" RuntimeIdentifier="any" ImagePath="lib\%(Filename)%(Extension)" />
@@ -267,6 +267,26 @@
             $(GenerateDependsOn);
         </GenerateDependsOn>
     </PropertyGroup>
+
+    <!--
+        JDK 25: the files of the run-time image other than its modules (conf, lib, release), which jlink made in
+        IKVM.OpenJdk.Make, in place of the ones generated above for JDK 8.
+    -->
+    <ItemGroup Condition=" '$(IkvmJdk)' != '8' ">
+        <ProjectReference Include="..\IKVM.OpenJdk.Make\IKVM.OpenJdk.Make.msbuildproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="TargetFramework;RuntimeIdentifier" />
+    </ItemGroup>
+
+    <PropertyGroup Condition=" '$(IkvmJdk)' != '8' ">
+        <OpenJdkHomeDir>$([MSBuild]::NormalizeDirectory('$(IkvmArtifactsDir)', 'openjdk-build', 'ikvm-image', 'home'))</OpenJdkHomeDir>
+        <GenerateDependsOn>CollectOpenJdkHomeItems</GenerateDependsOn>
+    </PropertyGroup>
+
+    <Target Name="CollectOpenJdkHomeItems">
+        <ItemGroup>
+            <_OpenJdkHomeFile Include="$(OpenJdkHomeDir)**\*" />
+            <IkvmImageItem Include="@(_OpenJdkHomeFile)" TargetFramework="any" RuntimeIdentifier="any" ImagePath="%(_OpenJdkHomeFile.RecursiveDir)%(_OpenJdkHomeFile.Filename)%(_OpenJdkHomeFile.Extension)" />
+        </ItemGroup>
+    </Target>
 
     <Target Name="Generate" BeforeTargets="ExpandIkvmImageItems" DependsOnTargets="$(GenerateDependsOn)">
 
