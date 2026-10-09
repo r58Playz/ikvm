@@ -3988,7 +3988,7 @@ namespace IKVM.Runtime
 
             internal static void EmitLinkToCall(RuntimeContext context, CodeEmitter ilgen, RuntimeJavaType[] args, RuntimeJavaType retType)
             {
-#if !FIRST_PASS && !IMPORTER
+#if !FIRST_PASS
                 CodeEmitterLocal[] temps = new CodeEmitterLocal[args.Length];
                 for (int i = args.Length - 1; i > 0; i--)
                 {
@@ -4001,7 +4001,14 @@ namespace IKVM.Runtime
                 Array.Resize(ref args, args.Length - 1);
                 Type delegateType = context.MethodHandleUtil.CreateMemberWrapperDelegateType(args, retType);
                 ilgen.Emit(OpCodes.Ldloc, temps[args.Length]);
+#if IMPORTER
+                // ahead of time: the JDK 9+ class library calls linkTo* itself (VarHandleGuards)
+                var vmtarget = context.ClassLoaderFactory.LoadClassCritical("java.lang.invoke.MemberName").GetFieldWrapper("vmtarget", "Ljava.lang.Object;");
+                vmtarget.Link();
+                vmtarget.EmitGet(ilgen);
+#else
                 ilgen.Emit(OpCodes.Ldfld, typeof(java.lang.invoke.MemberName).GetField("vmtarget", BindingFlags.Instance | BindingFlags.NonPublic));
+#endif
                 ilgen.Emit(OpCodes.Castclass, delegateType);
                 for (int i = 0; i < args.Length; i++)
                 {

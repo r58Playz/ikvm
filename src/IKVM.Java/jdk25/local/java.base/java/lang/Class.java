@@ -2703,7 +2703,9 @@ public final class Class<T> implements java.io.Serializable,
         return true;
     }
 
-    // IKVM: no protectionDomain field
+    // IKVM: no protectionDomain field; the protection domain of a class defined at run time (the runtime finds that
+    // of a class in an assembly itself)
+    java.security.ProtectionDomain pd;
     private native ProtectionDomain getProtectionDomain0();
 
     /** Holder for the protection domain returned when the internal domain is null */

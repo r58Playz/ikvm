@@ -19,6 +19,10 @@ namespace IKVM.Runtime.Accessors.Java.Lang
         MethodAccessor<Func<string, object, object>> forName;
         MethodAccessor<Func<object, string, object[], object, object>> getMethod;
 
+        // JDK 25
+        FieldAccessor<object, object> classData;
+        FieldAccessor<object, string> name;
+
         /// <summary>
         /// Initializes a new instance.
         /// </summary>
@@ -59,6 +63,20 @@ namespace IKVM.Runtime.Accessors.Java.Lang
         /// <param name="callerID"></param>
         /// <returns></returns>
         public object InvokeGetMethod(object self, string name, object[] parameterTypes, object callerID) => GetMethod(ref getMethod, nameof(getMethod), JavaLangReflectMethod, typeof(string), JavaLangClass.MakeArrayType(), IkvmInternalCallerID).Invoker(self, name, parameterTypes, callerID);
+
+        /// <summary>
+        /// Sets the value of the 'classData' field (JDK 25), the class data of a hidden class.
+        /// </summary>
+        /// <param name="self"></param>
+        /// <param name="value"></param>
+        public void SetClassData(object self, object value) => GetField(ref classData, nameof(classData)).SetValue(self, value);
+
+        /// <summary>
+        /// Sets the value of the 'name' field (JDK 25), which caches the class's name.
+        /// </summary>
+        /// <param name="self"></param>
+        /// <param name="value"></param>
+        public void SetName(object self, string value) => GetField(ref name, nameof(name)).SetValue(self, value);
 
     }
 
