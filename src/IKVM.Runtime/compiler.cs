@@ -47,7 +47,7 @@ using InstructionFlags = IKVM.Runtime.ClassFile.Method.InstructionFlags;
 namespace IKVM.Runtime
 {
 
-    sealed class Compiler
+    sealed partial class Compiler
     {
 
         readonly RuntimeByteCodeJavaType.FinishContext finish;
@@ -1541,7 +1541,11 @@ namespace IKVM.Runtime
                         {
                             var cpi = classFile.GetInvokeDynamic(new((ushort)instr.Arg1));
                             CastInterfaceArgs(null, cpi.GetArgTypes(), i, false);
-                            if (finish.IsLazyRecompile)
+                            if (StringConcatFactory.Emit(finish, classFile, cpi, ilGenerator) || EmitSwitchBootstrap(cpi))
+                            {
+                                // plain IL with no call site, so a lazy recompile emits it again too
+                            }
+                            else if (finish.IsLazyRecompile)
                             {
                                 EmitBakedInvokeDynamic(cpi, instr.Arg1);
                             }
@@ -3229,6 +3233,14 @@ namespace IKVM.Runtime
                 if (extraArgs == 1 && parameters[3].IsArray && parameters[3].ElementTypeWrapper == compiler.finish.Context.JavaBase.TypeOfJavaLangObject)
                 {
                     fixedArgs = 0;
+                    varArgs = bsm.ArgumentCount - fixedArgs;
+                }
+                else if (extraArgs >= 1 && (mw.Modifiers & Modifiers.VarArgs) != 0 && parameters[parameters.Length - 1].IsArray && bsm.ArgumentCount >= extraArgs - 1)
+                {
+                    // a variable arity bootstrap method (StringConcatFactory.makeConcatWithConstants, ObjectMethods.bootstrap,
+                    // SwitchBootstraps.typeSwitch, ...) is invoked as by invokeWithArguments (JVMS 5.4.3.6): the leading
+                    // static arguments fill its fixed parameters and the rest are collected into its trailing array
+                    fixedArgs = extraArgs - 1;
                     varArgs = bsm.ArgumentCount - fixedArgs;
                 }
                 else if (extraArgs != bsm.ArgumentCount)

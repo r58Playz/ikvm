@@ -36,6 +36,18 @@ namespace IKVM.Tests.Runtime
             Run("ikvm.tests.jdk25.Nestmates").Should().Be("30,10,31,3,300");
         }
 
+        [TestMethod]
+        public void StringConcat()
+        {
+            Run("ikvm.tests.jdk25.StringConcat").Should().Be("i=42 l=-7 c=x b=true by=3 sh=-4 f=1.5 d=0.30000000000000004 nul=null s=str ns=null o=obj arr=null|6\u0001\u0002|AB12|42");
+        }
+
+        [TestMethod]
+        public void Switches()
+        {
+            Run("ikvm.tests.jdk25.Switches").Should().Be("null,empty,string3,int,big,ints3,shape12,shape9,shape10,other,|A,B,long,short,|one,two,n,huge,|a,digit,char,|red,green,other,");
+        }
+
     }
 
     /// <summary>
