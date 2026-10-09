@@ -1109,7 +1109,7 @@ namespace IKVM.Runtime
                     }
                     else if (fld.IsFinal)
                     {
-                        if (wrapper.IsInterface || wrapper.classLoader.StrictFinalFieldSemantics)
+                        if ((wrapper.IsInterface || wrapper.classLoader.StrictFinalFieldSemantics) && IsWrittenByVM(classFile.Name, fld) == false)
                             attribs |= FieldAttributes.InitOnly;
                         else
                             setModifiers = true;
@@ -1146,6 +1146,19 @@ namespace IKVM.Runtime
 
                 return field;
             }
+
+#if IMPORTER
+
+            /// <summary>
+            /// Returns whether the VM writes the static final field after its class is initialized, so that it cannot be
+            /// initonly: with JDK 9+, System's standard streams (natives set them, and System.setIn/Out/Err).
+            /// </summary>
+            static bool IsWrittenByVM(string className, ClassFile.Field fld)
+            {
+                return fld.IsStatic && className == "java.lang.System" && fld.Name is "in" or "out" or "err";
+            }
+
+#endif
 
             FieldBuilder DefineField(string name, RuntimeJavaType tw, FieldAttributes attribs, bool isVolatile)
             {

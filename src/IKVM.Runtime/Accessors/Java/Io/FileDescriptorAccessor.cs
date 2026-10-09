@@ -25,6 +25,7 @@ namespace IKVM.Runtime.Accessors.Java.Io
         FieldAccessor<object, long> ptr;
         PropertyAccessor<object, int> fd;
         PropertyAccessor<object, long> handle;
+        FieldAccessor<object, int> fdField;
         MethodAccessor<Func<object>> init;
         MethodAccessor<Action<object>> sync;
 
@@ -93,6 +94,16 @@ namespace IKVM.Runtime.Accessors.Java.Io
         /// Gets the value for the 'handle' property.
         /// </summary>
         public long GetHandle(object self) => GetProperty(ref handle, nameof(handle)).GetValue(self);
+
+        /// <summary>
+        /// Gets the value of the 'fd' field (JDK 25, where it is a field rather than IKVM's property).
+        /// </summary>
+        public int GetFdField(object self) => GetField(ref fdField, "fd").GetValue(self);
+
+        /// <summary>
+        /// Sets the value of the 'fd' field (JDK 25).
+        /// </summary>
+        public void SetFdField(object self, int value) => GetField(ref fdField, "fd").SetValue(self, value);
 
         /// <summary>
         /// Sets the value for the 'handle' property.

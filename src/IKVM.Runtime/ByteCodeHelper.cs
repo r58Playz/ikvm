@@ -2640,6 +2640,148 @@ namespace IKVM.Runtime
 #endif
         }
 
+        /// <summary>
+        /// Clones an array that may be one of a ghost interface: those are object arrays whose element type the runtime
+        /// keeps in a tag, which the clone needs too.
+        /// </summary>
+        /// <param name="array"></param>
+        /// <returns></returns>
+        public static object CloneArrayWithGhostTag(Array array)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            var clone = array.Clone();
+            if (GhostTag.GetTag(array) is RuntimeJavaType tag)
+                GhostTag.SetTag(clone, tag);
+
+            return clone;
+#endif
+        }
+
+        /// <summary>
+        /// Implements a compare and swap operation against a reference to a float, comparing the bits.
+        /// </summary>
+        /// <param name="location"></param>
+        /// <param name="expected"></param>
+        /// <param name="value"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static bool CompareAndSwap(ref float location, float expected, float value)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            var e = Unsafe.As<float, int>(ref expected);
+            return Interlocked.CompareExchange(ref Unsafe.As<float, int>(ref location), Unsafe.As<float, int>(ref value), e) == e;
+#endif
+        }
+
+        /// <summary>
+        /// Implements a compare and swap operation against a reference to a boolean.
+        /// </summary>
+        /// <param name="location"></param>
+        /// <param name="expected"></param>
+        /// <param name="value"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static bool CompareAndSwap(ref bool location, bool expected, bool value)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            return CompareAndSwapSubword(ref Unsafe.As<bool, byte>(ref location), 1, expected ? 1 : 0, value ? 1 : 0);
+#endif
+        }
+
+        /// <summary>
+        /// Implements a compare and swap operation against a reference to a byte.
+        /// </summary>
+        /// <param name="location"></param>
+        /// <param name="expected"></param>
+        /// <param name="value"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static bool CompareAndSwap(ref byte location, byte expected, byte value)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            return CompareAndSwapSubword(ref location, 1, expected, value);
+#endif
+        }
+
+        /// <summary>
+        /// Implements a compare and swap operation against a reference to a short.
+        /// </summary>
+        /// <param name="location"></param>
+        /// <param name="expected"></param>
+        /// <param name="value"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static bool CompareAndSwap(ref short location, short expected, short value)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            return CompareAndSwapSubword(ref Unsafe.As<short, byte>(ref location), 2, (ushort)expected, (ushort)value);
+#endif
+        }
+
+        /// <summary>
+        /// Implements a compare and swap operation against a reference to a char.
+        /// </summary>
+        /// <param name="location"></param>
+        /// <param name="expected"></param>
+        /// <param name="value"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static bool CompareAndSwap(ref char location, char expected, char value)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            return CompareAndSwapSubword(ref Unsafe.As<char, byte>(ref location), 2, expected, value);
+#endif
+        }
+
+#if FIRST_PASS == false && IMPORTER == false && EXPORTER == false
+
+        /// <summary>
+        /// Compares and swaps a byte or 16-bit value with a compare and swap of the aligned 32-bit word that holds it.
+        /// The word is within the object, whose size and alignment are multiples of four; outside of the value its
+        /// bits are written back unchanged, unless they changed meanwhile, when the swap is tried again.
+        /// </summary>
+        /// <param name="location"></param>
+        /// <param name="size"></param>
+        /// <param name="expected"></param>
+        /// <param name="value"></param>
+        /// <returns></returns>
+        static unsafe bool CompareAndSwapSubword(ref byte location, int size, int expected, int value)
+        {
+            fixed (byte* p = &location)
+            {
+                var offset = (int)((nint)p & 3);
+                var word = (int*)(p - offset);
+                var shift = (BitConverter.IsLittleEndian ? offset : 4 - size - offset) * 8;
+                var mask = (size == 1 ? 0xFF : 0xFFFF) << shift;
+                expected = (expected << shift) & mask;
+                value = (value << shift) & mask;
+
+                while (true)
+                {
+                    var current = Volatile.Read(ref *word);
+                    if ((current & mask) != expected)
+                        return false;
+
+                    if (Interlocked.CompareExchange(ref *word, (current & ~mask) | value, current) == current)
+                        return true;
+                }
+            }
+        }
+
+#endif
+
 #if EXPORTER == false
 
         /// <summary>

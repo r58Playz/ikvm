@@ -1848,8 +1848,16 @@ namespace IKVM.Runtime
                             break;
                         }
                     case NormalizedByteCode.__clone_array:
-                        ilGenerator.Emit(OpCodes.Callvirt, RuntimeArrayJavaType.GetCloneMethod(finish.Context));
-                        break;
+                        {
+                            // an array of a ghost interface is an object array with its type in a tag, which its clone
+                            // must get too; such an array may also be typed as an Object array (an erased T[])
+                            var arrayType = ma.GetStackTypeWrapper(i, 0);
+                            if (arrayType.IsGhostArray || (arrayType.IsArray && arrayType.GetUltimateElementTypeWrapper() == finish.Context.JavaBase.TypeOfJavaLangObject))
+                                ilGenerator.Emit(OpCodes.Call, finish.Context.ByteCodeHelperMethods.CloneArrayWithGhostTag);
+                            else
+                                ilGenerator.Emit(OpCodes.Callvirt, RuntimeArrayJavaType.GetCloneMethod(finish.Context));
+                            break;
+                        }
                     case NormalizedByteCode.__return:
                     case NormalizedByteCode.__areturn:
                     case NormalizedByteCode.__ireturn:

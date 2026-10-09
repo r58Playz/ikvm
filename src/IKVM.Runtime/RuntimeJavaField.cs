@@ -506,7 +506,8 @@ namespace IKVM.Runtime
         /// <returns></returns>
         internal virtual TField UnsafeGetValue<TField>(object obj)
         {
-            return ((Func<object, TField>)GetUnsafeGetDelegate())(obj);
+            var d = GetUnsafeGetDelegate();
+            return d is Func<object, TField> f ? f(obj) : PunnedGet<TField>(d, obj);
         }
 
         /// <summary>
@@ -554,7 +555,11 @@ namespace IKVM.Runtime
         /// <param name="value"></param>
         internal virtual void UnsafeSetValue<TField>(object obj, TField value)
         {
-            ((Action<object, TField>)GetUnsafeSetDelegate())(obj, value);
+            var d = GetUnsafeSetDelegate();
+            if (d is Action<object, TField> f)
+                f(obj, value);
+            else
+                PunnedSet(d, obj, value);
         }
 
         /// <summary>
@@ -603,7 +608,8 @@ namespace IKVM.Runtime
         /// <returns></returns>
         internal virtual TField UnsafeVolatileGet<TField>(object obj)
         {
-            return ((Func<object, TField>)GetUnsafeVolatileGetDelegate())(obj);
+            var d = GetUnsafeVolatileGetDelegate();
+            return d is Func<object, TField> f ? f(obj) : PunnedGet<TField>(d, obj);
         }
 
         /// <summary>
@@ -648,7 +654,11 @@ namespace IKVM.Runtime
         /// <returns></returns>
         internal virtual void UnsafeVolatileSet<TField>(object obj, TField value)
         {
-            ((Action<object, TField>)GetUnsafeVolatileSetDelegate())(obj, value);
+            var d = GetUnsafeVolatileSetDelegate();
+            if (d is Action<object, TField> f)
+                f(obj, value);
+            else
+                PunnedSet(d, obj, value);
         }
 
         /// <summary>
@@ -695,8 +705,66 @@ namespace IKVM.Runtime
         /// <returns></returns>
         internal virtual bool UnsafeCompareAndSwap<TField>(object obj, TField expected, TField value)
         {
-            return ((Func<object, TField, TField, bool>)GetUnsafeCompareAndSwapDelegate())(obj, expected, value);
+            var d = GetUnsafeCompareAndSwapDelegate();
+            return d is Func<object, TField, TField, bool> f ? f(obj, expected, value) : PunnedCompareAndSwap(d, obj, expected, value);
         }
+
+        // JDK 9+'s Unsafe accesses a field as another type of the same size: its float and double operations are int
+        // and long ones on the bits, its boolean ones byte ones and its char ones short ones. These convert between the
+        // type asked for and the field's.
+
+        static TField PunnedGet<TField>(Delegate d, object obj)
+        {
+            return d switch
+            {
+                Func<object, float> f when typeof(TField) == typeof(int) => (TField)(object)FloatToBits(f(obj)),
+                Func<object, double> f when typeof(TField) == typeof(long) => (TField)(object)DoubleToBits(f(obj)),
+                Func<object, bool> f when typeof(TField) == typeof(byte) => (TField)(object)(byte)(f(obj) ? 1 : 0),
+                Func<object, char> f when typeof(TField) == typeof(short) => (TField)(object)(short)f(obj),
+                _ => throw new InvalidCastException($"Unable to access a field of {d.GetType().GetGenericArguments()[1]} as {typeof(TField)}."),
+            };
+        }
+
+        static void PunnedSet<TField>(Delegate d, object obj, TField value)
+        {
+            switch (d)
+            {
+                case Action<object, float> f when typeof(TField) == typeof(int):
+                    f(obj, BitsToFloat((int)(object)value));
+                    break;
+                case Action<object, double> f when typeof(TField) == typeof(long):
+                    f(obj, BitsToDouble((long)(object)value));
+                    break;
+                case Action<object, bool> f when typeof(TField) == typeof(byte):
+                    f(obj, (byte)(object)value != 0);
+                    break;
+                case Action<object, char> f when typeof(TField) == typeof(short):
+                    f(obj, (char)(short)(object)value);
+                    break;
+                default:
+                    throw new InvalidCastException($"Unable to access a field of {d.GetType().GetGenericArguments()[1]} as {typeof(TField)}.");
+            }
+        }
+
+        static bool PunnedCompareAndSwap<TField>(Delegate d, object obj, TField expected, TField value)
+        {
+            return d switch
+            {
+                Func<object, float, float, bool> f when typeof(TField) == typeof(int) => f(obj, BitsToFloat((int)(object)expected), BitsToFloat((int)(object)value)),
+                Func<object, double, double, bool> f when typeof(TField) == typeof(long) => f(obj, BitsToDouble((long)(object)expected), BitsToDouble((long)(object)value)),
+                Func<object, bool, bool, bool> f when typeof(TField) == typeof(byte) => f(obj, (byte)(object)expected != 0, (byte)(object)value != 0),
+                Func<object, char, char, bool> f when typeof(TField) == typeof(short) => f(obj, (char)(short)(object)expected, (char)(short)(object)value),
+                _ => throw new InvalidCastException($"Unable to access a field of {d.GetType().GetGenericArguments()[1]} as {typeof(TField)}."),
+            };
+        }
+
+        static int FloatToBits(float value) => System.Runtime.CompilerServices.Unsafe.As<float, int>(ref value);
+
+        static float BitsToFloat(int value) => System.Runtime.CompilerServices.Unsafe.As<int, float>(ref value);
+
+        static long DoubleToBits(double value) => System.Runtime.CompilerServices.Unsafe.As<double, long>(ref value);
+
+        static double BitsToDouble(long value) => System.Runtime.CompilerServices.Unsafe.As<long, double>(ref value);
 
 
         /// <summary>

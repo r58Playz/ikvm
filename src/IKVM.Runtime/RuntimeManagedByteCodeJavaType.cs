@@ -369,6 +369,8 @@ namespace IKVM.Runtime
 
         internal override bool PermitsSubclass(string name) => PermittedSubclasses is not { } names || Array.IndexOf(names, name) >= 0;
 
+        internal override string[] PermittedSubclassNames => PermittedSubclasses;
+
         internal override RuntimeJavaType[] InnerClasses
         {
             get

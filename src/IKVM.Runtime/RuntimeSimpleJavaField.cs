@@ -311,6 +311,26 @@ namespace IKVM.Runtime
                 {
                     il.Emit(OpCodes.Call, DeclaringType.Context.ByteCodeHelperMethods.CompareAndSwapDouble);
                 }
+                else if (FieldTypeWrapper == DeclaringType.Context.PrimitiveJavaTypeFactory.FLOAT)
+                {
+                    il.Emit(OpCodes.Call, DeclaringType.Context.ByteCodeHelperMethods.CompareAndSwapFloat);
+                }
+                else if (FieldTypeWrapper == DeclaringType.Context.PrimitiveJavaTypeFactory.BOOLEAN)
+                {
+                    il.Emit(OpCodes.Call, DeclaringType.Context.ByteCodeHelperMethods.CompareAndSwapBoolean);
+                }
+                else if (FieldTypeWrapper == DeclaringType.Context.PrimitiveJavaTypeFactory.BYTE)
+                {
+                    il.Emit(OpCodes.Call, DeclaringType.Context.ByteCodeHelperMethods.CompareAndSwapByte);
+                }
+                else if (FieldTypeWrapper == DeclaringType.Context.PrimitiveJavaTypeFactory.SHORT)
+                {
+                    il.Emit(OpCodes.Call, DeclaringType.Context.ByteCodeHelperMethods.CompareAndSwapShort);
+                }
+                else if (FieldTypeWrapper == DeclaringType.Context.PrimitiveJavaTypeFactory.CHAR)
+                {
+                    il.Emit(OpCodes.Call, DeclaringType.Context.ByteCodeHelperMethods.CompareAndSwapChar);
+                }
                 else
                 {
                     throw new InternalException();

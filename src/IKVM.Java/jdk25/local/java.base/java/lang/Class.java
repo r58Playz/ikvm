@@ -2,8 +2,8 @@
  * IKVM: JDK 25's java.lang.Class, for Class objects the runtime creates lazily. A Class has the .NET type it stands
  * for (or null), from which the runtime finds its RuntimeJavaType (map.xml adds the typeWrapper field). What HotSpot
  * puts in final fields when it creates a Class -- its class loader, component type, modifiers, primitiveness and
- * protection domain -- the runtime answers through natives instead, and the same for the class's annotations,
- * which it has as .NET attributes rather than in their class file form. Changes are marked IKVM.
+ * protection domain, and its module -- the runtime answers through natives instead, and the same for the class's
+ * annotations, which it has as .NET attributes rather than in their class file form. Changes are marked IKVM.
  */
 /*
  * Copyright (c) 1994, 2025, Oracle and/or its affiliates. All rights reserved.
@@ -1007,10 +1007,16 @@ public final class Class<T> implements java.io.Serializable,
      * @since 9
      */
     public Module getModule() {
-        return module;
+        // IKVM: the runtime finds the module of a class from its package, once java.base is defined
+        Module m = module;
+        if (m == null) {
+            module = m = getModule0();
+        }
+        return m;
     }
 
-    // set by VM
+    private native Module getModule0();
+
     @Stable
     private transient Module module;
 

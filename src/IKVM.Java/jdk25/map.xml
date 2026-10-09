@@ -1952,6 +1952,38 @@
                 </body>
             </method>
         </class>
+        <!-- the byte and short compare-and-exchange CAS the int around the value, which IKVM's field offsets do not
+             locate; the runtime does them (and the other sub-int CAS operations use these) -->
+        <class name="jdk.internal.misc.Unsafe">
+            <method name="compareAndExchangeByte" sig="(Ljava.lang.Object;JBB)B">
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <ldarg_2 />
+                    <ldarg_3 />
+                    <ldarg_s argNum="4" />
+                    <call type="IKVM.Java.Externs.jdk.internal.misc.Unsafe" name="compareAndExchangeByte" sig="(Ljava.lang.Object;Ljava.lang.Object;JBB)B" />
+                    <ret />
+                </body>
+            </method>
+            <method name="compareAndExchangeShort" sig="(Ljava.lang.Object;JSS)S">
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <ldarg_2 />
+                    <ldarg_3 />
+                    <ldarg_s argNum="4" />
+                    <call type="IKVM.Java.Externs.jdk.internal.misc.Unsafe" name="compareAndExchangeShort" sig="(Ljava.lang.Object;Ljava.lang.Object;JSS)S" />
+                    <ret />
+                </body>
+            </method>
+        </class>
+        <!-- the .NET stream of a file descriptor (see the runtime's java.io natives) -->
+        <class name="java.io.FileDescriptor">
+            <field name="stream" sig="Lcli.System.IO.Stream;" modifiers="">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+            </field>
+        </class>
         <class name="sun.security.provider.SeedGenerator">
             <method name="getSystemEntropy" sig="()[B">
                 <prologue>

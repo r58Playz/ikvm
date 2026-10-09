@@ -36,6 +36,9 @@
         <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\java\lang\Shutdown.cs" />
         <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\java\lang\System.cs" />
         <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\java\lang\reflect\Array.cs" />
+        <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\java\lang\reflect\Executable.cs" />
+        <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\java\lang\reflect\Field.cs" />
+        <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\java\lang\reflect\Method.cs" />
         <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\java\util\TimeZone.cs" />
         <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\sun\management\ClassLoadingImpl.cs" />
         <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\sun\management\MemoryImpl.cs" />

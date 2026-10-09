@@ -108,6 +108,12 @@ namespace IKVM.Runtime
         internal readonly MethodInfo CompareAndSwapInt;
         internal readonly MethodInfo CompareAndSwapLong;
         internal readonly MethodInfo CompareAndSwapDouble;
+        internal readonly MethodInfo CompareAndSwapFloat;
+        internal readonly MethodInfo CompareAndSwapBoolean;
+        internal readonly MethodInfo CompareAndSwapByte;
+        internal readonly MethodInfo CompareAndSwapShort;
+        internal readonly MethodInfo CompareAndSwapChar;
+        internal readonly MethodInfo CloneArrayWithGhostTag;
         internal readonly MethodInfo MapException;
         internal readonly MethodInfo GetDelegateForInvokeExact;
         internal readonly MethodInfo GetDelegateForInvoke;
@@ -193,6 +199,12 @@ namespace IKVM.Runtime
             CompareAndSwapInt = GetHelper(typeofByteCodeHelper, "CompareAndSwap", new[] { context.Types.Int32.MakeByRefType(), context.Types.Int32, context.Types.Int32 });
             CompareAndSwapLong = GetHelper(typeofByteCodeHelper, "CompareAndSwap", new[] { context.Types.Int64.MakeByRefType(), context.Types.Int64, context.Types.Int64 });
             CompareAndSwapDouble = GetHelper(typeofByteCodeHelper, "CompareAndSwap", new[] { context.Types.Double.MakeByRefType(), context.Types.Double, context.Types.Double });
+            CompareAndSwapFloat = GetHelper(typeofByteCodeHelper, "CompareAndSwap", new[] { context.Types.Single.MakeByRefType(), context.Types.Single, context.Types.Single });
+            CompareAndSwapBoolean = GetHelper(typeofByteCodeHelper, "CompareAndSwap", new[] { context.Types.Boolean.MakeByRefType(), context.Types.Boolean, context.Types.Boolean });
+            CompareAndSwapByte = GetHelper(typeofByteCodeHelper, "CompareAndSwap", new[] { context.Types.Byte.MakeByRefType(), context.Types.Byte, context.Types.Byte });
+            CompareAndSwapShort = GetHelper(typeofByteCodeHelper, "CompareAndSwap", new[] { context.Types.Int16.MakeByRefType(), context.Types.Int16, context.Types.Int16 });
+            CompareAndSwapChar = GetHelper(typeofByteCodeHelper, "CompareAndSwap", new[] { context.Types.Char.MakeByRefType(), context.Types.Char, context.Types.Char });
+            CloneArrayWithGhostTag = GetHelper(typeofByteCodeHelper, "CloneArrayWithGhostTag");
             MapException = GetHelper(typeofByteCodeHelper, "MapException");
             GetDelegateForInvokeExact = GetHelper(typeofByteCodeHelper, "GetDelegateForInvokeExact");
             GetDelegateForInvoke = GetHelper(typeofByteCodeHelper, "GetDelegateForInvoke");

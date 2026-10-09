@@ -3261,7 +3261,7 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="o"></param>
         /// <param name="offset"></param>
         /// <returns></returns>
-        public static short getShortVolatile(object self, object o, long offset)
+        public static unsafe short getShortVolatile(object self, object o, long offset)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -3270,6 +3270,7 @@ namespace IKVM.Java.Externs.sun.misc
             {
                 return o switch
                 {
+                    null => Volatile.Read(ref SysUnsafe.AsRef<short>((void*)JLongAddressToIntPtr(offset))),
                     Array array => ReadInt16Volatile(array, offset),
                     _ => GetFieldVolatile<short>(o, offset)
                 };
@@ -3325,7 +3326,7 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="o"></param>
         /// <param name="offset"></param>
         /// <returns></returns>
-        public static char getCharVolatile(object self, object o, long offset)
+        public static unsafe char getCharVolatile(object self, object o, long offset)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -3334,6 +3335,7 @@ namespace IKVM.Java.Externs.sun.misc
             {
                 return o switch
                 {
+                    null => (char)Volatile.Read(ref SysUnsafe.AsRef<ushort>((void*)JLongAddressToIntPtr(offset))),
                     Array array => (char)ReadInt16Volatile(array, offset),
                     _ => GetFieldVolatile<char>(o, offset)
                 };
@@ -3389,7 +3391,7 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="o"></param>
         /// <param name="offset"></param>
         /// <returns></returns>
-        public static long getLongVolatile(object self, object o, long offset)
+        public static unsafe long getLongVolatile(object self, object o, long offset)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -3398,6 +3400,7 @@ namespace IKVM.Java.Externs.sun.misc
             {
                 return o switch
                 {
+                    null => Volatile.Read(ref SysUnsafe.AsRef<long>((void*)JLongAddressToIntPtr(offset))),
                     Array array => ReadInt64Volatile(array, offset),
                     _ => GetFieldVolatile<long>(o, offset)
                 };
@@ -3454,7 +3457,7 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="offset"></param>
         /// <returns></returns>
         /// <exception cref="global::java.lang.NullPointerException"></exception>
-        public static float getFloatVolatile(object self, object o, long offset)
+        public static unsafe float getFloatVolatile(object self, object o, long offset)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -3463,6 +3466,7 @@ namespace IKVM.Java.Externs.sun.misc
             {
                 return o switch
                 {
+                    null => Volatile.Read(ref SysUnsafe.AsRef<float>((void*)JLongAddressToIntPtr(offset))),
                     Array array => global::java.lang.Float.intBitsToFloat(ReadInt32Volatile(array, offset)),
                     _ => GetFieldVolatile<float>(o, offset)
                 };
@@ -3519,7 +3523,7 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="offset"></param>
         /// <returns></returns>
         /// <exception cref="global::java.lang.NullPointerException"></exception>
-        public static double getDoubleVolatile(object self, object o, long offset)
+        public static unsafe double getDoubleVolatile(object self, object o, long offset)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -3528,6 +3532,7 @@ namespace IKVM.Java.Externs.sun.misc
             {
                 return o switch
                 {
+                    null => Volatile.Read(ref SysUnsafe.AsRef<double>((void*)JLongAddressToIntPtr(offset))),
                     Array array => global::java.lang.Double.longBitsToDouble(ReadInt64Volatile(array, offset)),
                     _ => GetFieldVolatile<double>(o, offset)
                 };
@@ -3601,7 +3606,7 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="expected"></param>
         /// <returns></returns>
         /// <exception cref="global::java.lang.InternalError"></exception>
-        static bool CompareAndSwapField<T>(object o, long offset, T expected, T value)
+        internal static bool CompareAndSwapField<T>(object o, long offset, T expected, T value)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -3709,14 +3714,18 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="expected"></param>
         /// <param name="x"></param>
         /// <returns></returns>
-        public static bool compareAndSwapInt(object self, object o, long offset, int expected, int x)
+        public static unsafe bool compareAndSwapInt(object self, object o, long offset, int expected, int x)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
             try
             {
-                if (o is int[] array && (offset % sizeof(int)) == 0)
+                if (o == null)
+                {
+                    return Interlocked.CompareExchange(ref SysUnsafe.AsRef<int>((void*)JLongAddressToIntPtr(offset)), x, expected) == expected;
+                }
+                else if (o is int[] array && (offset % sizeof(int)) == 0)
                 {
                     return Interlocked.CompareExchange(ref array[offset / sizeof(int)], x, expected) == expected;
                 }
@@ -3749,14 +3758,18 @@ namespace IKVM.Java.Externs.sun.misc
         /// <param name="expected"></param>
         /// <param name="x"></param>
         /// <returns></returns>
-        public static bool compareAndSwapLong(object self, object o, long offset, long expected, long x)
+        public static unsafe bool compareAndSwapLong(object self, object o, long offset, long expected, long x)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
             try
             {
-                if (o is long[] array && (offset % sizeof(long)) == 0)
+                if (o == null)
+                {
+                    return Interlocked.CompareExchange(ref SysUnsafe.AsRef<long>((void*)JLongAddressToIntPtr(offset)), x, expected) == expected;
+                }
+                else if (o is long[] array && (offset % sizeof(long)) == 0)
                 {
                     return Interlocked.CompareExchange(ref array[offset / sizeof(long)], x, expected) == expected;
                 }

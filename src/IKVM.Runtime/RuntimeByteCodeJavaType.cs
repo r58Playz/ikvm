@@ -333,9 +333,13 @@ namespace IKVM.Runtime
 
         internal override bool ListsNestMember(string name) => nestMemberNames != null && Array.IndexOf(nestMemberNames, name) >= 0;
 
+        internal override string[] NestMemberNames => nestMemberNames;
+
         internal override bool IsSealed => permittedSubclassNames != null;
 
         internal override bool PermitsSubclass(string name) => permittedSubclassNames == null || Array.IndexOf(permittedSubclassNames, name) >= 0;
+
+        internal override string[] PermittedSubclassNames => permittedSubclassNames;
 
         /// <summary>
         /// Rejects this class if the direct supertype is sealed and does not permit it (JVMS 5.3.5): a permitted

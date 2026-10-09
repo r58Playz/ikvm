@@ -172,6 +172,84 @@ namespace IKVM.Java.Externs.jdk.@internal.misc
             }
         }
 
+        // JDK 25 implements the byte and short ones in Java with a CAS of the int around the value, which needs the
+        // offset of a field to be its place in memory; map.xml makes them call these instead. A boolean field is
+        // accessed as a byte, a char one as a short.
+
+        public static byte compareAndExchangeByte(object self, object o, long offset, byte expected, byte x)
+        {
+            while (true)
+            {
+                var witness = Impl.getByteVolatile(self, o, offset);
+                if (witness != expected)
+                    return witness;
+                if (CompareAndSetByte(o, offset, expected, x))
+                    return expected;
+            }
+        }
+
+        public static short compareAndExchangeShort(object self, object o, long offset, short expected, short x)
+        {
+            while (true)
+            {
+                var witness = Impl.getShortVolatile(self, o, offset);
+                if (witness != expected)
+                    return witness;
+                if (CompareAndSetShort(o, offset, expected, x))
+                    return expected;
+            }
+        }
+
+        static unsafe bool CompareAndSetByte(object o, long offset, byte expected, byte x)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            try
+            {
+                return o switch
+                {
+                    null => ByteCodeHelper.CompareAndSwap(ref *(byte*)offset, expected, x),
+                    Array array => ByteCodeHelper.CompareAndSwap(ref ArrayRef<byte>(array, offset), expected, x),
+                    _ => Impl.CompareAndSwapField(o, offset, expected, x),
+                };
+            }
+            catch (Exception e) when (e is not global::java.lang.Throwable)
+            {
+                throw new global::java.lang.InternalError(e);
+            }
+#endif
+        }
+
+        static unsafe bool CompareAndSetShort(object o, long offset, short expected, short x)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            try
+            {
+                return o switch
+                {
+                    null => ByteCodeHelper.CompareAndSwap(ref *(short*)offset, expected, x),
+                    Array array => ByteCodeHelper.CompareAndSwap(ref ArrayRef<short>(array, offset), expected, x),
+                    _ => Impl.CompareAndSwapField(o, offset, expected, x),
+                };
+            }
+            catch (Exception e) when (e is not global::java.lang.Throwable)
+            {
+                throw new global::java.lang.InternalError(e);
+            }
+#endif
+        }
+
+        /// <summary>
+        /// Gets a reference to the value at the offset into an array's elements (where Unsafe's array offsets start).
+        /// </summary>
+        static ref T ArrayRef<T>(Array array, long offset)
+        {
+            return ref System.Runtime.CompilerServices.Unsafe.As<byte, T>(ref System.Runtime.CompilerServices.Unsafe.AddByteOffset(ref System.Runtime.InteropServices.MemoryMarshal.GetArrayDataReference(array), (nint)offset));
+        }
+
         public static long allocateMemory0(object self, long bytes) => Impl.allocateMemory(self, bytes);
 
         public static long reallocateMemory0(object self, long address, long bytes) => Impl.reallocateMemory(self, address, bytes);

@@ -73,7 +73,16 @@ namespace IKVM.Runtime
 
         protected override void LazyPublishMembers()
         {
-            var mw = new RuntimeSimpleCallJavaMethod(this, "clone", "()Ljava.lang.Object;", GetCloneMethod(Context), Context.JavaBase.TypeOfJavaLangObject, Array.Empty<RuntimeJavaType>(), Modifiers.Public, MemberFlags.HideFromReflection, SimpleOpCode.Callvirt, SimpleOpCode.Callvirt);
+            // an array of a ghost interface is an object array with its type in a tag, which its clone must get too;
+            // such an array may also be typed as an Object array (an erased T[])
+            RuntimeJavaMethod mw;
+#if !EXPORTER
+            if (IsGhostArray || ultimateElementTypeWrapper == Context.JavaBase.TypeOfJavaLangObject)
+                mw = new RuntimeSimpleCallJavaMethod(this, "clone", "()Ljava.lang.Object;", Context.ByteCodeHelperMethods.CloneArrayWithGhostTag, Context.JavaBase.TypeOfJavaLangObject, Array.Empty<RuntimeJavaType>(), Modifiers.Public, MemberFlags.HideFromReflection, SimpleOpCode.Call, SimpleOpCode.Call);
+            else
+#endif
+                mw = new RuntimeSimpleCallJavaMethod(this, "clone", "()Ljava.lang.Object;", GetCloneMethod(Context), Context.JavaBase.TypeOfJavaLangObject, Array.Empty<RuntimeJavaType>(), Modifiers.Public, MemberFlags.HideFromReflection, SimpleOpCode.Callvirt, SimpleOpCode.Callvirt);
+
             mw.Link();
             SetMethods(new RuntimeJavaMethod[] { mw });
             SetFields(Array.Empty<RuntimeJavaField>());

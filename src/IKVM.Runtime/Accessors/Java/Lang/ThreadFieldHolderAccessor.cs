@@ -21,7 +21,7 @@ namespace IKVM.Runtime.Accessors.Java.Lang
         /// </summary>
         /// <param name="resolver"></param>
         public ThreadFieldHolderAccessor(AccessorTypeResolver resolver) :
-            base(resolver, "java.lang.Thread$FieldHolder")
+            base(resolver, "java.lang.Thread+FieldHolder")
         {
 
         }
