@@ -255,3 +255,6 @@ ModelManifest.xml
 
 # Mono
 .mono/
+
+# Local NuGet feed for packages that are not on nuget.org (see nuget.config)
+!/ext/nuget-feed/*.nupkg
