@@ -64,6 +64,9 @@ namespace IKVM.Runtime
 
         internal override RuntimeClassLoader ClassLoader => Context.ClassLoaderFactory.GetJavaTypeFromType(type.DeclaringType).ClassLoader;
 
+        // a lambda proxy class, which is a hidden class with HotSpot
+        internal override bool IsHidden => true;
+
         internal override Type TypeAsTBD
         {
             get { return type; }

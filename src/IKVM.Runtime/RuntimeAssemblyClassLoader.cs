@@ -84,7 +84,9 @@ namespace IKVM.Runtime
             bool hasDotNetModule;
             AssemblyName[] internalsVisibleTo;
             string[] jarList;
-#if !IMPORTER && !EXPORTER && !FIRST_PASS
+#if !IMPORTER && !EXPORTER && !FIRST_PASS && JDK25
+            jdk.@internal.loader.URLClassPath urlClassPath;
+#elif !IMPORTER && !EXPORTER && !FIRST_PASS
             sun.misc.URLClassPath urlClassPath;
 #endif
 
@@ -423,10 +425,17 @@ namespace IKVM.Runtime
                     foreach (var jar in jarList)
                         urls.Add(MakeResourceURL(assembly, jar));
 
+#if JDK25
+                    Interlocked.CompareExchange(ref urlClassPath, new jdk.@internal.loader.URLClassPath(urls.ToArray()), null);
+                }
+
+                return urlClassPath.findResources(name);
+#else
                     Interlocked.CompareExchange(ref urlClassPath, new sun.misc.URLClassPath(urls.ToArray()), null);
                 }
 
                 return urlClassPath.findResources(name, true);
+#endif
             }
 
 #endif
@@ -1080,10 +1089,43 @@ namespace IKVM.Runtime
             return javaClassLoader ?? WaitInitializeJavaClassLoader(GetCustomClassLoaderType());
         }
 
+#if JDK25
+
+        /// <summary>
+        /// Creates the protection domain of the classes of the assembly: its code source is where the assembly is. There
+        /// are no permissions without a security manager.
+        /// </summary>
+        /// <param name="assembly"></param>
+        /// <returns></returns>
+        static java.security.ProtectionDomain CreateProtectionDomain(Assembly assembly)
+        {
+            java.net.URL url = null;
+            try
+            {
+                if (string.IsNullOrEmpty(assembly.Location) == false)
+                    url = new java.io.File(assembly.Location).toURI().toURL();
+            }
+            catch (java.net.MalformedURLException)
+            {
+                // no code source location
+            }
+
+            return new java.security.ProtectionDomain(new java.security.CodeSource(url, (java.security.cert.Certificate[])null), null);
+        }
+
+#else
+
+        static java.security.ProtectionDomain CreateProtectionDomain(Assembly assembly)
+        {
+            return new java.security.ProtectionDomain(assembly);
+        }
+
+#endif
+
         internal virtual java.security.ProtectionDomain GetProtectionDomain()
         {
             if (protectionDomain == null)
-                Interlocked.CompareExchange(ref protectionDomain, new java.security.ProtectionDomain(assemblyLoader.Assembly), null);
+                Interlocked.CompareExchange(ref protectionDomain, CreateProtectionDomain(assemblyLoader.Assembly), null);
 
             return protectionDomain;
         }

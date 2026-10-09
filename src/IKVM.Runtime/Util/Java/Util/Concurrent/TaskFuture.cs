@@ -85,6 +85,44 @@ namespace IKVM.Runtime.Util.Java.Util.Concurrent
             }
         }
 
+#if JDK25
+
+        public object resultNow()
+        {
+            return state().ToString() switch
+            {
+                "SUCCESS" => task.Result,
+                "RUNNING" => throw new global::java.lang.IllegalStateException("Task has not completed"),
+                "FAILED" => throw new global::java.lang.IllegalStateException("Task completed with exception"),
+                _ => throw new global::java.lang.IllegalStateException("Task was cancelled"),
+            };
+        }
+
+        public Exception exceptionNow()
+        {
+            return state().ToString() switch
+            {
+                "FAILED" => global::ikvm.runtime.Util.mapException(task.Exception.InnerException ?? task.Exception),
+                "RUNNING" => throw new global::java.lang.IllegalStateException("Task has not completed"),
+                "SUCCESS" => throw new global::java.lang.IllegalStateException("Task completed with a result"),
+                _ => throw new global::java.lang.IllegalStateException("Task was cancelled"),
+            };
+        }
+
+        public Future.State state()
+        {
+            if (task.IsCompleted == false)
+                return Future.State.RUNNING;
+            if (task.IsCanceled)
+                return Future.State.CANCELLED;
+            if (task.IsFaulted)
+                return task.Exception.InnerException is OperationCanceledException ? Future.State.CANCELLED : Future.State.FAILED;
+
+            return Future.State.SUCCESS;
+        }
+
+#endif
+
     }
 
 #endif

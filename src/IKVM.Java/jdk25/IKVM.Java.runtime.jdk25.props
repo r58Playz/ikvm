@@ -4,8 +4,8 @@
 
     The JDK 25 class library. Imported by the IKVM.Java projects and by IKVM.OpenJdk.Make.
 
-    The JDK's own build compiles the modules below (IKVM.OpenJdk.Make runs its configure and make), so the class
-    files, generated sources and resources are exactly the JDK's. IKVM's sources in local\ are compiled against that
+    The JDK's own build compiles the modules below (IKVM.OpenJdk.Make runs its configure and make, and links them into
+    a run-time image with jlink), so the class files, generated sources and resources are exactly the JDK's. IKVM's sources in local\ are compiled against that
     output: classes in IKVM's own packages, and replacements for JDK classes, which take the place of the JDK's class
     of the same name and its nested classes. ikvmc then compiles both, with map.xml, into IKVM.Java.
 
@@ -18,18 +18,24 @@
 
     <PropertyGroup>
         <OpenJdkBuildDir>$([MSBuild]::NormalizeDirectory('$(IkvmArtifactsDir)', 'openjdk-build'))</OpenJdkBuildDir>
-        <OpenJdkModulesDir>$([MSBuild]::NormalizeDirectory('$(OpenJdkBuildDir)', 'jdk', 'modules'))</OpenJdkModulesDir>
+        <!-- the run-time image IKVM.OpenJdk.Make links from what make built: the modules' classes and resources, and
+             JAVA_HOME -->
+        <OpenJdkImageDir>$([MSBuild]::NormalizeDirectory('$(OpenJdkBuildDir)', 'ikvm-image'))</OpenJdkImageDir>
+        <OpenJdkModulesDir>$([MSBuild]::NormalizeDirectory('$(OpenJdkImageDir)', 'modules'))</OpenJdkModulesDir>
+        <OpenJdkHomeDir>$([MSBuild]::NormalizeDirectory('$(OpenJdkImageDir)', 'home'))</OpenJdkHomeDir>
         <OpenJdkMakeJobs Condition=" '$(OpenJdkMakeJobs)' == '' ">4</OpenJdkMakeJobs>
     </PropertyGroup>
 
-    <!-- The modules IKVM.Java is made of. -->
+    <!-- The modules IKVM.Java is made of. Copy and GenData: the module's make has -copy (configuration files) and
+         -gendata (data files such as tzdb.dat and cacerts) targets, whose output goes to the run-time image's conf and
+         lib directories. -->
     <ItemGroup>
-        <OpenJdkModule Include="java.base" />
+        <OpenJdkModule Include="java.base" Copy="true" GenData="true" />
         <OpenJdkModule Include="java.compiler" />
         <OpenJdkModule Include="java.datatransfer" />
-        <OpenJdkModule Include="java.desktop" />
+        <OpenJdkModule Include="java.desktop" Copy="true" GenData="true" />
         <OpenJdkModule Include="java.instrument" />
-        <OpenJdkModule Include="java.logging" />
+        <OpenJdkModule Include="java.logging" Copy="true" />
         <OpenJdkModule Include="java.management" />
         <OpenJdkModule Include="java.naming" />
         <OpenJdkModule Include="java.net.http" />
@@ -38,11 +44,11 @@
         <OpenJdkModule Include="java.security.sasl" />
         <OpenJdkModule Include="java.sql" />
         <OpenJdkModule Include="java.transaction.xa" />
-        <OpenJdkModule Include="java.xml" />
+        <OpenJdkModule Include="java.xml" Copy="true" />
         <OpenJdkModule Include="java.xml.crypto" />
         <OpenJdkModule Include="jdk.charsets" />
         <OpenJdkModule Include="jdk.crypto.ec" />
-        <OpenJdkModule Include="jdk.jfr" />
+        <OpenJdkModule Include="jdk.jfr" Copy="true" />
         <OpenJdkModule Include="jdk.localedata" />
         <OpenJdkModule Include="jdk.management" />
         <OpenJdkModule Include="jdk.unsupported" />

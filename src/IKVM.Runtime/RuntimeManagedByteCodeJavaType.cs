@@ -625,7 +625,11 @@ namespace IKVM.Runtime
             }
             return false;
 #else
+#if JDK25
+            return mb.IsDefined(typeof(global::jdk.@internal.reflect.CallerSensitiveAttribute), false);
+#else
             return mb.IsDefined(typeof(global::sun.reflect.CallerSensitiveAttribute), false);
+#endif
 #endif
         }
 

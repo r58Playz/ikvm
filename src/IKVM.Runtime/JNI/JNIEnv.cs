@@ -189,7 +189,11 @@ namespace IKVM.Runtime.JNI
                 // TODO what should the protection domain be?
                 // NOTE I'm assuming name is platform encoded (as opposed to UTF-8), but the Sun JVM only seems to work for ASCII.
                 var classLoader = (java.lang.ClassLoader)pEnv->UnwrapRef(loader);
+#if JDK25
+                return pEnv->MakeLocalRef(IKVM.Java.Externs.java.lang.ClassLoader.defineClass1(classLoader, name != null ? DecodeMUTF8Argument(name, nameof(name)) : null, buf, 0, buf.Length, null, null));
+#else
                 return pEnv->MakeLocalRef(IKVM.Java.Externs.java.lang.ClassLoader.defineClass0(classLoader, name != null ? DecodeMUTF8Argument(name, nameof(name)) : null, buf, 0, buf.Length, null));
+#endif
             }
             catch (Exception e)
             {
@@ -3255,7 +3259,11 @@ namespace IKVM.Runtime.JNI
                     return IntPtr.Zero;
                 }
 
+#if JDK25
+                return pEnv->MakeLocalRef(global::java.nio.DirectByteBuffer.__new(IntPtrToJLongAddress(address), capacity));
+#else
                 return pEnv->MakeLocalRef(global::java.nio.DirectByteBuffer.__new(IntPtrToJLongAddress(address), (int)capacity));
+#endif
             }
             catch (Exception x)
             {

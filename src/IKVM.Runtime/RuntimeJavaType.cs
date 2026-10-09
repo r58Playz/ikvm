@@ -622,6 +622,13 @@ namespace IKVM.Runtime
             get { return (flags & TypeFlags.Anonymous) != 0; }
         }
 
+        // is this a hidden class (JDK 15+): one defined like an anonymous class, or a lambda proxy class IKVM compiles itself
+        internal virtual bool IsHidden => IsUnsafeAnonymous;
+
+        // is this a record class (JDK 16+). HotSpot looks for the Record attribute; javac makes a record a final direct
+        // subclass of java.lang.Record.
+        internal bool IsRecord => IsFinal && BaseTypeWrapper != null && BaseTypeWrapper.Name == "java.lang.Record";
+
         // a ghost is an interface that appears to be implemented by a .NET type
         // (e.g. System.String (aka java.lang.String) appears to implement java.lang.CharSequence,
         // so java.lang.CharSequence is a ghost)

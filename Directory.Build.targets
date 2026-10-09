@@ -7,6 +7,12 @@
         <IkvmSupportedJdks>8;25</IkvmSupportedJdks>
     </PropertyGroup>
 
+    <!-- The JDK 25 flavor targets .NET 8 and later only (and netstandard2.0, where a project has it). -->
+    <PropertyGroup Condition=" '$(IkvmJdk)' != '8' And '$(TargetFrameworks)' != '' ">
+        <_IkvmFlavorTargetFrameworks>$([MSBuild]::Unescape($([System.Text.RegularExpressions.Regex]::Replace(';$(TargetFrameworks);', ';(net4[0-9]+|net6\.0)(?=;)', '').Trim(';'))))</_IkvmFlavorTargetFrameworks>
+        <TargetFrameworks Condition=" '$(_IkvmFlavorTargetFrameworks)' != '' ">$(_IkvmFlavorTargetFrameworks)</TargetFrameworks>
+    </PropertyGroup>
+
     <!-- A project that only exists in some flavors declares them in IkvmJdkFlavors (e.g. "8"). -->
     <Target Name="_IkvmCheckJdkFlavor" Condition=" '$(MSBuildIsRestoring)' != 'true' ">
         <Error Condition=" !$([System.String]::Copy(';$(IkvmSupportedJdks);').Contains(';$(IkvmJdk);')) " Text="IkvmJdk=$(IkvmJdk) is not a supported JDK flavor (supported: $(IkvmSupportedJdks))." />

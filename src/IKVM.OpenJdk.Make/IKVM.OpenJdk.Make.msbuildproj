@@ -54,7 +54,25 @@
     </Target>
 
     <Target Name="OpenJdkMake" DependsOnTargets="OpenJdkConfigure" AfterTargets="Build">
-        <Exec Command="make -C &quot;$(OpenJdkBuildDir.TrimEnd('\').TrimEnd('/'))&quot; JOBS=$(OpenJdkMakeJobs) LOG=warn @(OpenJdkModule->'%(Identity)-java', ' ')" />
+        <ItemGroup>
+            <_OpenJdkMakeTarget Include="@(OpenJdkModule->'%(Identity)-java')" />
+            <_OpenJdkMakeTarget Include="@(OpenJdkModule->'%(Identity)-copy')" Condition=" '%(OpenJdkModule.Copy)' == 'true' " />
+            <_OpenJdkMakeTarget Include="@(OpenJdkModule->'%(Identity)-gendata')" Condition=" '%(OpenJdkModule.GenData)' == 'true' " />
+        </ItemGroup>
+        <Exec Command="make -C &quot;$(OpenJdkBuildDir.TrimEnd('\').TrimEnd('/'))&quot; JOBS=$(OpenJdkMakeJobs) LOG=warn @(_OpenJdkMakeTarget, ' ')" />
+    </Target>
+
+    <Target Name="_OpenJdkLinkInputs" DependsOnTargets="OpenJdkMake">
+        <ItemGroup>
+            <_OpenJdkMakeOutput Include="$(OpenJdkBuildDir)jdk\modules\**\*" Exclude="$(OpenJdkBuildDir)jdk\modules\*\_the.*" />
+            <_OpenJdkMakeOutput Include="$(OpenJdkBuildDir)support\modules_conf\**\*;$(OpenJdkBuildDir)support\modules_libs\**\*" />
+        </ItemGroup>
+    </Target>
+
+    <!-- links what make built into the class library IKVM.Java compiles (see link.sh) -->
+    <Target Name="OpenJdkLink" DependsOnTargets="_OpenJdkMakeFindJdk;_OpenJdkLinkInputs" AfterTargets="OpenJdkMake" Inputs="$(MSBuildThisFileDirectory)link.sh;@(_OpenJdkMakeOutput)" Outputs="$(OpenJdkImageDir)home\release">
+        <Exec Command="&quot;$(MSBuildThisFileDirectory)link.sh&quot; &quot;$(OpenJdkBootJdk.TrimEnd('\').TrimEnd('/'))&quot; &quot;$(OpenJdkBuildDir.TrimEnd('\').TrimEnd('/'))&quot; &quot;$(OpenJdkImageDir.TrimEnd('\').TrimEnd('/'))&quot; $(OpenJdkVersionNumber) @(OpenJdkModule, ' ')" />
+        <Touch Files="$(OpenJdkImageDir)home\release" />
     </Target>
 
     <Target Name="OpenJdkClean" AfterTargets="Clean">

@@ -28,9 +28,22 @@
     </ItemGroup>
 
     <ItemGroup Condition=" '$(IkvmJdk)' != '8' ">
-        <IkvmRuntimeFlavorExclude Include="$(IkvmRuntimeDir)Java\Externs\java\**\*.cs" />
-        <!-- JDK 25's sun.misc.Unsafe has no natives: its jdk.internal.misc.Unsafe ones share JDK 8's implementation -->
-        <IkvmRuntimeFlavorExclude Include="$(IkvmRuntimeDir)Java\Externs\sun\**\*.cs" Exclude="$(IkvmRuntimeDir)Java\Externs\sun\misc\Unsafe.cs" />
+        <!-- The JDK 8 externs whose class has the same natives in JDK 25 are shared. JDK 25's sun.misc.Unsafe has no
+             natives, but its jdk.internal.misc.Unsafe ones share the JDK 8 implementation. -->
+        <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\java\lang\Double.cs" />
+        <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\java\lang\Float.cs" />
+        <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\java\lang\Runtime.cs" />
+        <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\java\lang\Shutdown.cs" />
+        <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\java\lang\System.cs" />
+        <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\java\lang\reflect\Array.cs" />
+        <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\java\util\TimeZone.cs" />
+        <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\sun\management\ClassLoadingImpl.cs" />
+        <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\sun\management\MemoryImpl.cs" />
+        <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\sun\management\ThreadImpl.cs" />
+        <IkvmRuntimeFlavorSharedExtern Include="$(IkvmRuntimeDir)Java\Externs\sun\misc\Unsafe.cs" />
+        <IkvmRuntimeFlavorExclude Include="$(IkvmRuntimeDir)Java\Externs\java\**\*.cs;$(IkvmRuntimeDir)Java\Externs\sun\**\*.cs" Exclude="@(IkvmRuntimeFlavorSharedExtern)" />
+        <!-- generates LambdaForm code with JDK 8's internal ASM -->
+        <IkvmRuntimeFlavorExclude Include="$(IkvmRuntimeDir)Util\Java\Lang\Invoke\NativeInvokerBytecodeGenerator.cs" />
         <IkvmRuntimeFlavorExclude Include="$(IkvmRuntimeDir)**\*.Jdk8.cs" />
     </ItemGroup>
 

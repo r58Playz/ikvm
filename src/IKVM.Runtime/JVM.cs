@@ -279,6 +279,9 @@ namespace IKVM.Runtime
                     {
                         initialized = true;
 
+#if JDK25
+                        InitClassLibrary();
+#else
                         // always required
                         RuntimeHelpers.RunClassConstructor(typeof(java.lang.String).TypeHandle);
 
@@ -313,13 +316,16 @@ namespace IKVM.Runtime
                         RuntimeHelpers.RunClassConstructor(typeof(java.lang.IllegalMonitorStateException).TypeHandle);
                         RuntimeHelpers.RunClassConstructor(typeof(java.lang.IllegalArgumentException).TypeHandle);
 
+#if !JDK25
                         // the static initializer of java.lang.Compiler tries to read property "java.compiler" and read & write property "java.vm.info"
                         RuntimeHelpers.RunClassConstructor(typeof(java.lang.Compiler).TypeHandle);
+#endif
 
                         // initialize some JSR292 core classes to avoid deadlock during class loading
                         RuntimeHelpers.RunClassConstructor(typeof(java.lang.invoke.MemberName).TypeHandle);
                         RuntimeHelpers.RunClassConstructor(typeof(java.lang.invoke.MethodHandle).TypeHandle);
                         RuntimeHelpers.RunClassConstructor(typeof(java.lang.invoke.MethodHandleNatives).TypeHandle);
+#endif
                     }
                 }
             }

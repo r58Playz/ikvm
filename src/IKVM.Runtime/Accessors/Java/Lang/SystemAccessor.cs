@@ -18,6 +18,9 @@ namespace IKVM.Runtime.Accessors.Java.Lang
         FieldAccessor<object> _out;
         FieldAccessor<object> _err;
         MethodAccessor<Action> initializeSystemClass;
+        MethodAccessor<Action> initPhase1;
+        MethodAccessor<Func<bool, bool, int>> initPhase2;
+        MethodAccessor<Action> initPhase3;
         MethodAccessor<Func<string, string>> getProperty;
         MethodAccessor<Func<string, string, string>> setProperty;
         MethodAccessor<Func<object>> getSecurityManager;
@@ -63,6 +66,21 @@ namespace IKVM.Runtime.Accessors.Java.Lang
         /// </summary>
         /// <returns></returns>
         public void InvokeInitializeSystemClass() => GetMethod(ref initializeSystemClass, nameof(initializeSystemClass), typeof(void)).Invoker();
+
+        /// <summary>
+        /// Invokes the 'initPhase1' method (JDK 9+): system properties, the standard streams and the reference handler.
+        /// </summary>
+        public void InvokeInitPhase1() => GetMethod(ref initPhase1, nameof(initPhase1), typeof(void)).Invoker();
+
+        /// <summary>
+        /// Invokes the 'initPhase2' method (JDK 9+), which boots the module system; returns 0 if it succeeds.
+        /// </summary>
+        public int InvokeInitPhase2(bool printToStderr, bool printStackTrace) => GetMethod(ref initPhase2, nameof(initPhase2), typeof(int), typeof(bool), typeof(bool)).Invoker(printToStderr, printStackTrace);
+
+        /// <summary>
+        /// Invokes the 'initPhase3' method (JDK 9+), which sets up the system class loader.
+        /// </summary>
+        public void InvokeInitPhase3() => GetMethod(ref initPhase3, nameof(initPhase3), typeof(void)).Invoker();
 
         /// <summary>
         /// Sets the value of the 'getProperty' field.

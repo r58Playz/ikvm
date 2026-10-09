@@ -1052,7 +1052,12 @@ namespace IKVM.Runtime
 
         internal static object DoPrivileged(java.security.PrivilegedAction action)
         {
+#if JDK25
+            // there is no security manager to grant privileges with
+            return action.run();
+#else
             return java.security.AccessController.doPrivileged(action, ikvm.@internal.CallerID.create(typeof(java.lang.ClassLoader).TypeHandle));
+#endif
         }
 
 #endif

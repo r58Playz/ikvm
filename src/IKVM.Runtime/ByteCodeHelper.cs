@@ -2288,7 +2288,12 @@ namespace IKVM.Runtime
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
+#if JDK25
+            // JDK 11 removed runFinalizersOnExit
+            return Environment.HasShutdownStarted;
+#else
             return Environment.HasShutdownStarted && !global::java.lang.Shutdown.runFinalizersOnExit;
+#endif
 #endif
         }
 

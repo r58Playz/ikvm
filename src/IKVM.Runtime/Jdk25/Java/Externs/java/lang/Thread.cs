@@ -60,7 +60,7 @@ namespace IKVM.Java.Externs.java.lang
         static global::java.lang.Thread current;
 
         [ThreadStatic]
-        static object[] scopedValueCache;
+        static object[] currentScopedValueCache;
 
         // the live threads, for getThreads
         static readonly HashSet<global::java.lang.Thread> threads = new HashSet<global::java.lang.Thread>();
@@ -291,6 +291,42 @@ namespace IKVM.Java.Externs.java.lang
             }
         }
 
+        /// <summary>
+        /// Attaches the current thread for JNI's AttachCurrentThread, in the given thread group.
+        /// </summary>
+        /// <param name="threadGroup"></param>
+        internal static void AttachThreadFromJni(object threadGroup)
+        {
+            Attach(threadGroup, null, false);
+        }
+
+        /// <summary>
+        /// Waits until the current thread is the last non-daemon thread, for JNI's DestroyJavaVM.
+        /// </summary>
+        internal static void WaitUntilLastJniThread()
+        {
+            while (true)
+            {
+                var others = false;
+                lock (threads)
+                {
+                    foreach (var thread in threads)
+                    {
+                        if (thread != current && FieldHolderAccessor.GetDaemon(ThreadAccessor.GetHolder(thread)) == false)
+                        {
+                            others = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (others == false)
+                    return;
+
+                global::System.Threading.Thread.Sleep(1);
+            }
+        }
+
         static void Register(global::java.lang.Thread thread)
         {
             lock (threads)
@@ -438,7 +474,7 @@ namespace IKVM.Java.Externs.java.lang
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            return scopedValueCache;
+            return currentScopedValueCache;
 #endif
         }
 
@@ -447,7 +483,7 @@ namespace IKVM.Java.Externs.java.lang
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            scopedValueCache = cache;
+            currentScopedValueCache = cache;
 #endif
         }
 
@@ -611,7 +647,7 @@ namespace IKVM.Java.Externs.java.lang
                 state.Interrupt();
 
             // HotSpot also unparks the thread
-            IKVM.Java.Externs.jdk.internal.misc.Unsafe.Unpark(self);
+            IKVM.Java.Externs.jdk.@internal.misc.Unsafe.Unpark(self);
 #endif
         }
 

@@ -1883,6 +1883,75 @@
                 </body>
             </method>
         </class>
+        <class name="java.lang.invoke.MethodHandle">
+            <field name="_invokeExactDelegate" sig="Ljava.lang.Object;" modifiers="">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+            </field>
+            <method name="invoke" sig="([Ljava.lang.Object;)Ljava.lang.Object;">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+            </method>
+            <method name="invokeExact" sig="([Ljava.lang.Object;)Ljava.lang.Object;">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+            </method>
+            <method name="reflectionInvoke" sig="([Ljava.lang.Object;)Ljava.lang.Object;" modifiers="final">
+                <throws class="java.lang.Throwable" />
+                <attribute type="System.Runtime.CompilerServices.MethodImplAttribute" sig="(Lcli.System.Runtime.CompilerServices.MethodImplOptions;)V">
+                    <parameter>NoInlining</parameter>
+                </attribute>
+                <attribute type="IKVM.Attributes.NameSigAttribute" sig="(Ljava.lang.String;Ljava.lang.String;)V">
+                    <parameter>invoke</parameter>
+                    <parameter>([Ljava.lang.Object;)Ljava.lang.Object;</parameter>
+                </attribute>
+                <attribute type="IKVM.Attributes.ModifiersAttribute" sig="(Lcli.IKVM.Attributes.Modifiers;)V">
+                    <parameter>Public,Final,Native,VarArgs</parameter>
+                </attribute>
+                <body>
+                    <ldstr value="MethodHandle.invoke cannot be invoked reflectively" />
+                    <newobj class="java.lang.UnsupportedOperationException" name="&lt;init&gt;" sig="(Ljava.lang.String;)V" />
+                    <throw />
+                </body>
+            </method>
+            <method name="reflectionInvokeExact" sig="([Ljava.lang.Object;)Ljava.lang.Object;" modifiers="final">
+                <throws class="java.lang.Throwable" />
+                <attribute type="System.Runtime.CompilerServices.MethodImplAttribute" sig="(Lcli.System.Runtime.CompilerServices.MethodImplOptions;)V">
+                    <parameter>NoInlining</parameter>
+                </attribute>
+                <attribute type="IKVM.Attributes.NameSigAttribute" sig="(Ljava.lang.String;Ljava.lang.String;)V">
+                    <parameter>invokeExact</parameter>
+                    <parameter>([Ljava.lang.Object;)Ljava.lang.Object;</parameter>
+                </attribute>
+                <attribute type="IKVM.Attributes.ModifiersAttribute" sig="(Lcli.IKVM.Attributes.Modifiers;)V">
+                    <parameter>Public,Final,Native,VarArgs</parameter>
+                </attribute>
+                <body>
+                    <ldstr value="MethodHandle.invokeExact cannot be invoked reflectively" />
+                    <newobj class="java.lang.UnsupportedOperationException" name="&lt;init&gt;" sig="(Ljava.lang.String;)V" />
+                    <throw />
+                </body>
+            </method>
+        </class>
+        <class name="java.lang.invoke.MethodType">
+            <field name="voidAdapter" sig="Ljava.lang.Object;" modifiers="">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+            </field>
+            <field name="_invokeExactDynamicMethod" sig="Lcli.System.Reflection.Emit.DynamicMethod;" modifiers="">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+            </field>
+            <field name="_invokeExactDelegateType" sig="Lcli.System.Type;" modifiers="">
+                <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
+            </field>
+        </class>
+        <class name="java.nio.DirectByteBuffer">
+            <!-- a constructor accessor for JNI's NewDirectByteBuffer -->
+            <method name="__new" sig="(JJ)Ljava.nio.DirectByteBuffer;" modifiers="static">
+                <body>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <newobj class="java.nio.DirectByteBuffer" name="&lt;init&gt;" sig="(JJ)V" />
+                    <ret />
+                </body>
+            </method>
+        </class>
         <class name="sun.security.provider.SeedGenerator">
             <method name="getSystemEntropy" sig="()[B">
                 <prologue>

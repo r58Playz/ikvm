@@ -38,7 +38,11 @@ namespace IKVM.Runtime
             internal static readonly RuntimeContext context = new RuntimeContext(contextOptions, DiagnosticEventSource.Instance, new Resolver(), false);
             internal static readonly VfsTable vfs = VfsTable.BuildDefaultTable(new VfsRuntimeContext(context), Properties.HomePath);
             internal static readonly Lazy<object> systemThreadGroup = new Lazy<object>(() => ThreadGroupAccessor.Init());
+#if JDK25
+            internal static readonly Lazy<object> mainThreadGroup = new Lazy<object>(() => ThreadGroupAccessor.Init(SystemThreadGroup, "main"));
+#else
             internal static readonly Lazy<object> mainThreadGroup = new Lazy<object>(() => ThreadGroupAccessor.Init(null, SystemThreadGroup, "main"));
+#endif
 
             static AccessorCache baseAccessors;
             static ThreadGroupAccessor threadGroupAccessor;

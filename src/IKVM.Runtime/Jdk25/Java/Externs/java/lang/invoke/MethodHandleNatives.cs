@@ -26,6 +26,7 @@ using System.Reflection;
 using System.Threading;
 
 using IKVM.Runtime;
+using IKVM.Runtime.Accessors.Java.Lang.Invoke;
 
 namespace IKVM.Java.Externs.java.lang.invoke
 {
@@ -38,6 +39,10 @@ namespace IKVM.Java.Externs.java.lang.invoke
     {
 
 #if FIRST_PASS == false
+
+        static CallSiteAccessor callSiteAccessor;
+
+        static CallSiteAccessor CallSiteAccessor => JVM.Internal.BaseAccessors.Get(ref callSiteAccessor);
 
         const int MN_IS_METHOD = global::java.lang.invoke.MethodHandleNatives.Constants.MN_IS_METHOD;
         const int MN_IS_CONSTRUCTOR = global::java.lang.invoke.MethodHandleNatives.Constants.MN_IS_CONSTRUCTOR;
@@ -475,7 +480,7 @@ namespace IKVM.Java.Externs.java.lang.invoke
 
             lock (site.ics)
             {
-                site.target = target;
+                CallSiteAccessor.SetTarget(site, target);
                 site.ics.SetTarget(target);
             }
 #endif

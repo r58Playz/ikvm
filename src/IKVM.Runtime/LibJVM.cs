@@ -233,7 +233,12 @@ namespace IKVM.Runtime
         {
             try
             {
+#if JDK25
+                // only used by the JDK 8 Windows libraries
+                return 0;
+#else
                 return global::java.lang.Thread.currentThread().interruptEvent.SafeWaitHandle.DangerousGetHandle();
+#endif
             }
             catch (global::java.lang.Throwable t)
             {
