@@ -2652,7 +2652,10 @@ namespace IKVM.Runtime
             throw new NotImplementedException();
 #else
             var clone = array.Clone();
-            if (GhostTag.GetTag(array) is RuntimeJavaType tag)
+
+            // a ghost array is an object[] (of any rank's element) with its type in a tag: an array of another type
+            // was never tagged, so it skips the lookup
+            if (array.GetType().GetElementType() is Type et && (et == typeof(object) || et.IsArray) && GhostTag.GetTag(array) is RuntimeJavaType tag)
                 GhostTag.SetTag(clone, tag);
 
             return clone;
@@ -3240,6 +3243,9 @@ namespace IKVM.Runtime
         ///   linkToStatic and the MemberName thunk -- plus PairwiseConvert and its castReference binders on an erased site.
         /// * no captured arguments: MethodHandles.constant(samBase, inst), inst constructed by buildCallSite. Invoking it once
         ///   has no side effect and returns what every invocation returns.
+        /// * captured arguments, JDK 9+: findConstructor(innerClass, constructorType).asType(factoryType), which only widens
+        ///   the return type to the interface and so is a view of the same DirectMethodHandle.Constructor. Constructing the
+        ///   class directly is what invoking it does.
         ///
         /// Never throws: any failure keeps the chain, which is the behaviour with the knob off. Racing bootstraps each get a
         /// candidate; only the one whose link CAS wins is installed and counted.
@@ -3256,9 +3262,16 @@ namespace IKVM.Runtime
                 }
 
                 var target = constant.getTarget();
-                var direct = target != null && target.GetType() == typeof(global::java.lang.invoke.DirectMethodHandle)
-                    ? CreateDirectLambdaFactory<T>((global::java.lang.invoke.DirectMethodHandle)target)
-                    : CreateDirectLambdaConstant<T>(target);
+                T direct;
+                if (target != null && target.GetType() == typeof(global::java.lang.invoke.DirectMethodHandle))
+                    direct = CreateDirectLambdaFactory<T>((global::java.lang.invoke.DirectMethodHandle)target);
+#if JDK25
+                else if (target is global::java.lang.invoke.DirectMethodHandle.Constructor ctor)
+                    direct = CreateDirectLambdaConstructor<T>(ctor);
+#endif
+                else
+                    direct = CreateDirectLambdaConstant<T>(target);
+
                 return direct == null ? null : new IndyCallSite<T>(direct, false);
             }
             catch (Exception e)
@@ -3360,6 +3373,82 @@ namespace IKVM.Runtime
             Interlocked.Increment(ref LazyBodyStats.IndyThunk);
             return (T)dm.CreateDelegate(typeof(T));
         }
+
+#if JDK25
+
+        /// <summary>
+        /// JDK 9+'s capturing shape: a thunk constructing the class whose constructor <paramref name="dmh"/> names, casting
+        /// the erased arguments as <see cref="CreateDirectLambdaFactory{T}"/> does.
+        /// </summary>
+        static T CreateDirectLambdaConstructor<T>(global::java.lang.invoke.DirectMethodHandle.Constructor dmh)
+            where T : class, Delegate
+        {
+            var context = JVM.Context;
+
+            var member = dmh.member;
+            if (member == null || !member.isConstructor() || member.getReferenceKind() != global::java.lang.invoke.MethodHandleNatives.Constants.REF_newInvokeSpecial || member.getDeclaringClass() != dmh.instanceClass)
+            {
+                Interlocked.Increment(ref LazyBodyStats.IndyRejShape);
+                return null;
+            }
+
+            var tw = RuntimeJavaType.FromClass(member.getDeclaringClass());
+            var mw = tw.GetMethod(StringConstants.INIT, member.getSignature().Replace('/', '.'), false);
+            if (mw == null || mw.IsStatic || mw.IsDynamicOnly || mw.HasCallerID || tw.IsAbstract || tw.IsInterface
+                || tw.IsGhost || tw.IsRemapped || tw.IsNonPrimitiveValueType || tw.IsFakeTypeContainer || tw.IsUnloadable)
+            {
+                Interlocked.Increment(ref LazyBodyStats.IndyRejShape);
+                return null;
+            }
+
+            mw.Link();
+            var invoke = context.MethodHandleUtil.GetDelegateInvokeMethod(typeof(T));
+            var dp = invoke.GetParameters();
+            var args = mw.GetParameters();
+
+            // a length mismatch means the delegate packs its arguments (arity > MethodHandleUtil.MaxArity)
+            if (dp.Length != args.Length || !CanEmitDirectBinderReturn(tw, invoke.ReturnType, context))
+            {
+                Interlocked.Increment(ref LazyBodyStats.IndyRejSig);
+                return null;
+            }
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (!CanEmitDirectBinderConversion(dp[i].ParameterType, args[i]))
+                {
+                    Interlocked.Increment(ref LazyBodyStats.IndyRejSig);
+                    return null;
+                }
+            }
+
+            tw.Finish();
+            foreach (var arg in args)
+                if (!arg.IsUnloadable)
+                    arg.Finish();
+            mw.ResolveMethod();
+
+            var dpTypes = new Type[dp.Length];
+            for (int i = 0; i < dp.Length; i++)
+                dpTypes[i] = dp[i].ParameterType;
+
+            var dm = new DynamicMethod($"__<>IndyDirect__{tw.Name}__new", invoke.ReturnType, dpTypes, typeof(MethodHandleUtil.DynamicMethodBuilder), true);
+            var ilgen = context.CodeEmitterFactory.Create(dm);
+            for (int i = 0; i < args.Length; i++)
+            {
+                ilgen.EmitLdarg(i);
+                EmitDirectBinderConversion(ilgen, dpTypes[i], args[i]);
+            }
+
+            mw.EmitNewobj(ilgen);
+            EmitDirectBinderReturn(ilgen, tw, invoke.ReturnType, context);
+            ilgen.Emit(OpCodes.Ret);
+            ilgen.DoEmit();
+
+            Interlocked.Increment(ref LazyBodyStats.IndyCtor);
+            return (T)dm.CreateDelegate(typeof(T));
+        }
+
+#endif
 
         /// <summary>
         /// The non-capturing shape: a delegate closed over the lambda instance that returns it. See

@@ -243,6 +243,7 @@ namespace IKVM.Runtime
         internal static int IndyEmitted;
         internal static int IndyBind;             // built: delegate bound straight to the spun class's get$Lambda
         internal static int IndyThunk;            // built: cast thunk calling get$Lambda (erased site signature)
+        internal static int IndyCtor;             // built: thunk constructing the spun class (JDK 9+'s capturing shape)
         internal static int IndyConst;            // built: delegate returning the non-capturing lambda instance
         internal static int IndyRejNotConstant;   // kept the chain: the CallSite was not a ConstantCallSite
         internal static int IndyRejShape;         // kept the chain: target neither a static DirectMethodHandle nor a zero-argument constant
@@ -259,7 +260,7 @@ namespace IKVM.Runtime
 
         internal static void ReportIndy()
         {
-            Console.WriteLine($"[IKVM indy] direct installed={IndyInstalled} built: bind={IndyBind} thunk={IndyThunk} const={IndyConst} | chain kept: notConstant={IndyRejNotConstant} shape={IndyRejShape} sig={IndyRejSig} failed={IndyFailed} | lambda sites compiled={IndyEmitted} (IKVM_INDY_DIRECT={(JVM.IndyDirect ? 1 : 0)})"
+            Console.WriteLine($"[IKVM indy] direct installed={IndyInstalled} built: bind={IndyBind} thunk={IndyThunk} ctor={IndyCtor} const={IndyConst} | chain kept: notConstant={IndyRejNotConstant} shape={IndyRejShape} sig={IndyRejSig} failed={IndyFailed} | lambda sites compiled={IndyEmitted} (IKVM_INDY_DIRECT={(JVM.IndyDirect ? 1 : 0)})"
 #if JDK25
                 + $" | constant VarHandle sites compiled={VarHandleIntrinsics.Direct} kept={VarHandleIntrinsics.Kept} (IKVM_VH_DIRECT)"
 #endif
