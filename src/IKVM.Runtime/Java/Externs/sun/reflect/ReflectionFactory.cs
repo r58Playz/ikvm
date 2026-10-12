@@ -35,7 +35,22 @@ using IKVM.Runtime;
 using IKVM.Runtime.Accessors.Java.Lang;
 using IKVM.Runtime.Util.Java.Security;
 
+// The accessors of both flavors: JDK 8's sun.reflect interfaces (whose MethodAccessor IKVM gives a CallerID), JDK 25's
+// jdk.internal.reflect ones, which jdk.internal.reflect.ReflectionFactory (IKVM.Java's jdk25\local) asks the natives at
+// the end of this file for instead of making method handle accessors.
+#if JDK25
+using MethodAccessorType = global::jdk.@internal.reflect.MethodAccessor;
+using ConstructorAccessorType = global::jdk.@internal.reflect.ConstructorAccessor;
+using FieldAccessorType = global::jdk.@internal.reflect.FieldAccessor;
+
+namespace IKVM.Java.Externs.jdk.@internal.reflect
+#else
+using MethodAccessorType = global::sun.reflect.MethodAccessor;
+using ConstructorAccessorType = global::sun.reflect.ConstructorAccessor;
+using FieldAccessorType = global::sun.reflect.FieldAccessor;
+
 namespace IKVM.Java.Externs.sun.reflect
+#endif
 {
 
     static class ReflectionFactory
@@ -53,7 +68,7 @@ namespace IKVM.Java.Externs.sun.reflect
 
         static object[] ConvertArgs(RuntimeClassLoader loader, RuntimeJavaType[] argumentTypes, object[] args) => ReflectionArguments.Convert(loader, argumentTypes, args);
 
-        sealed class MethodAccessorImpl : global::sun.reflect.MethodAccessor
+        sealed class MethodAccessorImpl : MethodAccessorType
         {
 
             readonly RuntimeJavaMethod mw;
@@ -68,6 +83,15 @@ namespace IKVM.Java.Externs.sun.reflect
                 mw.Link();
                 mw.ResolveMethod();
             }
+
+#if JDK25
+            [IKVM.Attributes.HideFromJava]
+            public object invoke(object obj, object[] args) => invoke(obj, args, (global::ikvm.@internal.CallerID)null);
+
+            // JDK 25 hands a caller-sensitive method its caller, which IKVM passes as a CallerID
+            [IKVM.Attributes.HideFromJava]
+            public object invoke(object obj, object[] args, global::java.lang.Class caller) => invoke(obj, args, caller == null ? null : global::ikvm.@internal.CallerID.create(caller, RuntimeJavaType.FromClass(caller).ClassLoader.GetJavaClassLoader()));
+#endif
 
             [IKVM.Attributes.HideFromJava]
             public object invoke(object obj, object[] args, global::ikvm.@internal.CallerID callerID)
@@ -133,7 +157,7 @@ namespace IKVM.Java.Externs.sun.reflect
             }
         }
 
-        sealed class ConstructorAccessorImpl : global::sun.reflect.ConstructorAccessor
+        sealed class ConstructorAccessorImpl : ConstructorAccessorType
         {
 
             readonly RuntimeJavaMethod mw;
@@ -164,7 +188,7 @@ namespace IKVM.Java.Externs.sun.reflect
             }
         }
 
-        sealed class SerializationConstructorAccessorImpl : global::sun.reflect.ConstructorAccessor
+        sealed class SerializationConstructorAccessorImpl : ConstructorAccessorType
         {
 
             readonly RuntimeJavaMethod mw;
@@ -408,9 +432,9 @@ namespace IKVM.Java.Externs.sun.reflect
         }
 
         /// <summary>
-        /// Fast implementation of <see cref="global::sun.reflect.MethodAccessor"/> using dynamic methods.
+        /// Fast implementation of <see cref="MethodAccessorType"/> using dynamic methods.
         /// </summary>
-        sealed class FastMethodAccessorImpl : global::sun.reflect.MethodAccessor
+        sealed class FastMethodAccessorImpl : MethodAccessorType
         {
 
             internal static readonly ConstructorInfo nullPointerExceptionCtor;
@@ -699,6 +723,15 @@ namespace IKVM.Java.Externs.sun.reflect
                 }
             }
 
+#if JDK25
+            [IKVM.Attributes.HideFromJava]
+            public object invoke(object obj, object[] args) => invoke(obj, args, (global::ikvm.@internal.CallerID)null);
+
+            // JDK 25 hands a caller-sensitive method its caller, which IKVM passes as a CallerID
+            [IKVM.Attributes.HideFromJava]
+            public object invoke(object obj, object[] args, global::java.lang.Class caller) => invoke(obj, args, caller == null ? null : global::ikvm.@internal.CallerID.create(caller, RuntimeJavaType.FromClass(caller).ClassLoader.GetJavaClassLoader()));
+#endif
+
             [IKVM.Attributes.HideFromJava]
             public object invoke(object obj, object[] args, global::ikvm.@internal.CallerID callerID)
             {
@@ -720,7 +753,7 @@ namespace IKVM.Java.Externs.sun.reflect
 
         }
 
-        sealed class FastConstructorAccessorImpl : global::sun.reflect.ConstructorAccessor
+        sealed class FastConstructorAccessorImpl : ConstructorAccessorType
         {
 
             delegate object Invoker(object[] args);
@@ -888,7 +921,7 @@ namespace IKVM.Java.Externs.sun.reflect
 
         }
 
-        sealed class FastSerializationConstructorAccessorImpl : global::sun.reflect.ConstructorAccessor
+        sealed class FastSerializationConstructorAccessorImpl : ConstructorAccessorType
         {
 
             static readonly MethodInfo GetTypeFromHandleMethod = typeof(Type).GetMethod(nameof(Type.GetTypeFromHandle), new[] { typeof(RuntimeTypeHandle) });
@@ -948,7 +981,7 @@ namespace IKVM.Java.Externs.sun.reflect
         }
 #endif // !NO_REF_EMIT
 
-        sealed class ActivatorConstructorAccessor : global::sun.reflect.ConstructorAccessor
+        sealed class ActivatorConstructorAccessor : ConstructorAccessorType
         {
 
             private readonly Type type;
@@ -986,7 +1019,7 @@ namespace IKVM.Java.Externs.sun.reflect
 
         }
 
-        private abstract class FieldAccessorImplBase : global::sun.reflect.FieldAccessor, IReflectionException
+        private abstract class FieldAccessorImplBase : FieldAccessorType, IReflectionException
         {
 
             protected static readonly ushort inflationThreshold = 15;
@@ -2127,7 +2160,28 @@ namespace IKVM.Java.Externs.sun.reflect
         }
 #endif
 
-        public static global::sun.reflect.FieldAccessor newFieldAccessor(object thisFactory, global::java.lang.reflect.Field field, bool overrideAccessCheck)
+#if JDK25
+
+        /// <summary>
+        /// Implements the native method 'newFieldAccessor0' of IKVM's jdk.internal.reflect.ReflectionFactory.
+        /// </summary>
+        public static FieldAccessorType newFieldAccessor0(object thisFactory, global::java.lang.reflect.Field field, bool isReadOnly)
+        {
+#if FIRST_PASS
+            return null;
+#else
+            return FieldAccessorImplBase.Create(RuntimeJavaField.FromField(field), isReadOnly);
+#endif
+        }
+
+        /// <summary>
+        /// Implements the native method 'newMethodAccessor0' of IKVM's jdk.internal.reflect.ReflectionFactory.
+        /// </summary>
+        public static MethodAccessorType newMethodAccessor0(object thisFactory, global::java.lang.reflect.Method method) => newMethodAccessor(thisFactory, method);
+
+#else
+
+        public static FieldAccessorType newFieldAccessor(object thisFactory, global::java.lang.reflect.Field field, bool overrideAccessCheck)
         {
 #if FIRST_PASS
 		return null;
@@ -2141,13 +2195,15 @@ namespace IKVM.Java.Externs.sun.reflect
         }
 
 #if !FIRST_PASS
-        internal static global::sun.reflect.FieldAccessor NewFieldAccessorJNI(RuntimeJavaField field)
+        internal static FieldAccessorType NewFieldAccessorJNI(RuntimeJavaField field)
         {
             return FieldAccessorImplBase.Create(field, false);
         }
 #endif
 
-        public static global::sun.reflect.MethodAccessor newMethodAccessor(object thisFactory, global::java.lang.reflect.Method method)
+#endif
+
+        public static MethodAccessorType newMethodAccessor(object thisFactory, global::java.lang.reflect.Method method)
         {
 #if FIRST_PASS
 		return null;
@@ -2163,7 +2219,7 @@ namespace IKVM.Java.Externs.sun.reflect
 #endif
         }
 
-        public static global::sun.reflect.ConstructorAccessor newConstructorAccessor0(object thisFactory, global::java.lang.reflect.Constructor constructor)
+        public static ConstructorAccessorType newConstructorAccessor0(object thisFactory, global::java.lang.reflect.Constructor constructor)
         {
 #if FIRST_PASS
 		return null;
@@ -2187,7 +2243,7 @@ namespace IKVM.Java.Externs.sun.reflect
 #endif
         }
 
-        public static global::sun.reflect.ConstructorAccessor newConstructorAccessorForSerialization(global::java.lang.Class classToInstantiate, global::java.lang.reflect.Constructor constructorToCall)
+        public static ConstructorAccessorType newConstructorAccessorForSerialization(global::java.lang.Class classToInstantiate, global::java.lang.reflect.Constructor constructorToCall)
         {
 #if FIRST_PASS
 		return null;
