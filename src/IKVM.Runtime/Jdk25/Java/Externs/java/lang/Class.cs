@@ -633,6 +633,11 @@ namespace IKVM.Java.Externs.java.lang
             try
             {
                 var type = RuntimeJavaType.FromClass(self);
+
+                // a hidden nestmate is in the nest of the class it was defined as a nestmate of
+                if (type.HiddenNestmateOf is RuntimeJavaType nestmateOf)
+                    return getNestHost0(nestmateOf.ClassObject);
+
                 if (type.NestHostName is string hostName && type.IsNestmateOf(type.ClassLoader.LoadClassByName(hostName)))
                     return type.ClassLoader.LoadClassByName(hostName).ClassObject;
 

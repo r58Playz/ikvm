@@ -17,7 +17,11 @@ namespace IKVM.Runtime.Accessors.Java.Lang
 
         MethodAccessor<Func<Type, object>> init;
         MethodAccessor<Func<string, object, object>> forName;
+#if JDK25
+        MethodAccessor<Func<object, string, object[], object>> getMethod;
+#else
         MethodAccessor<Func<object, string, object[], object, object>> getMethod;
+#endif
 
         // JDK 25
         FieldAccessor<object, object> classData;
@@ -62,7 +66,12 @@ namespace IKVM.Runtime.Accessors.Java.Lang
         /// <param name="parameterTypes"></param>
         /// <param name="callerID"></param>
         /// <returns></returns>
+#if JDK25
+        // not caller sensitive since JDK 24, which removed the security manager: the caller ID is not passed
+        public object InvokeGetMethod(object self, string name, object[] parameterTypes, object callerID) => GetMethod(ref getMethod, nameof(getMethod), JavaLangReflectMethod, typeof(string), JavaLangClass.MakeArrayType()).Invoker(self, name, parameterTypes);
+#else
         public object InvokeGetMethod(object self, string name, object[] parameterTypes, object callerID) => GetMethod(ref getMethod, nameof(getMethod), JavaLangReflectMethod, typeof(string), JavaLangClass.MakeArrayType(), IkvmInternalCallerID).Invoker(self, name, parameterTypes, callerID);
+#endif
 
         /// <summary>
         /// Sets the value of the 'classData' field (JDK 25), the class data of a hidden class.

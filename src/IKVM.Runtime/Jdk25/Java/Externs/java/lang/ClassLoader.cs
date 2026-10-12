@@ -73,7 +73,13 @@ namespace IKVM.Java.Externs.java.lang
                     var host = RuntimeJavaType.FromClass(lookup);
                     var cl = host.ClassLoader;
                     var cf = new IKVM.Runtime.ClassFile(JVM.Context, JVM.Context.Diagnostics, ReadClass(buf), name ?? "<Unknown>", cl.ClassFileParseOptions, null);
-                    clazz = cl.GetTypeWrapperFactory().DefineClassImpl(null, host, cf, cl, pd ?? lookup.pd).ClassObject;
+                    var type = cl.GetTypeWrapperFactory().DefineClassImpl(null, host, cf, cl, pd ?? lookup.pd);
+
+                    // Java's own checks of private access go by nests: a nestmate joins the lookup class's
+                    if ((flags & NESTMATE_CLASS) != 0 && type is RuntimeByteCodeJavaType hidden)
+                        hidden.SetHiddenNestmateOf(host);
+
+                    clazz = type.ClassObject;
                 }
                 catch (RetargetableJavaException e)
                 {

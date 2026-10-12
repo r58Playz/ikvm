@@ -22,7 +22,11 @@ namespace IKVM.Runtime.Accessors.Java.Lang
         FieldAccessor<object, object> nativeLibraries;
         MethodAccessor<Action<object, object, object>> checkPackageAccess;
         MethodAccessor<Func<object, string, object>> loadClassInternal;
+#if JDK25
+        MethodAccessor<Func<string, bool>> checkName;
+#else
         MethodAccessor<Func<object, string, bool>> checkName;
+#endif
         MethodAccessor<Func<object, string, long>> findNative;
 
         /// <summary>
@@ -79,14 +83,25 @@ namespace IKVM.Runtime.Accessors.Java.Lang
         public object GetNativeLibraries(object self) => GetField(ref nativeLibraries, nameof(nativeLibraries)).GetValue(self);
 
         /// <summary>
-        /// Invokes the 'checkPackageAccess' method.
+        /// Invokes the 'checkPackageAccess' method, the security manager's check of a loaded class, which JDK 24 removed
+        /// with the security manager.
         /// </summary>
-        public void InvokeCheckPackageAccess(object self, object cls, object pd) => GetMethod(ref checkPackageAccess, nameof(checkPackageAccess), typeof(void), JavaLangClass, JavaSecurityProtectionDomain).Invoker(self, cls, pd);
+        public void InvokeCheckPackageAccess(object self, object cls, object pd)
+        {
+#if JDK25 == false
+            GetMethod(ref checkPackageAccess, nameof(checkPackageAccess), typeof(void), JavaLangClass, JavaSecurityProtectionDomain).Invoker(self, cls, pd);
+#endif
+        }
 
         /// <summary>
         /// Invokes the 'checkName' method.
         /// </summary>
+#if JDK25
+        // static since JDK 9
+        public bool InvokeCheckName(object self, string name) => GetMethod(ref checkName, nameof(checkName), typeof(bool), typeof(string)).Invoker(name);
+#else
         public bool InvokeCheckName(object self, string name) => GetMethod(ref checkName, nameof(checkName), typeof(bool), typeof(string)).Invoker(self, name);
+#endif
 
         /// <summary>
         /// Invokes the 'loadClassInternal' method.

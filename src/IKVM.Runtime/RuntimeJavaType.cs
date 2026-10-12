@@ -1076,6 +1076,12 @@ namespace IKVM.Runtime
         internal virtual string NestHostName => null;
 
         /// <summary>
+        /// The class a hidden class was defined as a nestmate of (Lookup.defineHiddenClass with NESTMATE, as
+        /// LambdaMetafactory defines its classes), whose nest it joins (JVMS 5.4.4), or null.
+        /// </summary>
+        internal virtual RuntimeJavaType HiddenNestmateOf => null;
+
+        /// <summary>
         /// Whether this type's NestMembers attribute lists the named class.
         /// </summary>
         internal virtual bool ListsNestMember(string name) => false;
@@ -1119,6 +1125,12 @@ namespace IKVM.Runtime
         {
             if (this == other)
                 return true;
+
+            // a hidden nestmate is in the nest of the class it was defined as a nestmate of
+            var self = HiddenNestmateOf ?? this;
+            var that = other.HiddenNestmateOf ?? other;
+            if (self != this || that != other)
+                return self.IsNestmateOf(that);
 
             var hostName = NestHostName ?? Name;
             if (hostName != (other.NestHostName ?? other.Name) || IsPackageAccessibleFrom(other) == false)

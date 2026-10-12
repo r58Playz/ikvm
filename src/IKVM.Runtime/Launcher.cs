@@ -191,7 +191,11 @@ namespace IKVM.Runtime
             // use the TLS as a hack to track when the thread dies (if the object stored in the TLS is finalized,
             // we know the thread is dead). So to make that work for the main thread, we use jniDetach which
             // explicitly cleans up our thread.
+#if JDK25
+            IKVM.Java.Externs.java.lang.Thread.Detach();
+#else
             ThreadAccessor.InvokeDie(ThreadAccessor.InvokeCurrentThread());
+#endif
 #endif
         }
 

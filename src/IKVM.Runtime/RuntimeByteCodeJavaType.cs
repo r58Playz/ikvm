@@ -333,6 +333,15 @@ namespace IKVM.Runtime
 
         internal override string NestHostName => nestHostName;
 
+        RuntimeJavaType hiddenNestmateOf;
+
+        internal override RuntimeJavaType HiddenNestmateOf => hiddenNestmateOf;
+
+        /// <summary>
+        /// Makes this hidden class a nestmate of the given class (its lookup class), as it is defined.
+        /// </summary>
+        internal void SetHiddenNestmateOf(RuntimeJavaType type) => hiddenNestmateOf = type;
+
         internal override bool ListsNestMember(string name) => nestMemberNames != null && Array.IndexOf(nestMemberNames, name) >= 0;
 
         internal override string[] NestMemberNames => nestMemberNames;
