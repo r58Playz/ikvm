@@ -1,0 +1,23 @@
+<Project>
+    <Import Sdk="IKVM.Clang.Sdk" Project="Sdk.props" />
+    <Import Project="$(MSBuildThisFileDirectory)..\..\..\targets\openjdk25.lib.props" />
+
+    <!-- java.management's libmanagement, which the runtime implements (Jdk25\Java\Externs\sun\management): IKVM's
+         JNI_OnLoad (src\libmanagement), so that loading it succeeds. The JDK's own gets HotSpot's management interface
+         (JVM_GetManagement), which IKVM's libjvm does not have. -->
+    <PropertyGroup>
+        <TargetName>management</TargetName>
+        <OutputType>dll</OutputType>
+        <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+        <EnableDefaultHeaderItems>false</EnableDefaultHeaderItems>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\libjvm\libjvm.clangproj" />
+    </ItemGroup>
+    <ItemGroup Condition=" '$(TargetIdentifier)' != '' ">
+        <Compile Include="$(MSBuildThisFileDirectory)..\..\libmanagement\jni_onload.c" LanguageStandard="c11" />
+    </ItemGroup>
+
+    <Import Sdk="IKVM.Clang.Sdk" Project="Sdk.targets" />
+    <Import Project="$(MSBuildThisFileDirectory)..\..\..\targets\openjdk.lib.targets" />
+</Project>

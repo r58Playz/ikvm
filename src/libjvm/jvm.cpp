@@ -305,6 +305,17 @@ jboolean JNICALL JVM_IsContainerized()
     return JNI_FALSE;
 }
 
+/* JDK 23+: whether the JDK's libraries are linked into the executable, as emscripten's build of them is; libawt then
+   finds libawt_headless's symbols, and libawt's mlib_image's, in the process */
+jboolean JNICALL JVM_IsStaticallyLinked()
+{
+#ifdef __EMSCRIPTEN__
+    return JNI_TRUE;
+#else
+    return JNI_FALSE;
+#endif
+}
+
 jclass JNICALL JVM_FindClassFromClass(JNIEnv* env, const char* name, jboolean init, jclass from)
 {
     JVM_ThrowException("java/lang/InternalError", "Unsupported JVM method: JVM_FindClassFromClass");

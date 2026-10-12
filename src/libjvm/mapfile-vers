@@ -187,6 +187,7 @@ SUNWprivate_1.1 {
                 JVM_IsNaN;
                 JVM_IsUseContainerSupport;
                 JVM_IsContainerized;
+                JVM_IsStaticallyLinked;
                 JVM_IsPrimitiveClass;
                 JVM_IsSameClassPackage;
                 JVM_IsSilentCompiler;

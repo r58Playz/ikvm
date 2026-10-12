@@ -24,8 +24,17 @@ typedef struct JVMInvokeInterface {
 extern JVMInvokeInterface *jvmii;
 
 /* the JDK the library is built for (IKVM_JDK, 8 if not defined): JDK 25's JVM_LoadLibrary says whether to throw when
- * the library does not load */
-#if defined(IKVM_JDK) && IKVM_JDK >= 25
+ * the library does not load.
+ *
+ * Except in the wasm build, which keeps JDK 8's one parameter and never throws (which is what the runtime asks of it):
+ * everything is linked into one module there, code built for the JDK 8 flavor calls it too (LWJGL's static loader), and
+ * a wasm call must match its callee's signature exactly. The build (build-ikvm-native-jdk25.sh) defines JVM_LoadLibrary
+ * as a function-like macro that drops the second argument from jvm.h's declaration and from the JDK's callers; the
+ * definition names the function in parentheses so that the macro leaves it alone. */
+#if defined(IKVM_JDK) && IKVM_JDK >= 25 && defined(__EMSCRIPTEN__)
+#define IKVM_LOADLIBRARY_PARAMS const char* name
+#define IKVM_LOADLIBRARY_THROWS JNI_FALSE
+#elif defined(IKVM_JDK) && IKVM_JDK >= 25
 #define IKVM_LOADLIBRARY_PARAMS const char* name, jboolean throwException
 #define IKVM_LOADLIBRARY_THROWS throwException
 #else

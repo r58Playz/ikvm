@@ -96,6 +96,8 @@
         <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\jdk25-native\libzip\libzip.clangproj" SupportedRuntimes="linux-x64" />
         <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\jdk25-native\libnet\libnet.clangproj" SupportedRuntimes="linux-x64" />
         <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\jdk25-native\libnio\libnio.clangproj" SupportedRuntimes="linux-x64" />
+        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\jdk25-native\libmanagement\libmanagement.clangproj" SupportedRuntimes="linux-x64" />
+        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\jdk25-native\libmanagement_ext\libmanagement_ext.clangproj" SupportedRuntimes="linux-x64" />
     </ItemGroup>
 
     <Target Name="GetIkvmClangProjectReferencesByRuntime" Inputs="@(IkvmClangProjectReference)" Outputs="%(IkvmClangProjectReference.Identity)\null" BeforeTargets="AssignClangProjectConfiguration">

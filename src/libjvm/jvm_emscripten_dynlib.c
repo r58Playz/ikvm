@@ -61,7 +61,7 @@
 
 /* ── JVM_LoadLibrary ─────────────────────────────────────────────────────── */
 
-void* JNICALL JVM_LoadLibrary(IKVM_LOADLIBRARY_PARAMS)
+void* JNICALL (JVM_LoadLibrary)(IKVM_LOADLIBRARY_PARAMS)
 {
     int i;
     for (i = 0; jvm_static_libs[i].path != NULL; i++) {
