@@ -137,9 +137,12 @@ namespace IKVM.Runtime
         readonly RuntimeContext context;
 
         internal readonly MethodInfo AddInt32;
+        internal readonly MethodInfo AddInt64;
         internal readonly MethodInfo CompareExchangeInt32;
         internal readonly MethodInfo CompareExchangeInt64;
         internal readonly MethodInfo CompareExchangeOfT;
+        internal readonly MethodInfo ExchangeInt32;
+        internal readonly MethodInfo ExchangeInt64;
         internal readonly MethodInfo ExchangeOfT;
 
         /// <summary>
@@ -152,8 +155,11 @@ namespace IKVM.Runtime
 
             var type = context.Resolver.ResolveCoreType(typeof(System.Threading.Interlocked).FullName).AsReflection();
             AddInt32 = type.GetMethod("Add", [context.Types.Int32.MakeByRefType(), context.Types.Int32]);
+            AddInt64 = type.GetMethod("Add", [context.Types.Int64.MakeByRefType(), context.Types.Int64]);
             CompareExchangeInt32 = type.GetMethod("CompareExchange", new Type[] { context.Types.Int32.MakeByRefType(), context.Types.Int32, context.Types.Int32 });
             CompareExchangeInt64 = type.GetMethod("CompareExchange", new Type[] { context.Types.Int64.MakeByRefType(), context.Types.Int64, context.Types.Int64 });
+            ExchangeInt32 = type.GetMethod("Exchange", [context.Types.Int32.MakeByRefType(), context.Types.Int32]);
+            ExchangeInt64 = type.GetMethod("Exchange", [context.Types.Int64.MakeByRefType(), context.Types.Int64]);
             foreach (MethodInfo m in type.GetMethods())
             {
                 if (m.IsGenericMethodDefinition)

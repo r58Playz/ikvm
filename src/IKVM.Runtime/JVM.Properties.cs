@@ -279,6 +279,12 @@ namespace IKVM.Runtime
         // unlimited direct memory
         p["sun.nio.MaxDirectMemorySize"] = "-1";
 
+#if JDK25
+        // sun.misc.Unsafe's memory access methods (LWJGL's, netty's) as in JDK 8: by default JDK 24+ checks a volatile
+        // flag on every call, to warn on the first
+        p["sun.misc.unsafe.memory.access"] = "allow";
+#endif
+
         // single-threaded WASM build: tell java.lang.ref.Finalizer not to start the
         // finalizer thread (the runtime cannot start threads; Thread.start traps).
         // Read from the env var here because OpenJDK's System.getenv does not see

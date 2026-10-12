@@ -157,7 +157,288 @@ namespace IKVM.Runtime
             intrinsics.Add(new IntrinsicKey("sun.misc.Unsafe", "getDouble", "(J)D"), Unsafe_getDoubleAbs);
             intrinsics.Add(new IntrinsicKey("sun.misc.Unsafe", "putFloat", "(JF)V"), Unsafe_putFloatAbs);
             intrinsics.Add(new IntrinsicKey("sun.misc.Unsafe", "putDouble", "(JD)V"), Unsafe_putDoubleAbs);
+            RegisterJdk25Unsafe(intrinsics);
+            intrinsics.Add(new IntrinsicKey("jdk.internal.util.Preconditions", "checkIndex", "(IILjava.util.function.BiFunction;)I"), Preconditions_checkIndex);
+            RegisterJdk25ScopedMemoryAccess(intrinsics);
             return intrinsics;
+        }
+
+        /// <summary>
+        /// The JDK 25 class library's own Unsafe, jdk.internal.misc.Unsafe, which the JDK's classes call (sun.misc.Unsafe is
+        /// a wrapper for everyone else): the same operations under their JDK 9+ names, to the same emitters. The acquire,
+        /// release and opaque forms get the volatile ones' code, which orders at least as strongly; a weak compare-and-set
+        /// may fail spuriously, so the strong one is one. The emitters only fire on the shapes they recognize (an array,
+        /// or a field whose offset a static final of the caller's class holds), and leave every other call alone.
+        /// </summary>
+        static void RegisterJdk25Unsafe(Dictionary<IntrinsicKey, Emitter> intrinsics)
+        {
+            const string U = "jdk.internal.misc.Unsafe";
+            intrinsics.Add(new IntrinsicKey(U, "ensureClassInitialized", "(Ljava.lang.Class;)V"), Unsafe_ensureClassInitialized);
+
+            foreach (var name in new[] { "getReference", "getReferenceVolatile", "getReferenceAcquire", "getReferenceOpaque" })
+                intrinsics.Add(new IntrinsicKey(U, name, "(Ljava.lang.Object;J)Ljava.lang.Object;"), Unsafe_getObjectVolatile);
+
+            intrinsics.Add(new IntrinsicKey(U, "putReference", "(Ljava.lang.Object;JLjava.lang.Object;)V"), Unsafe_putObject);
+            intrinsics.Add(new IntrinsicKey(U, "putReferenceVolatile", "(Ljava.lang.Object;JLjava.lang.Object;)V"), Unsafe_putObjectVolatile);
+            intrinsics.Add(new IntrinsicKey(U, "putReferenceRelease", "(Ljava.lang.Object;JLjava.lang.Object;)V"), Unsafe_putOrderedObject);
+            intrinsics.Add(new IntrinsicKey(U, "putReferenceOpaque", "(Ljava.lang.Object;JLjava.lang.Object;)V"), Unsafe_putOrderedObject);
+
+            foreach (var name in new[] { "compareAndSetReference", "weakCompareAndSetReference", "weakCompareAndSetReferencePlain", "weakCompareAndSetReferenceAcquire", "weakCompareAndSetReferenceRelease" })
+                intrinsics.Add(new IntrinsicKey(U, name, "(Ljava.lang.Object;JLjava.lang.Object;Ljava.lang.Object;)Z"), Unsafe_compareAndSwapObject);
+            foreach (var name in new[] { "compareAndSetInt", "weakCompareAndSetInt", "weakCompareAndSetIntPlain", "weakCompareAndSetIntAcquire", "weakCompareAndSetIntRelease" })
+                intrinsics.Add(new IntrinsicKey(U, name, "(Ljava.lang.Object;JII)Z"), Unsafe_compareAndSwapInt);
+            foreach (var name in new[] { "compareAndSetLong", "weakCompareAndSetLong", "weakCompareAndSetLongPlain", "weakCompareAndSetLongAcquire", "weakCompareAndSetLongRelease" })
+                intrinsics.Add(new IntrinsicKey(U, name, "(Ljava.lang.Object;JJJ)Z"), Unsafe_compareAndSwapLong);
+
+            intrinsics.Add(new IntrinsicKey(U, "getAndSetReference", "(Ljava.lang.Object;JLjava.lang.Object;)Ljava.lang.Object;"), Unsafe_getAndSetObject);
+            intrinsics.Add(new IntrinsicKey(U, "getAndAddInt", "(Ljava.lang.Object;JI)I"), Unsafe_getAndAddInt);
+            intrinsics.Add(new IntrinsicKey(U, "getAndAddLong", "(Ljava.lang.Object;JJ)J"), Unsafe_getAndAddLong);
+
+            // the off-heap scalar accessors, as sun.misc.Unsafe's above
+            intrinsics.Add(new IntrinsicKey(U, "getByte", "(Ljava.lang.Object;J)B"), Unsafe_getByteOffHeap);
+            intrinsics.Add(new IntrinsicKey(U, "getShort", "(Ljava.lang.Object;J)S"), Unsafe_getShortOffHeap);
+            intrinsics.Add(new IntrinsicKey(U, "getInt", "(Ljava.lang.Object;J)I"), Unsafe_getIntOffHeap);
+            intrinsics.Add(new IntrinsicKey(U, "getLong", "(Ljava.lang.Object;J)J"), Unsafe_getLongOffHeap);
+            intrinsics.Add(new IntrinsicKey(U, "getFloat", "(Ljava.lang.Object;J)F"), Unsafe_getFloatOffHeap);
+            intrinsics.Add(new IntrinsicKey(U, "getDouble", "(Ljava.lang.Object;J)D"), Unsafe_getDoubleOffHeap);
+            intrinsics.Add(new IntrinsicKey(U, "putByte", "(Ljava.lang.Object;JB)V"), Unsafe_putByteOffHeap);
+            intrinsics.Add(new IntrinsicKey(U, "putShort", "(Ljava.lang.Object;JS)V"), Unsafe_putShortOffHeap);
+            intrinsics.Add(new IntrinsicKey(U, "putInt", "(Ljava.lang.Object;JI)V"), Unsafe_putIntOffHeap);
+            intrinsics.Add(new IntrinsicKey(U, "putLong", "(Ljava.lang.Object;JJ)V"), Unsafe_putLongOffHeap);
+            intrinsics.Add(new IntrinsicKey(U, "putFloat", "(Ljava.lang.Object;JF)V"), Unsafe_putFloatOffHeap);
+            intrinsics.Add(new IntrinsicKey(U, "putDouble", "(Ljava.lang.Object;JD)V"), Unsafe_putDoubleOffHeap);
+            intrinsics.Add(new IntrinsicKey(U, "getByte", "(J)B"), Unsafe_getByteAbs);
+            intrinsics.Add(new IntrinsicKey(U, "getShort", "(J)S"), Unsafe_getShortAbs);
+            intrinsics.Add(new IntrinsicKey(U, "getInt", "(J)I"), Unsafe_getIntAbs);
+            intrinsics.Add(new IntrinsicKey(U, "getLong", "(J)J"), Unsafe_getLongAbs);
+            intrinsics.Add(new IntrinsicKey(U, "getFloat", "(J)F"), Unsafe_getFloatAbs);
+            intrinsics.Add(new IntrinsicKey(U, "getDouble", "(J)D"), Unsafe_getDoubleAbs);
+            intrinsics.Add(new IntrinsicKey(U, "putByte", "(JB)V"), Unsafe_putByteAbs);
+            intrinsics.Add(new IntrinsicKey(U, "putShort", "(JS)V"), Unsafe_putShortAbs);
+            intrinsics.Add(new IntrinsicKey(U, "putInt", "(JI)V"), Unsafe_putIntAbs);
+            intrinsics.Add(new IntrinsicKey(U, "putLong", "(JJ)V"), Unsafe_putLongAbs);
+            intrinsics.Add(new IntrinsicKey(U, "putFloat", "(JF)V"), Unsafe_putFloatAbs);
+            intrinsics.Add(new IntrinsicKey(U, "putDouble", "(JD)V"), Unsafe_putDoubleAbs);
+        }
+
+        /// <summary>
+        /// JDK 9+'s ScopedMemoryAccess, through which every Buffer reads and writes its memory: a session check, then
+        /// Unsafe's unaligned and byte-order forms, then the native, three levels of calls with exception handlers (which
+        /// keep them from being inlined) where JDK 8's direct buffers called Unsafe's native at once. A direct buffer has
+        /// no session and no base object, and for it the access is a load or store at the address.
+        /// </summary>
+        static void RegisterJdk25ScopedMemoryAccess(Dictionary<IntrinsicKey, Emitter> intrinsics)
+        {
+            const string S = "jdk.internal.misc.ScopedMemoryAccess";
+            const string P = "Ljdk.internal.foreign.MemorySessionImpl;Ljava.lang.Object;J";
+            foreach (var t in new[] { "B", "S", "C", "I", "J", "F", "D" })
+            {
+                var name = ScopedMemoryAccessTypeName(t);
+                intrinsics.Add(new IntrinsicKey(S, "get" + name, "(" + P + ")" + t), ScopedMemoryAccess_access);
+                intrinsics.Add(new IntrinsicKey(S, "put" + name, "(" + P + t + ")V"), ScopedMemoryAccess_access);
+            }
+            foreach (var t in new[] { "S", "C", "I", "J" })
+            {
+                var name = ScopedMemoryAccessTypeName(t);
+                intrinsics.Add(new IntrinsicKey(S, "get" + name + "Unaligned", "(" + P + "Z)" + t), ScopedMemoryAccess_access);
+                intrinsics.Add(new IntrinsicKey(S, "put" + name + "Unaligned", "(" + P + t + "Z)V"), ScopedMemoryAccess_access);
+            }
+        }
+
+        static string ScopedMemoryAccessTypeName(string descriptor) => descriptor switch
+        {
+            "B" => "Byte",
+            "S" => "Short",
+            "C" => "Char",
+            "I" => "Int",
+            "J" => "Long",
+            "F" => "Float",
+            "D" => "Double",
+            _ => throw new InvalidOperationException(),
+        };
+
+        /// <summary>
+        /// ScopedMemoryAccess.get/put[Unaligned](session, base, offset[, value][, bigEndian]): with no session and no base,
+        /// the load or store at the address, the value's bytes reversed for the opposite byte order; else the call.
+        /// </summary>
+        static bool ScopedMemoryAccess_access(EmitIntrinsicContext eic)
+        {
+            // the byte order the unaligned forms convert from is the host's, which this assumes is little-endian
+            if (BitConverter.IsLittleEndian == false)
+                return false;
+
+            var mw = eic.Method;
+            var context = mw.DeclaringType.Context;
+            var primitives = context.PrimitiveJavaTypeFactory;
+            var parameters = mw.GetParameters();
+            var put = mw.Name.StartsWith("put");
+            var unaligned = mw.Name.EndsWith("Unaligned");
+            var type = put ? parameters[3] : mw.ReturnType;
+
+            OpCode load, store;
+            string box = null, swapSig = null;
+            if (type == primitives.BYTE)
+                (load, store) = (OpCodes.Ldind_I1, OpCodes.Stind_I1);
+            else if (type == primitives.SHORT)
+                (load, store, box, swapSig) = (OpCodes.Ldind_I2, OpCodes.Stind_I2, "java.lang.Short", "(S)S");
+            else if (type == primitives.CHAR)
+                (load, store, box, swapSig) = (OpCodes.Ldind_U2, OpCodes.Stind_I2, "java.lang.Character", "(C)C");
+            else if (type == primitives.INT)
+                (load, store, box, swapSig) = (OpCodes.Ldind_I4, OpCodes.Stind_I4, "java.lang.Integer", "(I)I");
+            else if (type == primitives.LONG)
+                (load, store, box, swapSig) = (OpCodes.Ldind_I8, OpCodes.Stind_I8, "java.lang.Long", "(J)J");
+            else if (type == primitives.FLOAT)
+                (load, store) = (OpCodes.Ldind_R4, OpCodes.Stind_R4);
+            else if (type == primitives.DOUBLE)
+                (load, store) = (OpCodes.Ldind_R8, OpCodes.Stind_R8);
+            else
+                return false;
+
+            // the reversal for the other byte order: the type's reverseBytes
+            RuntimeJavaMethod swap = null;
+            if (unaligned)
+            {
+                swap = context.ClassLoaderFactory.GetBootstrapClassLoader().TryLoadClassByName(box)?.GetMethod("reverseBytes", swapSig, false);
+                if (swap == null || swap.IsStatic == false)
+                    return false;
+
+                swap.Link();
+            }
+
+            var ilgen = eic.Emitter;
+            var bigEndian = unaligned ? ilgen.AllocTempLocal(context.Types.Boolean) : null;
+            var value = ilgen.AllocTempLocal(type.TypeAsLocalOrStackType);
+            var offset = ilgen.AllocTempLocal(context.Types.Int64);
+            var @base = ilgen.AllocTempLocal(context.Types.Object);
+            var session = ilgen.AllocTempLocal(parameters[0].TypeAsLocalOrStackType);
+            var self = ilgen.AllocTempLocal(mw.DeclaringType.TypeAsLocalOrStackType);
+            if (unaligned)
+                ilgen.Emit(OpCodes.Stloc, bigEndian);
+            if (put)
+                ilgen.Emit(OpCodes.Stloc, value);
+            ilgen.Emit(OpCodes.Stloc, offset);
+            ilgen.Emit(OpCodes.Stloc, @base);
+            ilgen.Emit(OpCodes.Stloc, session);
+            ilgen.Emit(OpCodes.Stloc, self);
+
+            var call = ilgen.DefineLabel();
+            var done = ilgen.DefineLabel();
+            ilgen.Emit(OpCodes.Ldloc, session);
+            ilgen.EmitBrtrue(call);
+            ilgen.Emit(OpCodes.Ldloc, @base);
+            ilgen.EmitBrtrue(call);
+
+            if (put)
+            {
+                if (unaligned)
+                {
+                    var native = ilgen.DefineLabel();
+                    ilgen.Emit(OpCodes.Ldloc, bigEndian);
+                    ilgen.EmitBrfalse(native);
+                    ilgen.Emit(OpCodes.Ldloc, value);
+                    swap.EmitCall(ilgen);
+                    ilgen.Emit(OpCodes.Stloc, value);
+                    ilgen.MarkLabel(native);
+                }
+
+                ilgen.Emit(OpCodes.Ldloc, offset);
+                ilgen.Emit(OpCodes.Conv_I);
+                ilgen.Emit(OpCodes.Ldloc, value);
+                if (unaligned)
+                    ilgen.EmitUnaligned(1);
+                ilgen.Emit(store);
+            }
+            else
+            {
+                ilgen.Emit(OpCodes.Ldloc, offset);
+                ilgen.Emit(OpCodes.Conv_I);
+                if (unaligned)
+                    ilgen.EmitUnaligned(1);
+                ilgen.Emit(load);
+                ilgen.Emit(OpCodes.Stloc, value);
+                if (unaligned)
+                {
+                    var native = ilgen.DefineLabel();
+                    ilgen.Emit(OpCodes.Ldloc, bigEndian);
+                    ilgen.EmitBrfalse(native);
+                    ilgen.Emit(OpCodes.Ldloc, value);
+                    swap.EmitCall(ilgen);
+                    ilgen.Emit(OpCodes.Stloc, value);
+                    ilgen.MarkLabel(native);
+                }
+
+                ilgen.Emit(OpCodes.Ldloc, value);
+            }
+
+            ilgen.EmitBr(done);
+
+            // a session to check, or a heap buffer's array
+            ilgen.MarkLabel(call);
+            ilgen.Emit(OpCodes.Ldloc, self);
+            ilgen.Emit(OpCodes.Ldloc, session);
+            ilgen.Emit(OpCodes.Ldloc, @base);
+            ilgen.Emit(OpCodes.Ldloc, offset);
+            if (put)
+                ilgen.Emit(OpCodes.Ldloc, value);
+            if (unaligned)
+                ilgen.Emit(OpCodes.Ldloc, bigEndian);
+            mw.EmitCall(ilgen);
+            ilgen.MarkLabel(done);
+
+            ilgen.ReleaseTempLocal(self);
+            ilgen.ReleaseTempLocal(session);
+            ilgen.ReleaseTempLocal(@base);
+            ilgen.ReleaseTempLocal(offset);
+            ilgen.ReleaseTempLocal(value);
+            if (bigEndian != null)
+                ilgen.ReleaseTempLocal(bigEndian);
+
+            eic.NonLeaf = true;
+            return true;
+        }
+
+        /// <summary>
+        /// JDK 9+'s Preconditions.checkIndex(index, length, oobef), the bounds check of ArrayList's and every Buffer's
+        /// indexed accesses (directly or through Objects.checkIndex): the comparisons inline, the call only to throw. The
+        /// callers are on both sides of the AOT line, so as a call it would cross it on every access from one of them.
+        /// </summary>
+        static bool Preconditions_checkIndex(EmitIntrinsicContext eic)
+        {
+            var ilgen = eic.Emitter;
+            // the verifier lets any reference stand for an interface, so oobef is cast where it is passed on
+            var oobef = ilgen.AllocTempLocal(eic.Method.DeclaringType.Context.Types.Object);
+            var length = ilgen.AllocTempLocal(eic.Method.DeclaringType.Context.Types.Int32);
+            var index = ilgen.AllocTempLocal(eic.Method.DeclaringType.Context.Types.Int32);
+            ilgen.Emit(OpCodes.Stloc, oobef);
+            ilgen.Emit(OpCodes.Stloc, length);
+            ilgen.Emit(OpCodes.Stloc, index);
+
+            // index < 0 || index >= length, signed: length may be negative (Buffer.checkIndex(i, nb) past the limit)
+            var fail = ilgen.DefineLabel();
+            var done = ilgen.DefineLabel();
+            ilgen.Emit(OpCodes.Ldloc, index);
+            ilgen.EmitLdc_I4(0);
+            ilgen.EmitBlt(fail);
+            ilgen.Emit(OpCodes.Ldloc, index);
+            ilgen.Emit(OpCodes.Ldloc, length);
+            ilgen.EmitBge(fail);
+            ilgen.Emit(OpCodes.Ldloc, index);
+            ilgen.EmitBr(done);
+
+            // the call throws the exception oobef makes
+            ilgen.MarkLabel(fail);
+            ilgen.Emit(OpCodes.Ldloc, index);
+            ilgen.Emit(OpCodes.Ldloc, length);
+            ilgen.Emit(OpCodes.Ldloc, oobef);
+            eic.Method.GetParameters()[2].EmitCheckcast(ilgen);
+            eic.Method.EmitCall(ilgen);
+            ilgen.MarkLabel(done);
+
+            ilgen.ReleaseTempLocal(index);
+            ilgen.ReleaseTempLocal(length);
+            ilgen.ReleaseTempLocal(oobef);
+            eic.NonLeaf = true;
+            return true;
         }
 
         /// <summary>
@@ -509,6 +790,21 @@ namespace IKVM.Runtime
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Returns true if the named Unsafe method reads a reference, which <see cref="Unsafe_getObjectVolatile"/> reads
+        /// out of an array as the array's element type.
+        /// </summary>
+        internal static bool IsUnsafeArrayReferenceGet(string clazz, string name)
+        {
+            // must be kept in sync with the Unsafe_getObjectVolatile registrations
+            return clazz switch
+            {
+                "sun.misc.Unsafe" => name == "getObjectVolatile",
+                "jdk.internal.misc.Unsafe" => name is "getReference" or "getReferenceVolatile" or "getReferenceAcquire" or "getReferenceOpaque",
+                _ => false,
+            };
         }
 
         /// <summary>
@@ -1106,6 +1402,58 @@ namespace IKVM.Runtime
         }
 
         /// <summary>
+        /// Replaces a call to Unsafe.getAndAddLong on a field of the caller's own class with an interlocked add (as
+        /// <see cref="Unsafe_getAndAddInt"/> for int).
+        /// </summary>
+        static bool Unsafe_getAndAddLong(EmitIntrinsicContext eic)
+        {
+            // stack layout at call site:
+            // 3 Unsafe (receiver)
+            // 2 Object (obj)
+            // 1 long (offset)
+            // 0 long (delta)
+            var twUnsafe = eic.GetStackTypeWrapper(0, 3);
+            if (twUnsafe == eic.Context.Context.VerifierJavaTypeFactory.Null)
+                return false;
+
+            for (int i = 0; ; i--)
+            {
+                if ((eic.Flags[eic.OpcodeIndex + i] & InstructionFlags.BranchTarget) != 0)
+                    return false;
+
+                if (eic.GetStackTypeWrapper(i, 0) == twUnsafe)
+                {
+                    // the pattern we recognize is:
+                    // aload_0
+                    // getstatic <offset field>
+                    if (eic.Match(i, NormalizedByteCode.__aload, 0) && eic.Match(i + 1, NormalizedByteCode.__getstatic))
+                    {
+                        var fw = GetUnsafeField(eic, eic.GetFieldref(i + 1));
+                        if (fw != null && !fw.IsStatic && fw.DeclaringType == eic.Caller.DeclaringType && fw.FieldTypeWrapper == eic.Context.Context.PrimitiveJavaTypeFactory.LONG)
+                        {
+                            var delta = eic.Emitter.AllocTempLocal(eic.Method.DeclaringType.Context.Types.Int64);
+                            eic.Emitter.Emit(OpCodes.Stloc, delta);
+                            eic.Emitter.Emit(OpCodes.Pop);          // discard offset
+                            eic.Emitter.Emit(OpCodes.Pop);          // discard obj
+                            EmitConsumeUnsafe(eic);
+                            eic.Emitter.Emit(OpCodes.Ldarg_0);
+                            eic.Emitter.Emit(OpCodes.Ldflda, fw.GetField());
+                            eic.Emitter.Emit(OpCodes.Ldloc, delta);
+                            eic.Emitter.Emit(OpCodes.Call, twUnsafe.Context.InterlockedMethods.AddInt64);
+                            eic.Emitter.Emit(OpCodes.Ldloc, delta);
+                            eic.Emitter.Emit(OpCodes.Sub);
+                            eic.Emitter.ReleaseTempLocal(delta);
+                            eic.NonLeaf = false;
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+            }
+        }
+
+        /// <summary>
         /// Replaces a call to Unsafe.compareAndSwapLong with IL that directly conducts the operation.
         /// </summary>
         /// <param name="eic"></param>
@@ -1232,11 +1580,33 @@ namespace IKVM.Runtime
                             if (method.Instructions[i].NormalizedOpCode == NormalizedByteCode.__putstatic &&
                                 eic.ClassFile.GetFieldref(method.Instructions[i].Arg1) == field)
                             {
-                                if (MatchInvokeVirtual(eic, ref method.Instructions[i - 1], "sun.misc.Unsafe", "objectFieldOffset", "(Ljava.lang.reflect.Field;)J") &&
+                                /*
+                                 * JDK 9+ (jdk.internal.misc.Unsafe):
+                                 *  getstatic <Field test jdk/internal/misc/Unsafe U>
+                                 *  ldc <Class>
+                                 *  ldc "next"
+                                 *  invokevirtual <Method jdk/internal/misc/Unsafe objectFieldOffset(Ljava/lang/Class;Ljava/lang/String;)J>
+                                 *  putstatic <Field test long nextOffset>
+                                 */
+                                if (i >= 4 &&
+                                    MatchInvokeVirtual(eic, ref method.Instructions[i - 1], "jdk.internal.misc.Unsafe", "objectFieldOffset", "(Ljava.lang.Class;Ljava.lang.String;)J") &&
+                                    MatchLdc(eic, ref method.Instructions[i - 2], ClassFile.ConstantType.String) &&
+                                    MatchLdc(eic, ref method.Instructions[i - 3], ClassFile.ConstantType.Class) &&
+                                    method.Instructions[i - 4].NormalizedOpCode == NormalizedByteCode.__getstatic && eic.ClassFile.GetFieldref(method.Instructions[i - 4].Arg1).Signature == "Ljdk.internal.misc.Unsafe;")
+                                {
+                                    if (eic.ClassFile.GetConstantPoolClassType(method.Instructions[i - 3].Arg1) != eic.Caller.DeclaringType)
+                                        return null;
+
+                                    return GetUniqueField(eic.Caller.DeclaringType, eic.ClassFile.GetConstantPoolConstantString(method.Instructions[i - 2].Arg1));
+                                }
+
+                                if ((MatchInvokeVirtual(eic, ref method.Instructions[i - 1], "sun.misc.Unsafe", "objectFieldOffset", "(Ljava.lang.reflect.Field;)J") ||
+                                    MatchInvokeVirtual(eic, ref method.Instructions[i - 1], "jdk.internal.misc.Unsafe", "objectFieldOffset", "(Ljava.lang.reflect.Field;)J")) &&
                                     MatchInvokeVirtual(eic, ref method.Instructions[i - 2], "java.lang.Class", "getDeclaredField", "(Ljava.lang.String;)Ljava.lang.reflect.Field;") &&
                                     MatchLdc(eic, ref method.Instructions[i - 3], ClassFile.ConstantType.String) &&
                                     (method.Instructions[i - 4].NormalizedOpCode == NormalizedByteCode.__aload || method.Instructions[i - 4].NormalizedOpCode == NormalizedByteCode.__ldc) &&
-                                    method.Instructions[i - 5].NormalizedOpCode == NormalizedByteCode.__getstatic && eic.ClassFile.GetFieldref(method.Instructions[i - 5].Arg1).Signature == "Lsun.misc.Unsafe;")
+                                    method.Instructions[i - 5].NormalizedOpCode == NormalizedByteCode.__getstatic &&
+                                    (eic.ClassFile.GetFieldref(method.Instructions[i - 5].Arg1).Signature == "Lsun.misc.Unsafe;" || eic.ClassFile.GetFieldref(method.Instructions[i - 5].Arg1).Signature == "Ljdk.internal.misc.Unsafe;"))
                                 {
                                     if (method.Instructions[i - 4].NormalizedOpCode == NormalizedByteCode.__ldc)
                                     {
@@ -1307,6 +1677,26 @@ namespace IKVM.Runtime
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// The field of the type with the given name, or null if there is none or more than one.
+        /// </summary>
+        static RuntimeJavaField GetUniqueField(RuntimeJavaType type, string name)
+        {
+            RuntimeJavaField fw = null;
+            foreach (var fw1 in type.GetFields())
+            {
+                if (fw1.Name == name)
+                {
+                    if (fw != null)
+                        return null;
+
+                    fw = fw1;
+                }
+            }
+
+            return fw;
         }
 
         static bool MatchInvokeVirtual(EmitIntrinsicContext eic, ref Instruction instr, string clazz, string name, string sig)
