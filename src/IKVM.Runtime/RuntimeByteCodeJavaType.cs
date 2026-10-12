@@ -133,6 +133,9 @@ namespace IKVM.Runtime
             this.sourceFileName = f.SourceFileAttribute;
             this.nestHostName = f.NestHost;
             this.nestMemberNames = f.NestMembers;
+#if JDK25 && EMITTERS
+            this.constantVarHandles = VarHandleIntrinsics.Scan(f);
+#endif
             this.permittedSubclassNames = f.PermittedSubclasses;
             this.recordComponents = f.RecordComponents;
             if (f.IsInterface)
@@ -332,6 +335,17 @@ namespace IKVM.Runtime
         internal override RuntimeClassLoader ClassLoader => classLoader;
 
         internal override string NestHostName => nestHostName;
+
+#if JDK25 && EMITTERS
+
+        readonly System.Collections.Generic.Dictionary<string, VarHandleIntrinsics.Spec> constantVarHandles;
+
+        /// <summary>
+        /// What the static initializer makes the named static final VarHandle field, if it is a constant one.
+        /// </summary>
+        internal VarHandleIntrinsics.Spec GetConstantVarHandle(string name) => constantVarHandles != null && constantVarHandles.TryGetValue(name, out var spec) ? spec : null;
+
+#endif
 
         RuntimeJavaType hiddenNestmateOf;
 

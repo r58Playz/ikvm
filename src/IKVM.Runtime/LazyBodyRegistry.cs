@@ -259,7 +259,11 @@ namespace IKVM.Runtime
 
         internal static void ReportIndy()
         {
-            Console.WriteLine($"[IKVM indy] direct installed={IndyInstalled} built: bind={IndyBind} thunk={IndyThunk} const={IndyConst} | chain kept: notConstant={IndyRejNotConstant} shape={IndyRejShape} sig={IndyRejSig} failed={IndyFailed} | lambda sites compiled={IndyEmitted} (IKVM_INDY_DIRECT={(JVM.IndyDirect ? 1 : 0)})");
+            Console.WriteLine($"[IKVM indy] direct installed={IndyInstalled} built: bind={IndyBind} thunk={IndyThunk} const={IndyConst} | chain kept: notConstant={IndyRejNotConstant} shape={IndyRejShape} sig={IndyRejSig} failed={IndyFailed} | lambda sites compiled={IndyEmitted} (IKVM_INDY_DIRECT={(JVM.IndyDirect ? 1 : 0)})"
+#if JDK25
+                + $" | constant VarHandle sites compiled={VarHandleIntrinsics.Direct} kept={VarHandleIntrinsics.Kept} (IKVM_VH_DIRECT)"
+#endif
+                );
         }
 
         internal static int RejArity;             // more args than the delegate types cover

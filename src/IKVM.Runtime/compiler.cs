@@ -1606,6 +1606,15 @@ namespace IKVM.Runtime
                                 break;
                             }
 
+#if JDK25
+                            // an access mode of a constant VarHandle is the access itself
+                            if (instr.NormalizedOpCode == NormalizedByteCode.__methodhandle_invoke && VarHandleIntrinsics.TryEmit(eic, classFile.GetMethodref(instr.Arg1)))
+                            {
+                                nonleaf |= eic.NonLeaf;
+                                break;
+                            }
+#endif
+
                             nonleaf = true;
 
                             // HACK this code is duplicated in java.lang.invoke.cs

@@ -83,6 +83,14 @@ namespace IKVM.Runtime
             return Code[OpcodeIndex + offset].NormalizedOpCode == opcode && Code[OpcodeIndex + offset].Arg1 == arg;
         }
 
+        /// <summary>
+        /// The height of the stack before the instruction at the offset.
+        /// </summary>
+        internal int GetStackHeight(int offset)
+        {
+            return ma.GetStackHeight(OpcodeIndex + offset);
+        }
+
         internal RuntimeJavaType GetStackTypeWrapper(int offset, int pos)
         {
             return ma.GetStackTypeWrapper(OpcodeIndex + offset, pos);
