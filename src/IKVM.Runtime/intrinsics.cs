@@ -100,6 +100,8 @@ namespace IKVM.Runtime
             intrinsics.Add(new IntrinsicKey("java.lang.Math", "min", "(DD)D"), Math_min_double);
             intrinsics.Add(new IntrinsicKey("java.lang.Math", "max", "(FF)F"), Math_max_float);
             intrinsics.Add(new IntrinsicKey("java.lang.Math", "min", "(FF)F"), Math_min_float);
+            intrinsics.Add(new IntrinsicKey("java.lang.Math", "sqrt", "(D)D"), Math_sqrt);
+            intrinsics.Add(new IntrinsicKey("java.lang.StrictMath", "sqrt", "(D)D"), Math_sqrt);
             intrinsics.Add(new IntrinsicKey("java.lang.System", "arraycopy", "(Ljava.lang.Object;ILjava.lang.Object;II)V"), System_arraycopy);
             intrinsics.Add(new IntrinsicKey("java.util.concurrent.atomic.AtomicReferenceFieldUpdater", "newUpdater", "(Ljava.lang.Class;Ljava.lang.Class;Ljava.lang.String;)Ljava.util.concurrent.atomic.AtomicReferenceFieldUpdater;"), AtomicReferenceFieldUpdater_newUpdater);
 #if IMPORTER
@@ -591,6 +593,19 @@ namespace IKVM.Runtime
         static bool Math_min_double(EmitIntrinsicContext eic) => EmitMathMinMax(eic, "Min", eic.Method.DeclaringType.Context.Types.Double);
         static bool Math_max_float(EmitIntrinsicContext eic) => EmitMathMinMax(eic, "Max", eic.Method.DeclaringType.Context.Types.Single);
         static bool Math_min_float(EmitIntrinsicContext eic) => EmitMathMinMax(eic, "Min", eic.Method.DeclaringType.Context.Types.Single);
+
+        // java.lang.Math/StrictMath.sqrt -> System.Math.Sqrt, one f64.sqrt. IEEE 754's square root is correctly rounded,
+        // as Java's must be, so the results are the same bits. JDK 8's StrictMath.sqrt was a native the runtime
+        // implements so; JDK 24+'s is FdLibm.Sqrt, a bit-by-bit square root in Java.
+        static bool Math_sqrt(EmitIntrinsicContext eic)
+        {
+            var math = eic.Method.DeclaringType.Context.Resolver.ResolveCoreType(typeof(System.Math).FullName).AsReflection();
+            var m = math.GetMethod("Sqrt", new[] { eic.Method.DeclaringType.Context.Types.Double });
+            if (m == null)
+                return false;
+            eic.Emitter.Emit(OpCodes.Call, m);
+            return true;
+        }
 
         /// <summary>
         /// Calls to System.arraycopy can be replaced with directly optimized versions.
