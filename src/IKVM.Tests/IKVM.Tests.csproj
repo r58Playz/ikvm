@@ -17,6 +17,11 @@
         <None Remove="Runtime\Vfs\VfsTestResource.txt" />
     </ItemGroup>
 
+    <!-- the class library has no jdk.httpserver -->
+    <ItemGroup>
+        <Compile Remove="Java\com\sun\net\httpserver\**" />
+    </ItemGroup>
+
     <ItemGroup>
         <EmbeddedResource Include="**\*.java" Exclude="Jdk25\**;Jdk25Gen\**;Jdk25Mr\**" />
         <EmbeddedResource Include="Runtime\Vfs\VfsTestResource.txt" />

@@ -18,7 +18,7 @@ namespace IKVM.Tests.Runtime
 
     /// <summary>
     /// Runs classes compiled by javac 25 (class file version 69) from the Jdk25 fixture sources. Each fixture has a
-    /// static String run() method. The fixtures use only Java 8 APIs, so these run against either JDK flavor.
+    /// static String run() method.
     /// </summary>
     public abstract class Jdk25FixtureTests
     {

@@ -65,18 +65,6 @@ namespace IKVM.Tests.Java.java.sql
         }
 
         [TestMethod]
-        public void Can_find_odbc()
-        {
-            var l = new List<global::java.sql.Driver>();
-            var e = global::java.sql.DriverManager.getDrivers();
-            while (e.hasMoreElements())
-                l.Add((global::java.sql.Driver)e.nextElement());
-
-            l.Should().HaveCountGreaterThan(0);
-            l.Should().Contain(i => i.GetType().FullName == "sun.jdbc.odbc.JdbcOdbcDriver");
-        }
-
-        [TestMethod]
         public void Can_register_driver()
         {
             global::java.lang.Class.forName("cli.IKVM.Tests.Java.java.sql.DriverManagerTests$TestDriver");

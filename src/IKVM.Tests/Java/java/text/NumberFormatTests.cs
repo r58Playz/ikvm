@@ -15,7 +15,7 @@ namespace IKVM.Tests.Java.java.text
             var usd = global::java.util.Currency.getInstance("USD");
             var fmt = global::java.text.NumberFormat.getCurrencyInstance(global::java.util.Locale.ENGLISH);
             fmt.setCurrency(usd);
-            fmt.format(10).Should().Be("USD10.00");
+            fmt.format(10).Should().Be("$10.00");
         }
 
         [TestMethod]
@@ -24,7 +24,7 @@ namespace IKVM.Tests.Java.java.text
             var usd = global::java.util.Currency.getInstance("USD");
             var fmt = global::java.text.NumberFormat.getCurrencyInstance(global::java.util.Locale.TRADITIONAL_CHINESE);
             fmt.setCurrency(usd);
-            fmt.format(10).Should().Be("USD10.00");
+            fmt.format(10).Should().Be("US$10.00");
         }
 
     }

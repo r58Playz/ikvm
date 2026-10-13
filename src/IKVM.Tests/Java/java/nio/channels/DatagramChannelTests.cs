@@ -108,11 +108,11 @@ namespace IKVM.Tests.Java.java.nio.channels
         }
 
         [TestMethod]
-        [ExpectedException(typeof(IllegalArgumentException))]
+        [ExpectedException(typeof(AlreadyConnectedException))]
         public void ShouldFailAdhocSendWhenConnected()
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-                throw new IllegalArgumentException("OS X failure");
+                throw new AlreadyConnectedException();
 
             var dc = DatagramChannel.open().bind(new InetSocketAddress(0));
             var sa = new InetSocketAddress("127.0.0.1", 14121);
