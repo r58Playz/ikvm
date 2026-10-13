@@ -19,14 +19,10 @@ namespace IKVM.Runtime
     {
 
         /// <summary>
-        /// The Java SE feature release this build implements (the IkvmJdk flavor it was compiled for): the version
-        /// whose class library it runs, and whose multi-release JAR entries ikvmc picks.
+        /// The Java SE feature release this build implements: the version whose class library it runs, and whose
+        /// multi-release JAR entries ikvmc picks.
         /// </summary>
-#if JDK25
         internal const int JavaFeatureVersion = 25;
-#else
-        internal const int JavaFeatureVersion = 8;
-#endif
 
         static readonly object syncRoot = new object();
         static bool initialized;
@@ -279,53 +275,7 @@ namespace IKVM.Runtime
                     {
                         initialized = true;
 
-#if JDK25
                         InitClassLibrary();
-#else
-                        // always required
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.String).TypeHandle);
-
-                        // initialize java_lang.System (needed before creating the thread)
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.System).TypeHandle);
-
-                        // initialize thread groups
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.ThreadGroup).TypeHandle);
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.Thread).TypeHandle);
-                        GC.KeepAlive(SystemThreadGroup);
-                        GC.KeepAlive(MainThreadGroup);
-
-                        // the VM creates & returns objects of this class
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.Class).TypeHandle);
-
-                        // the VM preresolves methods to these classes
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.reflect.Method).TypeHandle);
-
-                        // ensure the System class is initialized
-                        Internal.SystemAccessor.InvokeInitializeSystemClass();
-
-                        // should be done before System, but that fails for now
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.@ref.Finalizer).TypeHandle);
-
-                        // initialize certain classes after System properties are available
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.OutOfMemoryError).TypeHandle);
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.NullPointerException).TypeHandle);
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.ClassCastException).TypeHandle);
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.ArrayStoreException).TypeHandle);
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.ArithmeticException).TypeHandle);
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.StackOverflowError).TypeHandle);
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.IllegalMonitorStateException).TypeHandle);
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.IllegalArgumentException).TypeHandle);
-
-#if !JDK25
-                        // the static initializer of java.lang.Compiler tries to read property "java.compiler" and read & write property "java.vm.info"
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.Compiler).TypeHandle);
-#endif
-
-                        // initialize some JSR292 core classes to avoid deadlock during class loading
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.invoke.MemberName).TypeHandle);
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.invoke.MethodHandle).TypeHandle);
-                        RuntimeHelpers.RunClassConstructor(typeof(java.lang.invoke.MethodHandleNatives).TypeHandle);
-#endif
                     }
                 }
             }

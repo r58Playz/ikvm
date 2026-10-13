@@ -631,10 +631,8 @@ namespace IKVM.Runtime
                                     : instructions[i].NormalizedOpCode == NormalizedByteCode.__invokestatic &&
                                       cpi.Name is "linkToVirtual" or "linkToStatic" or "linkToSpecial" or "linkToInterface"))
                                 break;
-#if JDK25
                             if (instructions[i].NormalizedOpCode == NormalizedByteCode.__invokevirtual && MethodHandleUtil.IsVarHandleAccessMode(cpi.Class, cpi.Name))
                                 break;
-#endif
 
                             var ct = mi?.GetClassType();
                             if (ct == null || ct.IsUnloadable)
@@ -1606,14 +1604,12 @@ namespace IKVM.Runtime
                                 break;
                             }
 
-#if JDK25
                             // an access mode of a constant VarHandle is the access itself
                             if (instr.NormalizedOpCode == NormalizedByteCode.__methodhandle_invoke && VarHandleIntrinsics.TryEmit(eic, classFile.GetMethodref(instr.Arg1)))
                             {
                                 nonleaf |= eic.NonLeaf;
                                 break;
                             }
-#endif
 
                             nonleaf = true;
 
@@ -4218,7 +4214,6 @@ namespace IKVM.Runtime
             /// <param name="ilgen"></param>
             private void EmitVarHandleInvoke(CodeEmitter ilgen)
             {
-#if JDK25
                 var args = ArrayUtil.Concat(DeclaringType, cpi.GetArgTypes());
                 var temps = new CodeEmitterLocal[args.Length];
                 for (int i = args.Length - 1; i >= 0; i--)
@@ -4249,9 +4244,6 @@ namespace IKVM.Runtime
                     ilgen.Emit(OpCodes.Ldloc, temps[i]);
 
                 compiler.finish.Context.MethodHandleUtil.EmitCallDelegateInvokeMethod(ilgen, delegateType);
-#else
-                throw new InvalidOperationException();
-#endif
             }
 
             internal override void EmitCallvirt(CodeEmitter ilgen)

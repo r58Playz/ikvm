@@ -17,13 +17,10 @@
         <ProjectReference Include="..\IKVM.Java-ref\IKVM.Java-ref.csproj" Private="False" PrivateAssets="All" />
     </ItemGroup>
 
-    <Import Project="..\IKVM.Runtime\IKVM.Runtime.Flavor.props" />
-
     <ItemGroup>
         <ExcludeFromCompile Include="..\IKVM.Runtime\bin\**\*.cs" />
         <ExcludeFromCompile Include="..\IKVM.Runtime\obj\**\*.cs" />
         <Compile Include="..\IKVM.Runtime\**\*.cs" LinkBase="" Exclude="@(ExcludeFromCompile)" />
-        <Compile Remove="@(IkvmRuntimeFlavorExclude)" />
     </ItemGroup>
 
     <Import Project="$(MSBuildThisFileDirectory)..\..\IKVM.deps.targets" />

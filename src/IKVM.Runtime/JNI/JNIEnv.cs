@@ -189,11 +189,7 @@ namespace IKVM.Runtime.JNI
                 // TODO what should the protection domain be?
                 // NOTE I'm assuming name is platform encoded (as opposed to UTF-8), but the Sun JVM only seems to work for ASCII.
                 var classLoader = (java.lang.ClassLoader)pEnv->UnwrapRef(loader);
-#if JDK25
                 return pEnv->MakeLocalRef(IKVM.Java.Externs.java.lang.ClassLoader.defineClass1(classLoader, name != null ? DecodeMUTF8Argument(name, nameof(name)) : null, buf, 0, buf.Length, null, null));
-#else
-                return pEnv->MakeLocalRef(IKVM.Java.Externs.java.lang.ClassLoader.defineClass0(classLoader, name != null ? DecodeMUTF8Argument(name, nameof(name)) : null, buf, 0, buf.Length, null));
-#endif
             }
             catch (Exception e)
             {
@@ -1322,7 +1318,7 @@ namespace IKVM.Runtime.JNI
                 if (s.IndexOf('.') < 0)
                 {
                     var fw = GetFieldImpl(tw, n, s.Replace('/', '.'));
-#if JDK25 && FIRST_PASS == false
+#if FIRST_PASS == false
                     // the fields of String that libjava reads, which IKVM's strings do not have
                     if (fw == null && isStatic == false && tw == tw.Context.JavaBase.TypeOfJavaLangString)
                         fw = RuntimeStringJniJavaField.Get(tw.Context, n, s);
@@ -3264,11 +3260,7 @@ namespace IKVM.Runtime.JNI
                     return IntPtr.Zero;
                 }
 
-#if JDK25
                 return pEnv->MakeLocalRef(global::java.nio.DirectByteBuffer.__new(IntPtrToJLongAddress(address), capacity));
-#else
-                return pEnv->MakeLocalRef(global::java.nio.DirectByteBuffer.__new(IntPtrToJLongAddress(address), (int)capacity));
-#endif
             }
             catch (Exception x)
             {

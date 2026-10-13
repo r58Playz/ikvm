@@ -2288,12 +2288,8 @@ namespace IKVM.Runtime
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-#if JDK25
             // JDK 11 removed runFinalizersOnExit
             return Environment.HasShutdownStarted;
-#else
-            return Environment.HasShutdownStarted && !global::java.lang.Shutdown.runFinalizersOnExit;
-#endif
 #endif
         }
 
@@ -3027,7 +3023,6 @@ namespace IKVM.Runtime
 #endif
         }
 
-#if JDK25
 
         /// <summary>
         /// Gets the delegate of a call site of one of VarHandle's access mode methods, linking the call site the first
@@ -3057,7 +3052,6 @@ namespace IKVM.Runtime
 #endif
         }
 
-#endif
 
         /// <summary>
         /// The exception a dynamic constant's resolution fails with when its bootstrap method (or the conversion of its
@@ -3265,10 +3259,8 @@ namespace IKVM.Runtime
                 T direct;
                 if (target != null && target.GetType() == typeof(global::java.lang.invoke.DirectMethodHandle))
                     direct = CreateDirectLambdaFactory<T>((global::java.lang.invoke.DirectMethodHandle)target);
-#if JDK25
                 else if (target is global::java.lang.invoke.DirectMethodHandle.Constructor ctor)
                     direct = CreateDirectLambdaConstructor<T>(ctor);
-#endif
                 else
                     direct = CreateDirectLambdaConstant<T>(target);
 
@@ -3374,7 +3366,6 @@ namespace IKVM.Runtime
             return (T)dm.CreateDelegate(typeof(T));
         }
 
-#if JDK25
 
         /// <summary>
         /// JDK 9+'s capturing shape: a thunk constructing the class whose constructor <paramref name="dmh"/> names, casting
@@ -3448,7 +3439,6 @@ namespace IKVM.Runtime
             return (T)dm.CreateDelegate(typeof(T));
         }
 
-#endif
 
         /// <summary>
         /// The non-capturing shape: a delegate closed over the lambda instance that returns it. See

@@ -22,11 +22,7 @@ namespace IKVM.Runtime.Accessors.Java.Lang
         FieldAccessor<object, object> nativeLibraries;
         MethodAccessor<Action<object, object, object>> checkPackageAccess;
         MethodAccessor<Func<object, string, object>> loadClassInternal;
-#if JDK25
         MethodAccessor<Func<string, bool>> checkName;
-#else
-        MethodAccessor<Func<object, string, bool>> checkName;
-#endif
         MethodAccessor<Func<object, string, long>> findNative;
 
         /// <summary>
@@ -88,30 +84,19 @@ namespace IKVM.Runtime.Accessors.Java.Lang
         /// </summary>
         public void InvokeCheckPackageAccess(object self, object cls, object pd)
         {
-#if JDK25 == false
-            GetMethod(ref checkPackageAccess, nameof(checkPackageAccess), typeof(void), JavaLangClass, JavaSecurityProtectionDomain).Invoker(self, cls, pd);
-#endif
         }
 
         /// <summary>
         /// Invokes the 'checkName' method.
         /// </summary>
-#if JDK25
         // static since JDK 9
         public bool InvokeCheckName(object self, string name) => GetMethod(ref checkName, nameof(checkName), typeof(bool), typeof(string)).Invoker(name);
-#else
-        public bool InvokeCheckName(object self, string name) => GetMethod(ref checkName, nameof(checkName), typeof(bool), typeof(string)).Invoker(self, name);
-#endif
 
         /// <summary>
         /// Invokes the 'loadClassInternal' method.
         /// </summary>
-#if JDK25
         // a JDK 9+ VM calls loadClass, there being no loadClassInternal
         public object InvokeLoadClassInternal(object self, string name) => GetMethod(ref loadClassInternal, "loadClass", JavaLangClass, typeof(string)).Invoker(self, name);
-#else
-        public object InvokeLoadClassInternal(object self, string name) => GetMethod(ref loadClassInternal, nameof(loadClassInternal), JavaLangClass, typeof(string)).Invoker(self, name);
-#endif
 
         /// <summary>
         /// Invokes the 'findNatve' method.

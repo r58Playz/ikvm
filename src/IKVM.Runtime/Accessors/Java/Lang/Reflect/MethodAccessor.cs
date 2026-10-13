@@ -34,7 +34,6 @@ namespace IKVM.Runtime.Accessors.Java.Lang.Reflect
         /// </summary>
         public void InvokeInvoke(object self, object obj, object[] args) => GetMethod(ref invoke, nameof(invoke), typeof(object), typeof(object), typeof(object[])).Invoker(self, obj, args);
 
-#if JDK25
 
         MethodAccessor<Func<object, bool, bool>> setAccessible0;
 
@@ -46,7 +45,6 @@ namespace IKVM.Runtime.Accessors.Java.Lang.Reflect
         /// </summary>
         public bool InvokeSetAccessible0(object self, bool flag) => GetMethod(ref setAccessible0, nameof(setAccessible0), typeof(bool), typeof(bool)).Invoker(self, flag);
 
-#endif
 
     }
 

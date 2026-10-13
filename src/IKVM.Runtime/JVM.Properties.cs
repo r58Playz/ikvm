@@ -279,11 +279,9 @@ namespace IKVM.Runtime
         // unlimited direct memory
         p["sun.nio.MaxDirectMemorySize"] = "-1";
 
-#if JDK25
         // sun.misc.Unsafe's memory access methods (LWJGL's, netty's) as in JDK 8: by default JDK 24+ checks a volatile
         // flag on every call, to warn on the first
         p["sun.misc.unsafe.memory.access"] = "allow";
-#endif
 
         // single-threaded WASM build: tell java.lang.ref.Finalizer not to start the
         // finalizer thread (the runtime cannot start threads; Thread.start traps).
@@ -294,12 +292,8 @@ namespace IKVM.Runtime
             p["ikvm.finalizer.disabled"] = "true";
 
         // default to FORK on OSX, instead of posix_spawn with jspawnhelper
-#if JDK25
         // and on Linux, where JDK 9+ also spawns with jspawnhelper, which the runtime does not have
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) || RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-#else
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-#endif
             p["jdk.lang.Process.launchMechanism"] = "FORK";
 
 #if NETFRAMEWORK

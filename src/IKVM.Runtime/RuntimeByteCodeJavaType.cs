@@ -133,7 +133,7 @@ namespace IKVM.Runtime
             this.sourceFileName = f.SourceFileAttribute;
             this.nestHostName = f.NestHost;
             this.nestMemberNames = f.NestMembers;
-#if JDK25 && EMITTERS
+#if EMITTERS
             this.constantVarHandles = VarHandleIntrinsics.Scan(f);
 #endif
             this.permittedSubclassNames = f.PermittedSubclasses;
@@ -336,7 +336,7 @@ namespace IKVM.Runtime
 
         internal override string NestHostName => nestHostName;
 
-#if JDK25 && EMITTERS
+#if EMITTERS
 
         readonly System.Collections.Generic.Dictionary<string, VarHandleIntrinsics.Spec> constantVarHandles;
 

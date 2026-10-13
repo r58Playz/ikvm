@@ -183,10 +183,8 @@ namespace IKVM.Runtime
                     Name,
                     FieldTypeWrapper.EnsureLoadable(DeclaringType.ClassLoader).ClassObject,
                     (int)(Modifiers & ReflectionFieldModifiersMask) | (IsInternal ? 0x40000000 : 0),
-#if JDK25
                     // trusted final: a final field that even setAccessible does not make writable, as with HotSpot
                     IsFinal && (IsStatic || DeclaringType.IsRecord || DeclaringType.IsHidden),
-#endif
                     fieldIndex ?? Array.IndexOf(DeclaringType.GetFields(), this),
                     DeclaringType.GetGenericFieldSignature(this),
                     null

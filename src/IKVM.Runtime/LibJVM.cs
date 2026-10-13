@@ -96,15 +96,12 @@ namespace IKVM.Runtime
 
         delegate void JVM_InitDelegate(JVMInvokeInterface* iface);
 
-#if JDK25
         // JDK 25's says whether to throw when the library does not load
         delegate nint JVM_LoadLibraryDelegate([MarshalAs(UnmanagedType.LPUTF8Str)] string name, byte throwException);
 
-        // but the wasm build's keeps JDK 8's single parameter (ikvm.h), and a wasm call must match its callee's signature
+        // but the wasm build's keeps the single parameter of earlier JDKs (ikvm.h), and a wasm call must match its
+        // callee's signature
         delegate nint JVM_LoadLibraryWasmDelegate([MarshalAs(UnmanagedType.LPUTF8Str)] string name);
-#else
-        delegate nint JVM_LoadLibraryDelegate([MarshalAs(UnmanagedType.LPUTF8Str)] string name);
-#endif
 
         delegate void JVM_UnloadLibraryDelegate(nint handle);
 
@@ -120,9 +117,7 @@ namespace IKVM.Runtime
 
         readonly JVM_InitDelegate _JVM_Init;
         readonly JVM_LoadLibraryDelegate _JVM_LoadLibrary;
-#if JDK25
         readonly JVM_LoadLibraryWasmDelegate _JVM_LoadLibraryWasm;
-#endif
         readonly JVM_UnloadLibraryDelegate _JVM_UnloadLibrary;
         readonly JVM_FindLibraryEntryDelegate _JVM_FindLibraryEntry;
 
@@ -152,11 +147,9 @@ namespace IKVM.Runtime
 
             // obtain delegates to functions declared in libjvm
             _JVM_Init = Marshal.GetDelegateForFunctionPointer<JVM_InitDelegate>(Handle.GetExport("JVM_Init", sizeof(nint)).Handle);
-#if JDK25
             if (OperatingSystem.IsBrowser())
                 _JVM_LoadLibraryWasm = Marshal.GetDelegateForFunctionPointer<JVM_LoadLibraryWasmDelegate>(Handle.GetExport("JVM_LoadLibrary", sizeof(nint)).Handle);
             else
-#endif
             _JVM_LoadLibrary = Marshal.GetDelegateForFunctionPointer<JVM_LoadLibraryDelegate>(Handle.GetExport("JVM_LoadLibrary", sizeof(nint)).Handle);
             _JVM_UnloadLibrary = Marshal.GetDelegateForFunctionPointer<JVM_UnloadLibraryDelegate>(Handle.GetExport("JVM_UnloadLibrary", sizeof(nint)).Handle);
             _JVM_FindLibraryEntry = Marshal.GetDelegateForFunctionPointer<JVM_FindLibraryEntryDelegate>(Handle.GetExport("JVM_FindLibraryEntry", sizeof(nint) + sizeof(nint)).Handle);
@@ -249,12 +242,8 @@ namespace IKVM.Runtime
         {
             try
             {
-#if JDK25
                 // only used by the JDK 8 Windows libraries
                 return 0;
-#else
-                return global::java.lang.Thread.currentThread().interruptEvent.SafeWaitHandle.DangerousGetHandle();
-#endif
             }
             catch (global::java.lang.Throwable t)
             {
@@ -589,11 +578,7 @@ namespace IKVM.Runtime
             try
             {
                 JVM.Context.Diagnostics.GenericJniTrace($"{nameof(LibJvm)}.{nameof(JVM_LoadLibrary)}: {name}");
-#if JDK25
                 var h = _JVM_LoadLibraryWasm != null ? _JVM_LoadLibraryWasm(name) : _JVM_LoadLibrary(name, 0);
-#else
-                var h = _JVM_LoadLibrary(name);
-#endif
                 JVM.Context.Diagnostics.GenericJniTrace($"{nameof(LibJvm)}.{nameof(JVM_LoadLibrary)}: {name} => {h}");
                 return h;
             }

@@ -114,9 +114,7 @@ namespace IKVM.Runtime
         internal readonly MethodInfo CompareAndSwapShort;
         internal readonly MethodInfo CompareAndSwapChar;
         internal readonly MethodInfo CloneArrayWithGhostTag;
-#if JDK25
         internal readonly MethodInfo GetDelegateForVarHandle;
-#endif
         internal readonly MethodInfo MapException;
         internal readonly MethodInfo GetDelegateForInvokeExact;
         internal readonly MethodInfo GetDelegateForInvoke;
@@ -208,9 +206,7 @@ namespace IKVM.Runtime
             CompareAndSwapShort = GetHelper(typeofByteCodeHelper, "CompareAndSwap", new[] { context.Types.Int16.MakeByRefType(), context.Types.Int16, context.Types.Int16 });
             CompareAndSwapChar = GetHelper(typeofByteCodeHelper, "CompareAndSwap", new[] { context.Types.Char.MakeByRefType(), context.Types.Char, context.Types.Char });
             CloneArrayWithGhostTag = GetHelper(typeofByteCodeHelper, "CloneArrayWithGhostTag");
-#if JDK25
             GetDelegateForVarHandle = GetHelper(typeofByteCodeHelper, "GetDelegateForVarHandle");
-#endif
             MapException = GetHelper(typeofByteCodeHelper, "MapException");
             GetDelegateForInvokeExact = GetHelper(typeofByteCodeHelper, "GetDelegateForInvokeExact");
             GetDelegateForInvoke = GetHelper(typeofByteCodeHelper, "GetDelegateForInvoke");

@@ -35,22 +35,13 @@ using IKVM.Runtime;
 using IKVM.Runtime.Accessors.Java.Lang;
 using IKVM.Runtime.Util.Java.Security;
 
-// The accessors of both flavors: JDK 8's sun.reflect interfaces (whose MethodAccessor IKVM gives a CallerID), JDK 25's
-// jdk.internal.reflect ones, which jdk.internal.reflect.ReflectionFactory (IKVM.Java's jdk25\local) asks the natives at
-// the end of this file for instead of making method handle accessors.
-#if JDK25
+// The jdk.internal.reflect accessors, which jdk.internal.reflect.ReflectionFactory (IKVM.Java's jdk25\local) asks the
+// natives at the end of this file for instead of making method handle accessors.
 using MethodAccessorType = global::jdk.@internal.reflect.MethodAccessor;
 using ConstructorAccessorType = global::jdk.@internal.reflect.ConstructorAccessor;
 using FieldAccessorType = global::jdk.@internal.reflect.FieldAccessor;
 
 namespace IKVM.Java.Externs.jdk.@internal.reflect
-#else
-using MethodAccessorType = global::sun.reflect.MethodAccessor;
-using ConstructorAccessorType = global::sun.reflect.ConstructorAccessor;
-using FieldAccessorType = global::sun.reflect.FieldAccessor;
-
-namespace IKVM.Java.Externs.sun.reflect
-#endif
 {
 
     static class ReflectionFactory
@@ -84,14 +75,12 @@ namespace IKVM.Java.Externs.sun.reflect
                 mw.ResolveMethod();
             }
 
-#if JDK25
             [IKVM.Attributes.HideFromJava]
             public object invoke(object obj, object[] args) => invoke(obj, args, (global::ikvm.@internal.CallerID)null);
 
             // JDK 25 hands a caller-sensitive method its caller, which IKVM passes as a CallerID
             [IKVM.Attributes.HideFromJava]
             public object invoke(object obj, object[] args, global::java.lang.Class caller) => invoke(obj, args, caller == null ? null : global::ikvm.@internal.CallerID.create(caller, RuntimeJavaType.FromClass(caller).ClassLoader.GetJavaClassLoader()));
-#endif
 
             [IKVM.Attributes.HideFromJava]
             public object invoke(object obj, object[] args, global::ikvm.@internal.CallerID callerID)
@@ -723,14 +712,12 @@ namespace IKVM.Java.Externs.sun.reflect
                 }
             }
 
-#if JDK25
             [IKVM.Attributes.HideFromJava]
             public object invoke(object obj, object[] args) => invoke(obj, args, (global::ikvm.@internal.CallerID)null);
 
             // JDK 25 hands a caller-sensitive method its caller, which IKVM passes as a CallerID
             [IKVM.Attributes.HideFromJava]
             public object invoke(object obj, object[] args, global::java.lang.Class caller) => invoke(obj, args, caller == null ? null : global::ikvm.@internal.CallerID.create(caller, RuntimeJavaType.FromClass(caller).ClassLoader.GetJavaClassLoader()));
-#endif
 
             [IKVM.Attributes.HideFromJava]
             public object invoke(object obj, object[] args, global::ikvm.@internal.CallerID callerID)
@@ -2160,7 +2147,6 @@ namespace IKVM.Java.Externs.sun.reflect
         }
 #endif
 
-#if JDK25
 
         /// <summary>
         /// Implements the native method 'newFieldAccessor0' of IKVM's jdk.internal.reflect.ReflectionFactory.
@@ -2179,29 +2165,6 @@ namespace IKVM.Java.Externs.sun.reflect
         /// </summary>
         public static MethodAccessorType newMethodAccessor0(object thisFactory, global::java.lang.reflect.Method method) => newMethodAccessor(thisFactory, method);
 
-#else
-
-        public static FieldAccessorType newFieldAccessor(object thisFactory, global::java.lang.reflect.Field field, bool overrideAccessCheck)
-        {
-#if FIRST_PASS
-		return null;
-#else
-            // we look at the modifiers of the Field object to allow Unsafe to give us a fake Field take doesn't have the final flag set
-            int modifiers = field.getModifiers();
-            bool isStatic = global::java.lang.reflect.Modifier.isStatic(modifiers);
-            bool isFinal = global::java.lang.reflect.Modifier.isFinal(modifiers);
-            return FieldAccessorImplBase.Create(RuntimeJavaField.FromField(field), isFinal && (!overrideAccessCheck || isStatic));
-#endif
-        }
-
-#if !FIRST_PASS
-        internal static FieldAccessorType NewFieldAccessorJNI(RuntimeJavaField field)
-        {
-            return FieldAccessorImplBase.Create(field, false);
-        }
-#endif
-
-#endif
 
         public static MethodAccessorType newMethodAccessor(object thisFactory, global::java.lang.reflect.Method method)
         {

@@ -36,21 +36,6 @@ namespace IKVM.Runtime.Accessors.Java.Lang
 
         }
 
-        /// <summary>
-        /// Gets the name of a standard stream field: IKVM's JDK 8 System keeps the streams in '_in', '_out' and '_err',
-        /// JDK 25's in the public fields themselves.
-        /// </summary>
-        /// <param name="name"></param>
-        /// <returns></returns>
-        static string StreamFieldName(string name)
-        {
-#if JDK25
-            return name;
-#else
-            return "_" + name;
-#endif
-        }
-
         Type IkvmInternalCallerID => Resolve(ref ikvmInternalCallerID, "ikvm.internal.CallerID");
 
         Type JavaLangSecurityManager => Resolve(ref javaLangSecurityManager, "java.lang.SecurityManager");
@@ -60,21 +45,21 @@ namespace IKVM.Runtime.Accessors.Java.Lang
         /// </summary>
         /// <param name="value"></param>
         /// <returns></returns>
-        public void SetIn(object value) => GetField(ref _in, StreamFieldName("in")).SetValue(value);
+        public void SetIn(object value) => GetField(ref _in, "in").SetValue(value);
 
         /// <summary>
         /// Sets the value of the 'out' field.
         /// </summary>
         /// <param name="value"></param>
         /// <returns></returns>
-        public void SetOut(object value) => GetField(ref _out, StreamFieldName("out")).SetValue(value);
+        public void SetOut(object value) => GetField(ref _out, "out").SetValue(value);
 
         /// <summary>
         /// Sets the value of the 'err' field.
         /// </summary>
         /// <param name="value"></param>
         /// <returns></returns>
-        public void SetErr(object value) => GetField(ref _err, StreamFieldName("err")).SetValue(value);
+        public void SetErr(object value) => GetField(ref _err, "err").SetValue(value);
 
         /// <summary>
         /// Sets the value of the 'initializeSystemClass' field.

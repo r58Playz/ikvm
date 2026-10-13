@@ -2419,14 +2419,12 @@ namespace IKVM.Runtime
                 return;
             }
 
-#if JDK25
             // VarHandle's access mode methods are signature polymorphic too; the call site is linked at run time
             if (invoke == NormalizedByteCode.__invokevirtual && MethodHandleUtil.IsVarHandleAccessMode(cpi.Class, cpi.Name))
             {
                 instr.PatchOpCode(NormalizedByteCode.__methodhandle_invoke);
                 return;
             }
-#endif
 
             if (invoke == NormalizedByteCode.__invokestatic &&
                 cpi is { Class: "java.lang.invoke.MethodHandle", Name: "linkToVirtual" or "linkToStatic" or "linkToSpecial" or "linkToInterface" } &&

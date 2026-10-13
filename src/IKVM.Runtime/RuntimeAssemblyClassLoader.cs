@@ -84,7 +84,7 @@ namespace IKVM.Runtime
             bool hasDotNetModule;
             AssemblyName[] internalsVisibleTo;
             string[] jarList;
-#if !IMPORTER && !EXPORTER && !FIRST_PASS && JDK25
+#if !IMPORTER && !EXPORTER && !FIRST_PASS
             jdk.@internal.loader.URLClassPath urlClassPath;
 #elif !IMPORTER && !EXPORTER && !FIRST_PASS
             sun.misc.URLClassPath urlClassPath;
@@ -425,17 +425,10 @@ namespace IKVM.Runtime
                     foreach (var jar in jarList)
                         urls.Add(MakeResourceURL(assembly, jar));
 
-#if JDK25
                     Interlocked.CompareExchange(ref urlClassPath, new jdk.@internal.loader.URLClassPath(urls.ToArray()), null);
                 }
 
                 return urlClassPath.findResources(name);
-#else
-                    Interlocked.CompareExchange(ref urlClassPath, new sun.misc.URLClassPath(urls.ToArray()), null);
-                }
-
-                return urlClassPath.findResources(name, true);
-#endif
             }
 
 #endif
@@ -1089,7 +1082,6 @@ namespace IKVM.Runtime
             return javaClassLoader ?? WaitInitializeJavaClassLoader(GetCustomClassLoaderType());
         }
 
-#if JDK25
 
         /// <summary>
         /// Creates the protection domain of the classes of the assembly: its code source is where the assembly is. There
@@ -1113,14 +1105,6 @@ namespace IKVM.Runtime
             return new java.security.ProtectionDomain(new java.security.CodeSource(url, (java.security.cert.Certificate[])null), null);
         }
 
-#else
-
-        static java.security.ProtectionDomain CreateProtectionDomain(Assembly assembly)
-        {
-            return new java.security.ProtectionDomain(assembly);
-        }
-
-#endif
 
         internal virtual java.security.ProtectionDomain GetProtectionDomain()
         {

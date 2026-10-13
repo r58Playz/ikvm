@@ -231,9 +231,9 @@ namespace IKVM.Runtime
 
         internal bool RemoveAsserts => (codegenoptions & CodeGenOptions.RemoveAsserts) != 0;
 
-        // .NET serialization of Java objects (through BinaryFormatter, which .NET 9 removed) is only supported with the
-        // JDK 8 class library, whose java.io has the IKVM interop streams it needs
-        internal bool NoAutomagicSerialization => JVM.JavaFeatureVersion > 8 || (codegenoptions & CodeGenOptions.NoAutomagicSerialization) != 0;
+        // .NET serialization of Java objects (through BinaryFormatter, which .NET 9 removed) needs IKVM interop streams
+        // that only IKVM's JDK 8 java.io had
+        internal bool NoAutomagicSerialization => true;
 
         internal bool DisableDynamicBinding => (codegenoptions & CodeGenOptions.DisableDynamicBinding) != 0;
 
@@ -1052,12 +1052,8 @@ namespace IKVM.Runtime
 
         internal static object DoPrivileged(java.security.PrivilegedAction action)
         {
-#if JDK25
             // there is no security manager to grant privileges with
             return action.run();
-#else
-            return java.security.AccessController.doPrivileged(action, ikvm.@internal.CallerID.create(typeof(java.lang.ClassLoader).TypeHandle));
-#endif
         }
 
 #endif

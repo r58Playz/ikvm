@@ -20,8 +20,6 @@
         <ProjectReference Include="..\IKVM.Tools.Core\IKVM.Tools.Core.csproj" />
     </ItemGroup>
 
-    <Import Project="..\IKVM.Runtime\IKVM.Runtime.Flavor.props" />
-
     <ItemGroup>
         <ExcludeFromCompile Include="..\IKVM.Runtime\bin\**\*.cs" />
         <ExcludeFromCompile Include="..\IKVM.Runtime\obj\**\*.cs" />
@@ -37,7 +35,6 @@
         <ExcludeFromCompile Include="..\IKVM.Runtime\PassiveWeakDictionary.cs" />
         <ExcludeFromCompile Include="..\IKVM.Runtime\JNI\**\*.cs" />
         <Compile Include="..\IKVM.Runtime\**\*.cs" LinkBase="IKVM.Runtime" Exclude="@(ExcludeFromCompile)" />
-        <Compile Remove="@(IkvmRuntimeFlavorExclude)" />
     </ItemGroup>
 
     <Import Project="$(MSBuildThisFileDirectory)..\..\IKVM.deps.targets" />

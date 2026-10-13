@@ -20,8 +20,6 @@
         <ProjectReference Include="..\IKVM.Tools.Core\IKVM.Tools.Core.csproj" />
     </ItemGroup>
 
-    <Import Project="..\IKVM.Runtime\IKVM.Runtime.Flavor.props" />
-
     <ItemGroup>
         <Compile Include="..\IKVM.Runtime\Extensions\**\*.cs" LinkBase="IKVM.Runtime\Extensions" />
         <Compile Include="..\IKVM.Runtime\Syntax\**\*.cs" LinkBase="IKVM.Runtime\Syntax" />
@@ -96,7 +94,6 @@
         <Compile Include="..\IKVM.Runtime\RuntimeContext.cs" LinkBase="IKVM.Runtime" />
         <Compile Include="..\IKVM.Runtime\RuntimeContextOptions.cs" LinkBase="IKVM.Runtime" />
         <Compile Include="..\IKVM.Runtime\SymbolExtensions.cs" LinkBase="IKVM.Runtime" />
-        <Compile Remove="@(IkvmRuntimeFlavorExclude)" />
     </ItemGroup>
 
     <ItemGroup>

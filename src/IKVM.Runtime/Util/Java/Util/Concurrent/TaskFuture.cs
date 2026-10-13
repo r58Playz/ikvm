@@ -85,7 +85,6 @@ namespace IKVM.Runtime.Util.Java.Util.Concurrent
             }
         }
 
-#if JDK25
 
         public object resultNow()
         {
@@ -121,7 +120,6 @@ namespace IKVM.Runtime.Util.Java.Util.Concurrent
             return Future.State.SUCCESS;
         }
 
-#endif
 
     }
 

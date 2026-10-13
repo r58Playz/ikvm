@@ -54,12 +54,8 @@ namespace IKVM.Runtime
             internal override object Invoke(object obj, object[] args)
             {
                 var x = (Exception)obj;
-#if JDK25
                 // JAX-WS, whose ServerSideException stands in for any exception, is not part of JDK 11+
                 var sse = new java.lang.RuntimeException(ikvm.extensions.ExtensionMethods.getClass(x).getName() + ": " + x.Message);
-#else
-                var sse = new com.sun.xml.@internal.ws.developer.ServerSideException(ikvm.extensions.ExtensionMethods.getClass(x).getName(), x.Message);
-#endif
                 sse.initCause(x.InnerException);
                 sse.setStackTrace(ikvm.extensions.ExtensionMethods.getStackTrace(x));
                 return sse;

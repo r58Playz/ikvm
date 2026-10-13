@@ -277,9 +277,7 @@ namespace IKVM.Runtime
                 return;
 
             Console.WriteLine($"[IKVM indy] direct installed={IndyInstalled} built: bind={IndyBind} thunk={IndyThunk} ctor={IndyCtor} const={IndyConst} | chain kept: notConstant={IndyRejNotConstant} shape={IndyRejShape} sig={IndyRejSig} failed={IndyFailed} | lambda sites compiled={IndyEmitted} (IKVM_INDY_DIRECT={(JVM.IndyDirect ? 1 : 0)})"
-#if JDK25
                 + $" | constant VarHandle sites compiled={VarHandleIntrinsics.Direct} kept={VarHandleIntrinsics.Kept} (IKVM_VH_DIRECT)"
-#endif
                 );
         }
 
