@@ -15,6 +15,7 @@ namespace IKVM.Runtime.Accessors.Java.Lang
 
         Type javaLangThread;
         Type javaLangThreadGroup;
+        Type javaLangRunnable;
 
         FieldAccessor<object> current;
         FieldAccessor<object, Thread> nativeThread;
@@ -36,6 +37,7 @@ namespace IKVM.Runtime.Accessors.Java.Lang
         MethodAccessor<Action<object>> exit;
         MethodAccessor<Action<object, Exception>> dispatchUncaughtException;
         ConstructorInfo attachConstructor;
+        ConstructorInfo attachUnnamedConstructor;
 
         /// <summary>
         /// Initializes a new instance.
@@ -50,6 +52,8 @@ namespace IKVM.Runtime.Accessors.Java.Lang
         Type JavaLangThread => Resolve(ref javaLangThread, "java.lang.Thread");
 
         Type JavaLangThreadGroup => Resolve(ref javaLangThreadGroup, "java.lang.ThreadGroup");
+
+        Type JavaLangRunnable => Resolve(ref javaLangRunnable, "java.lang.Runnable");
 
         /// <summary>
         /// Gets the value of the 'current' field.
@@ -144,16 +148,24 @@ namespace IKVM.Runtime.Accessors.Java.Lang
         public void InvokeDispatchUncaughtException(object self, Exception e) => GetMethod(ref dispatchUncaughtException, nameof(dispatchUncaughtException), typeof(void), typeof(Exception)).Invoker(self, e);
 
         /// <summary>
-        /// Runs the 'Thread(ThreadGroup, String)' constructor on an allocated thread, as HotSpot does when a native thread
-        /// attaches (JDK 25).
+        /// Runs a constructor on an allocated thread, as HotSpot does when a native thread attaches (JDK 25): the
+        /// 'Thread(ThreadGroup, String)' constructor for a named thread, and 'Thread(ThreadGroup, Runnable)' with no task
+        /// for an unnamed one, which generates its name ('Thread-N'; the other rejects a null name).
         /// </summary>
         public void InvokeAttachConstructor(object self, object group, string name)
         {
-            attachConstructor ??= Type.GetConstructor(BindingFlags.Public | BindingFlags.Instance, null, new[] { JavaLangThreadGroup, typeof(string) }, null) ?? throw new InvalidOperationException("No java.lang.Thread(ThreadGroup, String) constructor.");
-
             try
             {
-                attachConstructor.Invoke(self, new[] { group, name });
+                if (name != null)
+                {
+                    attachConstructor ??= Type.GetConstructor(BindingFlags.Public | BindingFlags.Instance, null, new[] { JavaLangThreadGroup, typeof(string) }, null) ?? throw new InvalidOperationException("No java.lang.Thread(ThreadGroup, String) constructor.");
+                    attachConstructor.Invoke(self, new[] { group, name });
+                }
+                else
+                {
+                    attachUnnamedConstructor ??= Type.GetConstructor(BindingFlags.Public | BindingFlags.Instance, null, new[] { JavaLangThreadGroup, JavaLangRunnable }, null) ?? throw new InvalidOperationException("No java.lang.Thread(ThreadGroup, Runnable) constructor.");
+                    attachUnnamedConstructor.Invoke(self, new[] { group, null });
+                }
             }
             catch (TargetInvocationException e) when (e.InnerException != null)
             {
