@@ -1,7 +1,8 @@
 /*
  * IKVM: JDK 25's java.util.Collections, with JDK 8's shuffle(List, Random) for random-access lists. JDK 17+ forwards
  * it to shuffle(List, RandomGenerator), where each step's nextInt is an interface call the runtime cannot inline
- * (Minecraft shuffles the chunks it ticks every tick). Changes are marked IKVM.
+ * (Minecraft shuffles the chunks it ticks every tick); and the swap is written out, as the runtime does not inline
+ * swap there. Changes are marked IKVM.
  */
 /*
  * Copyright (c) 1997, 2025, Oracle and/or its affiliates. All rights reserved.
@@ -456,11 +457,15 @@ public final class Collections {
      *         list-iterator does not support the {@code set} operation.
      */
     public static void shuffle(List<?> list, Random rnd) {
-        // IKVM: Random's nextInt, a virtual call, as in JDK 8
+        // IKVM: Random's nextInt, a virtual call, as in JDK 8, and swap written out
         int size = list.size();
         if (size < SHUFFLE_THRESHOLD || list instanceof RandomAccess) {
-            for (int i=size; i>1; i--)
-                swap(list, i-1, rnd.nextInt(i));
+            @SuppressWarnings({"rawtypes", "unchecked"})
+            final List l = list;
+            for (int i=size; i>1; i--) {
+                int j = rnd.nextInt(i);
+                l.set(i-1, l.set(j, l.get(i-1)));
+            }
         } else {
             shuffle(list, (RandomGenerator) rnd);
         }
