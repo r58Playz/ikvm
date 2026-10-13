@@ -181,6 +181,8 @@ namespace IKVM.Runtime
                             exception_table[i] = new ExceptionTableEntry(startIndex, endIndex, handlerIndex, catch_type, i);
                         }
 
+                        exception_table = DropReachabilityFenceHandlers(classFile, instructions, exception_table);
+
                         foreach (var _attribute in attribute.Attributes)
                         {
                             switch (classFile.GetConstantPoolUtf8String(utf8_cp, _attribute.Name))
@@ -275,6 +277,60 @@ namespace IKVM.Runtime
 
                 internal bool IsEmpty => instructions == null;
 
+
+                /// <summary>
+                /// JDK 9+ keeps an object reachable across a memory access with try { ... } finally
+                /// { Reference.reachabilityFence(x); }, as every Buffer accessor and ScopedMemoryAccess method does. The
+                /// runtime's reachabilityFence does nothing, so the handler that javac makes of the finally block (store the
+                /// exception, call the fence, rethrow) is only an exception block, and a method with one is not inlined.
+                /// The table loses those handlers; the fence on the normal path stays, and an exception leaves as before.
+                /// </summary>
+                static ExceptionTableEntry[] DropReachabilityFenceHandlers(ClassFile classFile, Instruction[] code, ExceptionTableEntry[] table)
+                {
+                    List<ExceptionTableEntry> kept = null;
+                    for (int i = 0; i < table.Length; i++)
+                    {
+                        if (IsReachabilityFenceHandler(classFile, code, table[i]))
+                        {
+                            if (kept == null)
+                            {
+                                kept = new List<ExceptionTableEntry>(table.Length);
+                                for (int j = 0; j < i; j++)
+                                    kept.Add(table[j]);
+                            }
+                        }
+                        else
+                        {
+                            kept?.Add(table[i]);
+                        }
+                    }
+
+                    return kept != null ? kept.ToArray() : table;
+                }
+
+                /// <summary>
+                /// Whether the handler of a catch-all entry is: astore t; aload x; invokestatic Reference.reachabilityFence; aload t; athrow.
+                /// </summary>
+                static bool IsReachabilityFenceHandler(ClassFile classFile, Instruction[] code, ExceptionTableEntry entry)
+                {
+                    if (entry.catchType.IsNotNil)
+                        return false;
+
+                    var h = entry.handlerIndex;
+                    if (h < 0 || h + 4 >= code.Length)
+                        return false;
+
+                    if (code[h].NormalizedOpCode != NormalizedByteCode.__astore ||
+                        code[h + 1].NormalizedOpCode != NormalizedByteCode.__aload ||
+                        code[h + 2].NormalizedOpCode != NormalizedByteCode.__invokestatic ||
+                        code[h + 3].NormalizedOpCode != NormalizedByteCode.__aload ||
+                        code[h + 4].NormalizedOpCode != NormalizedByteCode.__athrow ||
+                        code[h].NormalizedArg1 != code[h + 3].NormalizedArg1)
+                        return false;
+
+                    var m = classFile.SafeGetMethodref(code[h + 2].Arg1);
+                    return m != null && m.Class == "java.lang.ref.Reference" && m.Name == "reachabilityFence" && m.Signature == "(Ljava.lang.Object;)V";
+                }
             }
 
         }
