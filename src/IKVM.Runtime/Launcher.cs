@@ -517,7 +517,11 @@ namespace IKVM.Runtime
 
                 // find the main method and ensure it is accessible
                 var method = ClassAccessor.InvokeGetMethod(clazz, "main", ClassAccessor.InitArray(JVM.Context.ClassLoaderFactory.GetJavaTypeFromType(typeof(string[])).ClassObject), CallerIDAccessor.InvokeCreate(typeof(Launcher).TypeHandle));
+#if JDK25
+                MethodAccessor.InvokeSetAccessible0(method, true);
+#else
                 MethodAccessor.InvokeSetAccessible(method, true);
+#endif
 
                 try
                 {

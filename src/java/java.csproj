@@ -12,6 +12,11 @@
         <ApplicationManifest>app.manifest</ApplicationManifest>
     </PropertyGroup>
 
+    <!-- the image's bin\: the runtime finds the home it is in from this (JVM.Properties.GetHomePath), for every tool there -->
+    <ItemGroup>
+        <None Include="ikvm.properties" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+
     <Import Project="$(MSBuildThisFileDirectory)..\..\IKVM.deps.targets" />
     <Import Project="$(MSBuildThisFileDirectory)..\..\IKVM.refs.targets" />
 

@@ -327,10 +327,56 @@ namespace IKVM.Java.Externs.java.lang
             }
         }
 
+        // for java.lang.management's ThreadMXBean (VMManagementImpl): the threads started, and the most alive at once
+        static long startedThreads;
+        static int peakThreads;
+
         static void Register(global::java.lang.Thread thread)
         {
             lock (threads)
+            {
                 threads.Add(thread);
+                startedThreads++;
+                if (threads.Count > peakThreads)
+                    peakThreads = threads.Count;
+            }
+        }
+
+        internal static int LiveThreadCount
+        {
+            get { lock (threads) return threads.Count; }
+        }
+
+        internal static int PeakThreadCount
+        {
+            get { lock (threads) return peakThreads; }
+        }
+
+        internal static long StartedThreadCount
+        {
+            get { lock (threads) return startedThreads; }
+        }
+
+        internal static int DaemonThreadCount
+        {
+            get
+            {
+                lock (threads)
+                {
+                    var n = 0;
+                    foreach (var thread in threads)
+                        if (FieldHolderAccessor.GetDaemon(ThreadAccessor.GetHolder(thread)))
+                            n++;
+
+                    return n;
+                }
+            }
+        }
+
+        internal static void ResetPeakThreadCount()
+        {
+            lock (threads)
+                peakThreads = threads.Count;
         }
 
         static void Unregister(global::java.lang.Thread thread)

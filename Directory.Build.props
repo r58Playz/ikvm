@@ -133,6 +133,11 @@
         <DisableImplicitIkvmMSBuildPackageReference>true</DisableImplicitIkvmMSBuildPackageReference>
     </PropertyGroup>
 
+    <!-- the JDK 25 flavor's IKVM projects find javac with _IkvmFlavorJavaCompiler (Directory.Build.targets) -->
+    <PropertyGroup Condition=" '$(IkvmJdk)' != '8' ">
+        <ResolveJavaCompilerDependsOn>_IkvmFlavorJavaCompiler</ResolveJavaCompilerDependsOn>
+    </PropertyGroup>
+
     <ItemGroup>
         <!-- javac-ref is JDK 8's javac; the JDK 25 flavor compiles with the javac of the JDK 25 it is built with -->
         <IkvmToolReference Include="$(MSBuildThisFileDirectory)src\javac-ref\javac-ref.ikvmproj" IsJavaCompiler="true" TargetFramework="net8.0" Condition=" '$(IkvmJdk)' == '8' " />

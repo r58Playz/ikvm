@@ -3,7 +3,7 @@
     <Import Project="targets\DotNetOSXCodeSign.targets"/>
 
     <PropertyGroup>
-        <!-- JDK flavors that can be built (25 is in progress: the class library does not build yet). -->
+        <!-- JDK flavors that can be built. -->
         <IkvmSupportedJdks>8;25</IkvmSupportedJdks>
     </PropertyGroup>
 
@@ -14,6 +14,19 @@
     </PropertyGroup>
 
     <!-- A project that only exists in some flavors declares them in IkvmJdkFlavors (e.g. "8"). -->
+    <!-- An IKVM project (a JRE or JDK tool, a test library) resolves javac from the tool reference marked IsJavaCompiler,
+         which only JDK 8 has (javac-ref): the other flavors use the javac of the JDK they are built with, as IKVM.Java
+         does (IKVM.Java.runtime.targets). -->
+    <Target Name="_IkvmFlavorJavaCompiler" Condition=" '$(IkvmJdk)' != '8' And '$(JavaCompilerPath)' == '' ">
+        <FindJdk Family="$(IkvmJdk)">
+            <Output TaskParameter="JdkPath" PropertyName="_IkvmFlavorJdkPath" />
+        </FindJdk>
+        <PropertyGroup>
+            <JavaCompilerPath Condition=" '$([MSBuild]::IsOSUnixLike())' == 'true' And Exists('$(_IkvmFlavorJdkPath)\bin\javac') ">$([System.IO.Path]::GetFullPath('$(_IkvmFlavorJdkPath)\bin\javac'))</JavaCompilerPath>
+            <JavaCompilerPath Condition=" '$([MSBuild]::IsOSUnixLike())' != 'true' And Exists('$(_IkvmFlavorJdkPath)\bin\javac.exe') ">$([System.IO.Path]::GetFullPath('$(_IkvmFlavorJdkPath)\bin\javac.exe'))</JavaCompilerPath>
+        </PropertyGroup>
+    </Target>
+
     <Target Name="_IkvmCheckJdkFlavor" Condition=" '$(MSBuildIsRestoring)' != 'true' ">
         <Error Condition=" !$([System.String]::Copy(';$(IkvmSupportedJdks);').Contains(';$(IkvmJdk);')) " Text="IkvmJdk=$(IkvmJdk) is not a supported JDK flavor (supported: $(IkvmSupportedJdks))." />
         <Error Condition=" '$(IkvmJdkFlavors)' != '' And !$([System.String]::Copy(';$(IkvmJdkFlavors);').Contains(';$(IkvmJdk);')) " Text="$(MSBuildProjectName) is not part of the JDK $(IkvmJdk) flavor (only: $(IkvmJdkFlavors))." />

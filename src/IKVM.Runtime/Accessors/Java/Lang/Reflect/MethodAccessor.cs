@@ -34,6 +34,20 @@ namespace IKVM.Runtime.Accessors.Java.Lang.Reflect
         /// </summary>
         public void InvokeInvoke(object self, object obj, object[] args) => GetMethod(ref invoke, nameof(invoke), typeof(object), typeof(object), typeof(object[])).Invoker(self, obj, args);
 
+#if JDK25
+
+        MethodAccessor<Func<object, bool, bool>> setAccessible0;
+
+        /// <summary>
+        /// Invokes AccessibleObject.setAccessible0, which sets the flag without Java's checks. JDK 9+'s setAccessible
+        /// with no Java caller (the runtime calling from .NET, which it takes for a JNI attached thread) only allows a
+        /// package exported to everyone, so the launcher could not run a main in java.base's own packages (keytool's);
+        /// HotSpot's launcher calls main through JNI, which does no access check at all.
+        /// </summary>
+        public bool InvokeSetAccessible0(object self, bool flag) => GetMethod(ref setAccessible0, nameof(setAccessible0), typeof(bool), typeof(bool)).Invoker(self, flag);
+
+#endif
+
     }
 
 #endif

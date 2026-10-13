@@ -50,13 +50,23 @@ namespace IKVM.Java.Externs.sun.management
 
         public static long getTotalCompileTime(object self) => 0;
 
-        public static long getTotalThreadCount(object self) => 0;
+#if FIRST_PASS
+        public static long getTotalThreadCount(object self) => throw new NotImplementedException();
 
-        public static int getLiveThreadCount(object self) => 0;
+        public static int getLiveThreadCount(object self) => throw new NotImplementedException();
 
-        public static int getPeakThreadCount(object self) => 0;
+        public static int getPeakThreadCount(object self) => throw new NotImplementedException();
 
-        public static int getDaemonThreadCount(object self) => 0;
+        public static int getDaemonThreadCount(object self) => throw new NotImplementedException();
+#else
+        public static long getTotalThreadCount(object self) => IKVM.Java.Externs.java.lang.Thread.StartedThreadCount;
+
+        public static int getLiveThreadCount(object self) => IKVM.Java.Externs.java.lang.Thread.LiveThreadCount;
+
+        public static int getPeakThreadCount(object self) => IKVM.Java.Externs.java.lang.Thread.PeakThreadCount;
+
+        public static int getDaemonThreadCount(object self) => IKVM.Java.Externs.java.lang.Thread.DaemonThreadCount;
+#endif
 
         public static long getSafepointCount(object self) => 0;
 

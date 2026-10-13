@@ -195,7 +195,11 @@ namespace IKVM.Java.Externs.sun.management
 
         public static void resetPeakThreadCount0()
         {
+#if JDK25 && FIRST_PASS == false
+            IKVM.Java.Externs.java.lang.Thread.ResetPeakThreadCount();
+#else
             throw new System.NotImplementedException();
+#endif
         }
 
         public static object dumpThreads0(long[] ids, bool lockedMonitors, bool lockedSynchronizers)

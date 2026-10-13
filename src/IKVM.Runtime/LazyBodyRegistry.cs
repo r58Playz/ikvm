@@ -202,6 +202,19 @@ namespace IKVM.Runtime
     static class LazyBodyStats
     {
 
+        /// <summary>
+        /// Whether the stat lines print ([IKVM lazybody] eval..., [IKVM indy]...): in the browser, where the measurement
+        /// pipeline reads them, and in ikvmc; elsewhere, a desktop java, only with IKVM_STATS=1.
+        /// </summary>
+#if IMPORTER
+        internal static readonly bool Enabled = true;
+#elif NET
+        internal static readonly bool Enabled = OperatingSystem.IsBrowser() || Environment.GetEnvironmentVariable("IKVM_STATS") == "1";
+#else
+        internal static readonly bool Enabled = Environment.GetEnvironmentVariable("IKVM_STATS") == "1";
+#endif
+
+
         internal static int Seen;
         internal static int Released;             // wasm fork (R484): terminal entries that dropped their reparse source
         internal static int Accepted;
@@ -260,6 +273,9 @@ namespace IKVM.Runtime
 
         internal static void ReportIndy()
         {
+            if (Enabled == false)
+                return;
+
             Console.WriteLine($"[IKVM indy] direct installed={IndyInstalled} built: bind={IndyBind} thunk={IndyThunk} ctor={IndyCtor} const={IndyConst} | chain kept: notConstant={IndyRejNotConstant} shape={IndyRejShape} sig={IndyRejSig} failed={IndyFailed} | lambda sites compiled={IndyEmitted} (IKVM_INDY_DIRECT={(JVM.IndyDirect ? 1 : 0)})"
 #if JDK25
                 + $" | constant VarHandle sites compiled={VarHandleIntrinsics.Direct} kept={VarHandleIntrinsics.Kept} (IKVM_VH_DIRECT)"
@@ -397,6 +413,9 @@ namespace IKVM.Runtime
 
         internal static void Report()
         {
+            if (Enabled == false)
+                return;
+
             Console.WriteLine($"[IKVM lazybody] eval seen={Seen} accepted={Accepted} opOnly={OperandOnly} typeOnly={TypeOnly} fieldRetyped={FieldRetyped} (gen2 {FieldRetypedGen2}) nodynSig={NoDynSig} sigOnly={SigOnly} rej: shape={RejShape} nodyn={RejNoDynamic} arity={RejArity} sigAwkward={RejSigAwkward} sigUnloadable={RejSigUnloadable} eh={RejExceptionHandlers}");
             Console.WriteLine($"[IKVM privileged] direct={PrivilegedDirect} binder={PrivilegedBinder} (IKVM_PRIVILEGED_DIRECT={(JVM.PrivilegedDirect ? 1 : 0)}) | default_impl resolved={DefaultImplResolved} unresolved={DefaultImplUnresolved} (IKVM_LAZY_DEFAULT_IMPL={(JVM.LazyDefaultImpl ? 1 : 0)})");
             Console.WriteLine($"[IKVM lazybody] gen2 clean={Gen2Clean} unexpectedDynamic={Gen2UnexpectedDynamic} callerID={Gen2CallerID} depWaits={DependencyWaits} missingSite={MissingBakedSite} bakedLambda={Gen2BakedLambdaSite} cidReal={Gen2CallerIDReal} cidReused={Gen2CallerIDReused} cidForeign={Gen2CallerIDForeign} scratchShared={Gen2ScratchShared} slim={(JVM.LazySlim ? 1 : 0)} released={Released}");
