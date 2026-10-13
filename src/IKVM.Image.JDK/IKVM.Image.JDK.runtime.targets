@@ -27,26 +27,6 @@
         <IkvmImageItem Include="ikvm\net8.0\**\*" TargetFramework="net8.0" RuntimeIdentifier="$(ImageRuntimeIdentifier)" ImagePath="%(RecursiveDir)%(Filename)%(Extension)" Condition=" '$(ImageRuntimeIdentifier)' != '' " />
     </ItemGroup>
 
-    <ItemGroup Condition=" '$(IkvmJdk)' == '8' ">
-        <BinProject Include="..\jar\jar.ikvmproj" />
-        <BinProject Include="..\jarsigner\jarsigner.ikvmproj" />
-        <BinProject Include="..\javac\javac.ikvmproj" />
-        <BinProject Include="..\javadoc\javadoc.ikvmproj" />
-        <BinProject Include="..\javap\javap.ikvmproj" />
-        <BinProject Include="..\jdeps\jdeps.ikvmproj" />
-    </ItemGroup>
-
-    <!-- JDK 8's only: javah and native2ascii went in JDK 10 and 9, the JAXB and JAX-WS tools in JDK 11, rmic in 15 -->
-    <ItemGroup Condition=" '$(IkvmJdk)' == '8' ">
-        <BinProject Include="..\javah\javah.ikvmproj" />
-        <BinProject Include="..\native2ascii\native2ascii.ikvmproj" />
-        <BinProject Include="..\rmic\rmic.ikvmproj" />
-        <BinProject Include="..\schemagen\schemagen.ikvmproj" />
-        <BinProject Include="..\wsgen\wsgen.ikvmproj" />
-        <BinProject Include="..\wsimport\wsimport.ikvmproj" />
-        <BinProject Include="..\xjc\xjc.ikvmproj" />
-    </ItemGroup>
-
     <ItemGroup Condition="$(_SupportedImageBinRuntimes.Contains(';$(ImageRuntimeIdentifier);')) And $(_EnabledImageBinRuntimes.Contains(';$(ImageRuntimeIdentifier);'))">
         <PublishProjectReference Include="@(BinProject)" Condition="$(SupportedImageTargetFrameworks.Contains(';net472;'))">
             <SetTargetFramework>TargetFramework=net472</SetTargetFramework>

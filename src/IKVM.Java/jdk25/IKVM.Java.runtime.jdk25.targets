@@ -18,7 +18,7 @@
     -->
     <Target Name="_OpenJdkJavaCompilerArgs" BeforeTargets="_CompileJavaResponseFile;_ResolveClasspathFiles" DependsOnTargets="GetReferenceBootClasspath">
         <ItemGroup>
-            <_OpenJdkOverlayModule Include="$([System.IO.Directory]::GetDirectories('$(IkvmJavaFlavorDir)local'))" />
+            <_OpenJdkOverlayModule Include="$([System.IO.Directory]::GetDirectories('$(IkvmJavaSourceDir)local'))" />
             <_OpenJdkOverlayModule Remove="@(_OpenJdkOverlayModule)" Condition=" '%(Filename)%(Extension)' == 'META-INF' " />
             <Classpath Include="@(BootClasspath)" />
             <BootClasspath Remove="@(BootClasspath)" />

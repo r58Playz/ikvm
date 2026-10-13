@@ -1,35 +1,23 @@
-<Project InitialTargets="_IkvmCheckJdkFlavor">
+<Project>
     <Import Project="targets\ClangProjectReference.targets" />
     <Import Project="targets\DotNetOSXCodeSign.targets"/>
 
-    <PropertyGroup>
-        <!-- JDK flavors that can be built. -->
-        <IkvmSupportedJdks>8;25</IkvmSupportedJdks>
+    <!-- The build targets .NET 8 and later only (and netstandard2.0, where a project has it). -->
+    <PropertyGroup Condition=" '$(TargetFrameworks)' != '' ">
+        <_IkvmTargetFrameworks>$([MSBuild]::Unescape($([System.Text.RegularExpressions.Regex]::Replace(';$(TargetFrameworks);', ';(net4[0-9]+|net6\.0|net7\.0)(?=;)', '').Trim(';'))))</_IkvmTargetFrameworks>
+        <TargetFrameworks Condition=" '$(_IkvmTargetFrameworks)' != '' ">$(_IkvmTargetFrameworks)</TargetFrameworks>
     </PropertyGroup>
 
-    <!-- The JDK 25 flavor targets .NET 8 and later only (and netstandard2.0, where a project has it). -->
-    <PropertyGroup Condition=" '$(IkvmJdk)' != '8' And '$(TargetFrameworks)' != '' ">
-        <_IkvmFlavorTargetFrameworks>$([MSBuild]::Unescape($([System.Text.RegularExpressions.Regex]::Replace(';$(TargetFrameworks);', ';(net4[0-9]+|net6\.0)(?=;)', '').Trim(';'))))</_IkvmFlavorTargetFrameworks>
-        <TargetFrameworks Condition=" '$(_IkvmFlavorTargetFrameworks)' != '' ">$(_IkvmFlavorTargetFrameworks)</TargetFrameworks>
-    </PropertyGroup>
-
-    <!-- A project that only exists in some flavors declares them in IkvmJdkFlavors (e.g. "8"). -->
-    <!-- An IKVM project (a JRE or JDK tool, a test library) resolves javac from the tool reference marked IsJavaCompiler,
-         which only JDK 8 has (javac-ref): the other flavors use the javac of the JDK they are built with, as IKVM.Java
-         does (IKVM.Java.runtime.targets). -->
-    <Target Name="_IkvmFlavorJavaCompiler" Condition=" '$(IkvmJdk)' != '8' And '$(JavaCompilerPath)' == '' ">
+    <!-- An IKVM project (a JRE tool, a test library) compiles its Java with the javac of the JDK the build finds, as
+         IKVM.Java does (IKVM.Java.runtime.targets), instead of an IsJavaCompiler tool reference. -->
+    <Target Name="_IkvmJavaCompiler" Condition=" '$(JavaCompilerPath)' == '' ">
         <FindJdk Family="$(IkvmJdk)">
-            <Output TaskParameter="JdkPath" PropertyName="_IkvmFlavorJdkPath" />
+            <Output TaskParameter="JdkPath" PropertyName="_IkvmJdkPath" />
         </FindJdk>
         <PropertyGroup>
-            <JavaCompilerPath Condition=" '$([MSBuild]::IsOSUnixLike())' == 'true' And Exists('$(_IkvmFlavorJdkPath)\bin\javac') ">$([System.IO.Path]::GetFullPath('$(_IkvmFlavorJdkPath)\bin\javac'))</JavaCompilerPath>
-            <JavaCompilerPath Condition=" '$([MSBuild]::IsOSUnixLike())' != 'true' And Exists('$(_IkvmFlavorJdkPath)\bin\javac.exe') ">$([System.IO.Path]::GetFullPath('$(_IkvmFlavorJdkPath)\bin\javac.exe'))</JavaCompilerPath>
+            <JavaCompilerPath Condition=" '$([MSBuild]::IsOSUnixLike())' == 'true' And Exists('$(_IkvmJdkPath)\bin\javac') ">$([System.IO.Path]::GetFullPath('$(_IkvmJdkPath)\bin\javac'))</JavaCompilerPath>
+            <JavaCompilerPath Condition=" '$([MSBuild]::IsOSUnixLike())' != 'true' And Exists('$(_IkvmJdkPath)\bin\javac.exe') ">$([System.IO.Path]::GetFullPath('$(_IkvmJdkPath)\bin\javac.exe'))</JavaCompilerPath>
         </PropertyGroup>
-    </Target>
-
-    <Target Name="_IkvmCheckJdkFlavor" Condition=" '$(MSBuildIsRestoring)' != 'true' ">
-        <Error Condition=" !$([System.String]::Copy(';$(IkvmSupportedJdks);').Contains(';$(IkvmJdk);')) " Text="IkvmJdk=$(IkvmJdk) is not a supported JDK flavor (supported: $(IkvmSupportedJdks))." />
-        <Error Condition=" '$(IkvmJdkFlavors)' != '' And !$([System.String]::Copy(';$(IkvmJdkFlavors);').Contains(';$(IkvmJdk);')) " Text="$(MSBuildProjectName) is not part of the JDK $(IkvmJdk) flavor (only: $(IkvmJdkFlavors))." />
     </Target>
 
     <PropertyGroup>

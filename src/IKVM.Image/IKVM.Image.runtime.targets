@@ -18,79 +18,8 @@
         <None Include="lib\**\*" Pack="true" PackagePath="lib\%(RecursiveDir)%(Filename)%(Extension)" />
     </ItemGroup>
 
-    <PropertyGroup>
-        <OpenJdkTargetOsApiDir Condition="$(ImageRuntimeIdentifier.StartsWith('win-'))">windows</OpenJdkTargetOsApiDir>
-        <OpenJdkTargetOsApiDir Condition="$(ImageRuntimeIdentifier.StartsWith('linux-')) Or $(ImageRuntimeIdentifier.StartsWith('osx-')) Or $(ImageRuntimeIdentifier.StartsWith('android-'))">solaris</OpenJdkTargetOsApiDir>
-        <OpenJdkTargetOsDir Condition="$(ImageRuntimeIdentifier.StartsWith('win-'))">windows</OpenJdkTargetOsDir>
-        <OpenJdkTargetOsDir Condition="$(ImageRuntimeIdentifier.StartsWith('linux-')) Or $(ImageRuntimeIdentifier.StartsWith('android-'))">linux</OpenJdkTargetOsDir>
-        <OpenJdkTargetOsDir Condition="$(ImageRuntimeIdentifier.StartsWith('osx-'))">macosx</OpenJdkTargetOsDir>
-    </PropertyGroup>
-
-    <ItemGroup Condition=" '$(IkvmJdk)' == '8' ">
-        <IkvmImageItem Include="$(OpenJdkDir)jdk\src\windows\lib\flavormap.properties" TargetFramework="any" RuntimeIdentifier="$(ImageRuntimeIdentifier)" ImagePath="lib\flavormap.properties" Condition="$(ImageRuntimeIdentifier.StartsWith('win-'))"/>
-        <IkvmImageItem Include="$(OpenJdkDir)jdk\src\solaris\lib\flavormap.properties" TargetFramework="any" RuntimeIdentifier="$(ImageRuntimeIdentifier)" ImagePath="lib\flavormap.properties" Condition="$(ImageRuntimeIdentifier.StartsWith('linux-')) OR $(ImageRuntimeIdentifier.StartsWith('android-'))"/>
-        <IkvmImageItem Include="$(OpenJdkDir)jdk\src\macosx\lib\flavormap.properties" TargetFramework="any" RuntimeIdentifier="$(ImageRuntimeIdentifier)" ImagePath="lib\flavormap.properties" Condition="$(ImageRuntimeIdentifier.StartsWith('osx-'))"/>
-    </ItemGroup>
-
-    <PropertyGroup>
-        <CursorImagePrefix>motif</CursorImagePrefix>
-        <CursorImagePrefix Condition="$(ImageRuntimeIdentifier.StartsWith('win-'))">win32</CursorImagePrefix>
-    </PropertyGroup>
-
-    <ItemGroup Condition=" '$(IkvmJdk)' == '8' ">
-        <IkvmImageItem Include="$(OpenJdkDir)jdk\src\share\lib\images\cursors\$(CursorImagePrefix)_*.gif" TargetFramework="any" RuntimeIdentifier="$(ImageRuntimeIdentifier)" ImagePath="lib\images\cursors\%(Filename)%(Extension)" />
-        <IkvmImageItem Include="$(OpenJdkDir)jdk\src\$(OpenJdkTargetOsApiDir)\lib\images\cursors\cursors.properties" TargetFramework="any" RuntimeIdentifier="$(ImageRuntimeIdentifier)" ImagePath="lib\images\cursors\%(Filename)%(Extension)" />
-        <IkvmImageItem Include="$(OpenJdkDir)jdk\src\$(OpenJdkTargetOsApiDir)\lib\content-types.properties" TargetFramework="any" RuntimeIdentifier="$(ImageRuntimeIdentifier)" ImagePath="lib\%(Filename)%(Extension)" />
-    </ItemGroup>
-
-    <ItemGroup Condition="$(ImageRuntimeIdentifier.StartsWith('win-'))">
-        <IkvmImageItem Include="$(OpenJdkDir)jdk\src\windows\native\sun\bridge\accessibility.properties" TargetFramework="any" RuntimeIdentifier="$(ImageRuntimeIdentifier)" ImagePath="lib\%(Filename)%(Extension)" />
-        <IkvmImageItem Include="$(OpenJdkDir)jdk\src\$(OpenJdkTargetOsDir)\lib\tzmappings" TargetFramework="any" RuntimeIdentifier="$(ImageRuntimeIdentifier)" ImagePath="lib\%(Filename)%(Extension)" />
-    </ItemGroup>
-
-    <ItemGroup Condition=" '$(IkvmJdk)' == '8' ">
-        <IkvmImageItem Include="$(OpenJdkDir)corba\src\share\classes\com\sun\tools\corba\se\idl\orb.idl" TargetFramework="any" RuntimeIdentifier="$(ImageRuntimeIdentifier)" ImagePath="lib\%(Filename)%(Extension)" />
-        <IkvmImageItem Include="$(OpenJdkDir)corba\src\share\classes\com\sun\tools\corba\se\idl\ir.idl" TargetFramework="any" RuntimeIdentifier="$(ImageRuntimeIdentifier)" ImagePath="lib\%(Filename)%(Extension)" />
-    </ItemGroup>
-
-    <ItemGroup Condition=" '$(IkvmJdk)' == '8' ">
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libjvm\libjvm.clangproj " />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libverify\libverify.clangproj" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libiava\libiava.clangproj" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libnet\libnet.clangproj" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libnio\libnio.clangproj" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libunpack\libunpack.clangproj" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libsunec\libsunec.clangproj" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libsunmscapi\libsunmscapi.clangproj" SupportedRuntimes="win-x64;win-x86;win-arm64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libawt\libawt.clangproj" SupportedRuntimes="win-x64;win-x86;win-arm64;linux-arm;linux-arm64;linux-x64;linux-musl-arm;linux-musl-arm64;linux-musl-x64;osx-x64;osx-arm64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libmanagement\libmanagement.clangproj" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libj2pkcs11\libj2pkcs11.clangproj" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libjaas\libjaas.clangproj" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libzip\libzip.clangproj" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libjnf\libjnf.clangproj" SupportedRuntimes="osx-x64;osx-arm64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libosxapp\libosxapp.clangproj" SupportedRuntimes="osx-x64;osx-arm64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libosx\libosx.clangproj" SupportedRuntimes="osx-x64;osx-arm64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libosxui\libosxui.clangproj" SupportedRuntimes="osx-x64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libkrb5\libkrb5.clangproj" SupportedRuntimes="win-x64;win-x86;win-arm64;osx-x64;osx-arm64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libjsound\libjsound.clangproj" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libjsoundds\libjsoundds.clangproj" SupportedRuntimes="win-x64;win-x86;win-arm64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libjsoundalsa\libjsoundalsa.clangproj" SupportedRuntimes="linux-arm;linux-arm64;linux-x64;linux-musl-arm;linux-musl-arm64;linux-musl-x64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libsctp\libsctp.clangproj" SupportedRuntimes="linux-arm;linux-arm64;linux-x64;linux-musl-arm;linux-musl-arm64;linux-musl-x64;android-x64;android-arm64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libmlib_image\libmlib_image.clangproj" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libawt_xawt\libawt_xawt.clangproj" SupportedRuntimes="linux-arm;linux-arm64;linux-x64;linux-musl-arm;linux-musl-arm64;linux-musl-x64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\liblcms\liblcms.clangproj" SupportedRuntimes="win-x64;win-x86;win-arm64;linux-arm;linux-arm64;linux-x64;linux-musl-arm;linux-musl-arm64;linux-musl-x64;osx-x64;osx-arm64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libjpeg\libjpeg.clangproj" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libawt_headless\libawt_headless.clangproj" SupportedRuntimes="linux-arm;linux-arm64;linux-x64;linux-musl-arm;linux-musl-arm64;linux-musl-x64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libfontmanager\libfontmanager.clangproj" SupportedRuntimes="win-x64;win-x86;win-arm64;linux-arm;linux-arm64;linux-x64;linux-musl-arm;linux-musl-arm64;linux-musl-x64;osx-x64;osx-arm64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libfreetype\libfreetype.clangproj" SupportedRuntimes="win-x86;win-x64;win-arm64;osx-x64;osx-arm64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libjawt\libjawt.clangproj" SupportedRuntimes="win-x64;win-x86;win-arm64;linux-arm;linux-arm64;linux-x64;linux-musl-arm;linux-musl-arm64;linux-musl-x64;osx-x64;osx-arm64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libawt_lwawt\libawt_lwawt.clangproj" SupportedRuntimes="osx-x64;osx-arm64" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libj2gss\libj2gss.clangproj" />
-        <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\libsspi_bridge\libsspi_bridge.clangproj" SupportedRuntimes="win-x86;win-x64;win-arm64" />
-    </ItemGroup>
-
-    <!-- JDK 25: the native libraries built from the JDK 9+ source layout -->
-    <ItemGroup Condition=" '$(IkvmJdk)' != '8' ">
+    <!-- the native libraries, built from the JDK's source (src/<module>/<os>/native) -->
+    <ItemGroup>
         <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\jdk25-native\libjvm\libjvm.clangproj" SupportedRuntimes="linux-x64" />
         <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\jdk25-native\libiava\libiava.clangproj" SupportedRuntimes="linux-x64" />
         <IkvmClangProjectReference Include="$(MSBuildThisFileDirectory)..\jdk25-native\libzip\libzip.clangproj" SupportedRuntimes="linux-x64" />
@@ -147,67 +76,7 @@
 
     <Import Project="IKVM.Image.project.targets" />
 
-    <PropertyGroup>
-        <FontConfigSrc Condition="$(ImageRuntimeIdentifier.StartsWith('win-'))">$(OpenJdkDir)jdk\src\windows\classes\sun\awt\windows\fontconfig.properties</FontConfigSrc>
-        <FontConfigSrc Condition="$(ImageRuntimeIdentifier.StartsWith('osx-'))">$(OpenJdkDir)jdk\src\macosx\classes\sun\awt\fontconfigs\macosx.fontconfig.properties</FontConfigSrc>
-        <FontConfigDst>$(IntermediateOutputPath)fontconfig.bfc</FontConfigDst>
-    </PropertyGroup>
-
-    <Target Name="GenerateFontConfig" DependsOnTargets="BuildJdkBuildTools;ResolveJava" Inputs="$(FontConfigSrc)" Outputs="$(FontConfigDst);$(IntermediateOutputPath)fontconfig.properties.src" Condition="Exists('$(FontConfigSrc)')">
-        <Error Text="Could not locate java executable." Condition=" '$(JavaPath)' == '' " />
-        <Error Text="java could not be located at '$(JavaPath)'." Condition="!Exists('$(JavaPath)')" />
-        <Exec Command="chmod +x $(JavaPath) &gt;/dev/null 2&gt;&amp;1" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true" StandardErrorImportance="low" ContinueOnError="true" Condition="$([MSBuild]::IsOSUnixLike())" />
-
-        <Message Text="$(JavaExec) -cp $(JdkBuildToolsOutputPath) build.tools.compilefontconfig.CompileFontConfig $(FontConfigSrc) $(FontConfigDst)" />
-        <Exec Command="$(JavaExec) -cp $(JdkBuildToolsOutputPath) build.tools.compilefontconfig.CompileFontConfig $(FontConfigSrc) $(FontConfigDst)" />
-        <Copy SourceFiles="$(FontConfigSrc)" DestinationFiles="$(IntermediateOutputPath)fontconfig.properties.src" OverwriteReadOnlyFiles="true" />
-
-        <ItemGroup>
-            <IkvmImageItem Include="$(FontConfigDst)" ImagePath="lib\fontconfig.bfc" TargetFramework="any" RuntimeIdentifier="$(ImageRuntimeIdentifier)" />
-            <IkvmImageItem Include="$(IntermediateOutputPath)fontconfig.properties.src" ImagePath="lib\fontconfig.properties.src" TargetFramework="any" RuntimeIdentifier="$(ImageRuntimeIdentifier)" />
-            <FileWrites Include="$(FontConfigDst)" />
-            <FileWrites Include="$(IntermediateOutputPath)fontconfig.properties.src" />
-        </ItemGroup>
-    </Target>
-
-    <PropertyGroup>
-        <GenerateDependsOn>
-            GenerateFontConfig;
-            $(GenerateDependsOn);
-        </GenerateDependsOn>
-    </PropertyGroup>
-
-    <PropertyGroup>
-        <JavaSecurityFileSrc>$(OpenJdkDir)jdk\src\share\lib\security\java.security-$(OpenJdkTargetOsDir)</JavaSecurityFileSrc>
-        <JavaSecurityFileDst>$(IntermediateOutputPath)java.security</JavaSecurityFileDst>
-    </PropertyGroup>
-
-    <Target Name="GenerateJavaSecurity" DependsOnTargets="BuildJdkBuildTools;ResolveJava" Inputs="$(JavaSecurityFileSrc)" Outputs="$(JavaSecurityFileDst)">
-        <Error Text="Could not locate java executable." Condition=" '$(JavaPath)' == '' " />
-        <Error Text="java could not be located at '$(JavaPath)'." Condition="!Exists('$(JavaPath)')" />
-        <Exec Command="chmod +x $(JavaPath) &gt;/dev/null 2&gt;&amp;1" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true" StandardErrorImportance="low" ContinueOnError="true" Condition="$([MSBuild]::IsOSUnixLike())" />
-
-        <Message Text="$(JavaExec) -cp $(JdkBuildToolsOutputPath) build.tools.customizesecurityfile.CryptoLevel $(JavaSecurityFileSrc) $(JavaSecurityFileDst) unlimited" />
-        <Exec Command="$(JavaExec) -cp $(JdkBuildToolsOutputPath) build.tools.customizesecurityfile.CryptoLevel $(JavaSecurityFileSrc) $(JavaSecurityFileDst) unlimited" />
-
-        <ItemGroup>
-            <IkvmImageItem Include="$(JavaSecurityFileDst)" ImagePath="lib\security\java.security" TargetFramework="any" RuntimeIdentifier="$(ImageRuntimeIdentifier)" />
-            <FileWrites Include="$(JavaSecurityFileDst)" />
-        </ItemGroup>
-    </Target>
-
-    <PropertyGroup>
-        <GenerateDependsOn>
-            GenerateJavaSecurity;
-            $(GenerateDependsOn);
-        </GenerateDependsOn>
-    </PropertyGroup>
-
-    <!-- JDK 25: jlink made the platform's files (IKVM.Image) -->
-    <PropertyGroup Condition=" '$(IkvmJdk)' != '8' ">
-        <GenerateDependsOn></GenerateDependsOn>
-    </PropertyGroup>
-
+    <!-- the platform's other files (conf, lib) come from jlink, in IKVM.Image -->
     <Target Name="Generate" DependsOnTargets="$(GenerateDependsOn)" Condition=" '$(ImageRuntimeIdentifier)' != '' ">
 
     </Target>

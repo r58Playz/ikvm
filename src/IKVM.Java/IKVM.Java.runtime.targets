@@ -13,20 +13,13 @@
 
     <Import Project="$(MSBuildThisFileDirectory)..\IKVM.MSBuild\buildTransitive\IKVM.MSBuild.targets" />
     <Import Project="$(MSBuildThisFileDirectory)..\..\IKVM.deps.targets" />
-    <Import Project="$(MSBuildThisFileDirectory)..\..\targets\openjdk.buildtools.targets" Condition=" '$(IkvmJdk)' == '8' " />
-    <Import Project="$(MSBuildThisFileDirectory)jdk25\IKVM.Java.runtime.jdk25.targets" Condition=" '$(IkvmJdk)' == '25' " />
+    <Import Project="$(MSBuildThisFileDirectory)jdk25\IKVM.Java.runtime.jdk25.targets" />
 
     <Target Name="FindJdk">
-        <!-- If JAVA_HOME is explicitly set (e.g., from GitHub Actions setup-java), use it directly; but not for JDK 25,
-             where it is likely the JDK 8 the other flavor builds with -->
-        <PropertyGroup>
-            <JdkPath Condition=" '$(JAVA_HOME)' != '' And '$(IkvmJdk)' == '8' ">$(JAVA_HOME)</JdkPath>
-        </PropertyGroup>
-        <!-- Otherwise, fall back to searching for the JDK this flavor is built with -->
         <FindJdk Family="$(IkvmJdk)" Condition=" '$(JdkPath)' == '' ">
             <Output TaskParameter="JdkPath" PropertyName="JdkPath" />
         </FindJdk>
-        <Error Condition=" '$(JdkPath)' == '' " Text="Failed to locate JDK. IKVM.Java requires JDK version 8 or higher available on the system." />
+        <Error Condition=" '$(JdkPath)' == '' " Text="Failed to locate JDK. IKVM.Java requires JDK $(IkvmJdk) available on the system." />
     </Target>
 
     <Target Name="ResolveJava" DependsOnTargets="FindJdk" Condition=" '$(JavaPath)' == '' ">
@@ -51,13 +44,6 @@
         <Error Text="Could not locate javac executable." Condition=" '$(JavaCompilerPath)' == '' " />
     </Target>
 
-    <PropertyGroup Condition=" '$(IkvmJdk)' == '8' ">
-        <GenerateDependsOn>
-            BuildJdkBuildTools;
-            $(GenerateDependsOn);
-        </GenerateDependsOn>
-    </PropertyGroup>
-    
     <PropertyGroup>
         <ServiceFileOutputPath>$(IntermediateOutputPath)gensvc\</ServiceFileOutputPath>
     </PropertyGroup>
@@ -179,10 +165,5 @@ File.WriteAllBytes(Path, Encoding.UTF8.GetBytes(Text));
             </Code>
         </Task>
     </UsingTask>
-
-    <Import Project="IKVM.Java.runtime.jdk.targets" Condition=" '$(IkvmJdk)' == '8' " />
-    <Import Project="IKVM.Java.runtime.langtools.targets" Condition=" '$(IkvmJdk)' == '8' " />
-    <Import Project="IKVM.Java.runtime.nashorn.targets" Condition=" '$(IkvmJdk)' == '8' " />
-    <Import Project="IKVM.Java.runtime.corba.targets" Condition=" '$(IkvmJdk)' == '8' " />
 
 </Project>

@@ -18,6 +18,13 @@
     <ItemGroup Condition="$(TargetIdentifier.StartsWith('linux-'))">
         <AdditionalLinkOptions Include="-Wl,--version-script=$(IkvmLibJvmDir)mapfile-vers" />
     </ItemGroup>
+    <!-- the headers a native library built against this libjvm includes (libikvm-tests): jni.h and jni_md.h, which the
+         JDK's make copied, and ikvm.h -->
+    <ItemGroup>
+        <Header Include="$(OpenJdkSupportDir)modules_include\java.base\jni.h" IncludePath="jni.h" />
+        <Header Include="$(OpenJdkSupportDir)modules_include\java.base\$(OpenJdkTargetOs)\jni_md.h" IncludePath="jni_md.h" Condition=" '$(OpenJdkTargetOs)' != '' " />
+        <Header Include="$(IkvmLibJvmDir)ikvm.h" IncludePath="ikvm.h" />
+    </ItemGroup>
 
     <Import Sdk="IKVM.Clang.Sdk" Project="Sdk.targets" />
     <Import Project="$(MSBuildThisFileDirectory)..\..\..\targets\openjdk.lib.targets" />

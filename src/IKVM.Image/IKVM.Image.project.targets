@@ -12,7 +12,6 @@
         <IkvmImageItemToNone>true</IkvmImageItemToNone>
     </PropertyGroup>
 
-    <Import Project="..\..\targets\openjdk.buildtools.targets" />
     <Import Project="buildTransitive\IKVM.Image.targets" />
     <Import Project="..\IKVM.MSBuild\buildTransitive\IKVM.MSBuild.NoTasks.targets" />
 

@@ -2,8 +2,7 @@
     <Import Project="$(MSBuildThisFileDirectory)..\IKVM.NET.Sdk\Sdk\Sdk.props" />
 
     <PropertyGroup>
-        <TargetFrameworks>net472;net6.0;net8.0</TargetFrameworks>
-        <TargetFrameworks Condition=" '$(IkvmJdk)' != '8' ">net8.0</TargetFrameworks>
+        <TargetFrameworks>net8.0</TargetFrameworks>
         <PackageId>IKVM.Java</PackageId>
         <IkvmJavaRuntimeIdentifier>ref</IkvmJavaRuntimeIdentifier>
         <EnableDefaultItems>false</EnableDefaultItems>
@@ -21,40 +20,10 @@
     </ItemGroup>
 
     <ItemGroup>
-        <None Include="SocketOptionRegistry.java" />
-        <None Include="map.xml" />
-		<None Include="dep.pom" />
+        <None Include="jdk25\map.xml" />
         <None Include="*.props" />
         <None Include="*.targets" />
     </ItemGroup>
-
-    <ItemGroup Condition=" '$(IkvmJdk)' == '8' ">
-        <Compile Include="SocketOptionRegistry.java" />
-    </ItemGroup>
-
-	<Target Name="DownloadMavenArtifacts" Inputs="dep.pom" Outputs="$(IntermediateOutputPath)maven\.stamp">
-		<ItemGroup>
-			<_Existing Include="$(IntermediateOutputPath)maven\**\*" />
-		</ItemGroup>
-		
-		<Delete Files="@(_Existing)" />
-		<Exec Command="mvn org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy-dependencies -f dep.pom -DoutputDirectory=$(IntermediateOutputPath)maven" />
-		<Touch Files="$(IntermediateOutputPath)maven\.stamp" AlwaysCreate="true" ForceTouch="true" />
-		
-		<ItemGroup>
-			<FileWrites Include="$(IntermediateOutputPath)maven\**\*" />
-		</ItemGroup>
-	</Target>
-    
-    <!-- JDK 8 only: in the JDK 25 flavor javac compiles just IKVM's sources, the JDK's classes come from its own build -->
-    <Target Name="ConfigureJavaPlugins" BeforeTargets="CompileJava;_CompileJavaResponseFile" DependsOnTargets="DownloadMavenArtifacts" Condition=" '$(IkvmJdk)' == '8' ">
-		<ItemGroup>
-			<_Jars Remove="@(_Jars)" />
-			<_Jars Include="$(IntermediateOutputPath)maven\*.jar" />
-			<Classpath Include="@(_Jars->'%(FullPath)')" />
-			<JavaCompilerPlugins Include="JavaRef ignorePackage=ikvm.runtime" />
-		</ItemGroup>
-    </Target>
 
     <Target Name="ConvertRefAssembly">
         <ItemGroup>

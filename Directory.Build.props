@@ -1,13 +1,10 @@
 <Project>
     <!--
-        JDK flavor: which Java version this build implements. Everything (class library, runtime, ikvmc, natives,
-        image) is built per flavor from the same tree; flavor-specific sources are selected by directory and by the
-        JDK$(IkvmJdk) define. Each flavor gets its own obj/bin under artifacts\jdkN so both can coexist on disk.
-        Restore and build must agree on the flavor: pass /p:IkvmJdk (or set IKVM_JDK) to both.
+        The Java SE release this build implements. IkvmJdk names the JDK the build finds (FindJdk) and the artifacts
+        directory (artifacts\jdk25), which keeps obj/bin out of the source tree.
     -->
-    <PropertyGroup Label="JDK Flavor">
-        <IkvmJdk Condition=" '$(IkvmJdk)' == '' ">$(IKVM_JDK)</IkvmJdk>
-        <IkvmJdk Condition=" '$(IkvmJdk)' == '' ">8</IkvmJdk>
+    <PropertyGroup Label="JDK">
+        <IkvmJdk>25</IkvmJdk>
         <IkvmArtifactsDir>$(MSBuildThisFileDirectory)artifacts\jdk$(IkvmJdk)\</IkvmArtifactsDir>
         <BaseIntermediateOutputPath>$(IkvmArtifactsDir)obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
         <BaseOutputPath>$(IkvmArtifactsDir)bin\$(MSBuildProjectName)\</BaseOutputPath>
@@ -36,24 +33,8 @@
         <_EnabledToolRuntimes>;$(EnabledToolRuntimes);</_EnabledToolRuntimes>
     </PropertyGroup>
 
-    <PropertyGroup Label="OpenJDK Info" Condition=" '$(IkvmJdk)' == '8' ">
-        <OpenJdkDir>$(MSBuildThisFileDirectory)ext\openjdk\</OpenJdkDir>
-        <OpenJdkMajorVersion>1</OpenJdkMajorVersion>
-        <OpenJdkMinorVersion>8</OpenJdkMinorVersion>
-        <OpenJdkMicroVersion>0</OpenJdkMicroVersion>
-        <OpenJdkUpdateVersion>472</OpenJdkUpdateVersion>
-        <OpenJdkBuildNumber>b08</OpenJdkBuildNumber>
-        <OpenJdkVersion>OpenJDK $(OpenJdkMinorVersion)u$(OpenJdkUpdateVersion) $(OpenJdkBuildNumber)</OpenJdkVersion>
-        <OpenJdkFullVersion>$(OpenJdkMajorVersion).$(OpenJdkMinorVersion).$(OpenJdkMicroVersion)_$(OpenJdkUpdateVersion)-$(OpenJdkBuildNumber)</OpenJdkFullVersion>
-        <OpenJdkVendor>Oracle</OpenJdkVendor>
-        <OpenJdkImplementationVersion>$(OpenJdkMajorVersion).$(OpenJdkMinorVersion).$(OpenJdkMicroVersion)</OpenJdkImplementationVersion>
-        <OpenJdkImplementationVendor>Oracle Corporation</OpenJdkImplementationVendor>
-        <OpenJdkSpecificationVersion>$(OpenJdkMajorVersion).$(OpenJdkMinorVersion)</OpenJdkSpecificationVersion>
-        <OpenJdkSpecificationVendor>Oracle Corporation</OpenJdkSpecificationVendor>
-    </PropertyGroup>
-
     <!-- jdk25u (upstream, not yet forked); values from its make/conf/version-numbers.conf -->
-    <PropertyGroup Label="OpenJDK Info" Condition=" '$(IkvmJdk)' == '25' ">
+    <PropertyGroup Label="OpenJDK Info">
         <OpenJdkDir>$(MSBuildThisFileDirectory)ext\openjdk25\</OpenJdkDir>
         <OpenJdkFeatureVersion>25</OpenJdkFeatureVersion>
         <OpenJdkInterimVersion>0</OpenJdkInterimVersion>
@@ -133,14 +114,12 @@
         <DisableImplicitIkvmMSBuildPackageReference>true</DisableImplicitIkvmMSBuildPackageReference>
     </PropertyGroup>
 
-    <!-- the JDK 25 flavor's IKVM projects find javac with _IkvmFlavorJavaCompiler (Directory.Build.targets) -->
-    <PropertyGroup Condition=" '$(IkvmJdk)' != '8' ">
-        <ResolveJavaCompilerDependsOn>_IkvmFlavorJavaCompiler</ResolveJavaCompilerDependsOn>
+    <!-- IKVM projects find javac with _IkvmJavaCompiler (Directory.Build.targets) -->
+    <PropertyGroup>
+        <ResolveJavaCompilerDependsOn>_IkvmJavaCompiler</ResolveJavaCompilerDependsOn>
     </PropertyGroup>
 
     <ItemGroup>
-        <!-- javac-ref is JDK 8's javac; the JDK 25 flavor compiles with the javac of the JDK 25 it is built with -->
-        <IkvmToolReference Include="$(MSBuildThisFileDirectory)src\javac-ref\javac-ref.ikvmproj" IsJavaCompiler="true" TargetFramework="net8.0" Condition=" '$(IkvmJdk)' == '8' " />
         <IkvmToolReference Include="$(MSBuildThisFileDirectory)src\ikvmc\ikvmc.csproj" IsIkvmCompiler="true" />
         <IkvmToolReference Include="$(MSBuildThisFileDirectory)src\ikvmstub\ikvmstub.csproj" IsIkvmExporter="true" />
     </ItemGroup>

@@ -2,7 +2,7 @@
 
     openjdk25.lib.props
 
-    Applies at the top of any native library project of the JDK 25 flavor, which builds from the JDK 9+ source layout
+    Applies at the top of any native library project built from the JDK's source, in its JDK 9+ layout
     (src/<module>/<os>/native/lib<name>) and the headers the JDK's make generated (IKVM.OpenJdk.Make). The flags are
     those of the JDK's make (CFLAGS_JDKLIB, SetupJdkLibrary).
 
@@ -11,7 +11,6 @@
 <Project>
     <PropertyGroup>
         <MSBuildAllProjects>$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
-        <IkvmJdkFlavors>25</IkvmJdkFlavors>
     </PropertyGroup>
 
     <Import Project="$(MSBuildThisFileDirectory)lib.props" />
@@ -37,7 +36,6 @@
 
     <!-- CFLAGS_JDKLIB -->
     <ItemGroup Condition=" '$(TargetIdentifier)' != '' ">
-        <PreprocessorDefinitions Include="IKVM_JDK" Value="25" />
         <PreprocessorDefinitions Include="NDEBUG" />
         <PreprocessorDefinitions Include="_LP64" Value="1" Condition="$(TargetIdentifier.EndsWith('64'))" />
         <PreprocessorDefinitions Include="ARCH" Value="&quot;$(OpenJdkTargetCpuOsArch)&quot;" />

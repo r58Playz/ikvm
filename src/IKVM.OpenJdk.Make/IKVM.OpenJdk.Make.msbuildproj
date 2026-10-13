@@ -14,14 +14,13 @@
 <Project Sdk="Microsoft.Build.NoTargets">
     <PropertyGroup>
         <TargetFramework>netstandard2.0</TargetFramework>
-        <IkvmJdkFlavors>25</IkvmJdkFlavors>
         <IsPackable>false</IsPackable>
     </PropertyGroup>
 
     <Import Project="..\IKVM.Java\jdk25\IKVM.Java.runtime.jdk25.props" />
 
     <Target Name="_OpenJdkMakeFindJdk">
-        <!-- JAVA_HOME only as a last resort: in a build of both flavors it is likely the JDK 8 one. -->
+        <!-- JAVA_HOME only as a last resort: it may name another JDK than the 25 the build needs. -->
         <FindJdk Family="25" Condition=" '$(OpenJdkBootJdk)' == '' ">
             <Output TaskParameter="JdkPath" PropertyName="OpenJdkBootJdk" />
         </FindJdk>

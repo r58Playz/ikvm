@@ -32,12 +32,6 @@
         <BinProject Include="..\keytool\keytool.ikvmproj" />
     </ItemGroup>
 
-    <!-- JDK 8's only: CORBA (orbd) went in JDK 11, policytool in JDK 10 -->
-    <ItemGroup Condition=" '$(IkvmJdk)' == '8' ">
-        <BinProject Include="..\orbd\orbd.ikvmproj" />
-        <BinProject Include="..\policytool\policytool.ikvmproj" />
-    </ItemGroup>
-
     <ItemGroup Condition="$(_SupportedImageBinRuntimes.Contains(';$(ImageRuntimeIdentifier);')) And $(_EnabledImageBinRuntimes.Contains(';$(ImageRuntimeIdentifier);'))">
         <PublishProjectReference Include="@(BinProject)" Condition="$(SupportedImageTargetFrameworks.Contains(';net472;'))">
             <SetTargetFramework>TargetFramework=net472</SetTargetFramework>

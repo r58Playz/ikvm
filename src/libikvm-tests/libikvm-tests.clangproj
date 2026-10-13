@@ -6,7 +6,7 @@
         <OutputType>dll</OutputType>
     </PropertyGroup>
     <ItemGroup>
-        <ProjectReference Include="..\libjvm\libjvm.clangproj" />
+        <ProjectReference Include="..\jdk25-native\libjvm\libjvm.clangproj" />
     </ItemGroup>
     <Import Sdk="IKVM.Clang.Sdk" Project="Sdk.targets" />
     <Import Project="$(MSBuildThisFileDirectory)..\..\targets\lib.targets" />

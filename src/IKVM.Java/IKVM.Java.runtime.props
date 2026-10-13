@@ -19,33 +19,24 @@
         <OpenJdkTargetOsDir Condition=" '$(IkvmJavaRuntimeIdentifier)' == 'osx' ">macosx</OpenJdkTargetOsDir>
     </PropertyGroup>
 
+    <!-- IKVM's side of the class library: the local\ overlay (classes replacing the JDK's) and map.xml -->
     <PropertyGroup>
-        <!-- This JDK flavor's IKVM-side class library sources: the local\ overlay, icedtea_jce\ and map.xml. -->
-        <IkvmJavaFlavorDir Condition=" '$(IkvmJdk)' == '8' ">$(MSBuildThisFileDirectory)</IkvmJavaFlavorDir>
-        <IkvmJavaFlavorDir Condition=" '$(IkvmJdk)' == '25' ">$(MSBuildThisFileDirectory)jdk25\</IkvmJavaFlavorDir>
+        <IkvmJavaSourceDir>$(MSBuildThisFileDirectory)jdk25\</IkvmJavaSourceDir>
     </PropertyGroup>
 
     <Import Project="$(MSBuildThisFileDirectory)..\IKVM.MSBuild\buildTransitive\IKVM.MSBuild.props" />
 
-    <!-- The OpenJDK 8 class library, by repository. -->
-    <Import Project="IKVM.Java.runtime.jdk.props" Condition=" '$(IkvmJdk)' == '8' " />
-    <Import Project="IKVM.Java.runtime.corba.props" Condition=" '$(IkvmJdk)' == '8' " />
-    <Import Project="IKVM.Java.runtime.langtools.props" Condition=" '$(IkvmJdk)' == '8' " />
-    <Import Project="IKVM.Java.runtime.nashorn.props" Condition=" '$(IkvmJdk)' == '8' " />
-    <Import Project="IKVM.Java.runtime.jaxp.props" Condition=" '$(IkvmJdk)' == '8' " />
-    <Import Project="IKVM.Java.runtime.jaxws.props" Condition=" '$(IkvmJdk)' == '8' " />
-
     <!-- The JDK 25 class library: the modules built by the JDK's own build. -->
-    <Import Project="jdk25\IKVM.Java.runtime.jdk25.props" Condition=" '$(IkvmJdk)' == '25' " />
+    <Import Project="jdk25\IKVM.Java.runtime.jdk25.props" />
 
-    <PropertyGroup Condition=" '$(IkvmJdk)' == '25' ">
+    <PropertyGroup>
         <LangVersion>25</LangVersion>
         <JavaVersion>25</JavaVersion>
     </PropertyGroup>
 
-    <ItemGroup Condition=" '$(IkvmJdk)' == '25' ">
+    <ItemGroup>
         <ProjectReference Include="$(MSBuildThisFileDirectory)..\IKVM.OpenJdk.Make\IKVM.OpenJdk.Make.msbuildproj" ReferenceOutputAssembly="false" Private="false" PrivateAssets="All" SkipGetTargetFrameworkProperties="true" GlobalPropertiesToRemove="TargetFramework;RuntimeIdentifier" />
-        <OpenJdkOverlaySource Include="$(IkvmJavaFlavorDir)local\**\*.java" />
+        <OpenJdkOverlaySource Include="$(IkvmJavaSourceDir)local\**\*.java" />
     </ItemGroup>
 
     <PropertyGroup>
@@ -81,12 +72,10 @@
     </ItemGroup>
 
     <ItemGroup>
-        <None Include="$(IkvmJavaFlavorDir)icedtea_jce\**\*" Link="icedtea_jce\%(RecursiveDir)%(Filename)%(Extension)" />
-        <None Include="$(IkvmJavaFlavorDir)local\**\*" Link="local\%(RecursiveDir)%(Filename)%(Extension)" />
-        <Compile Include="$(IkvmJavaFlavorDir)icedtea_jce\**\*.java" Link="icedtea_jce\%(RecursiveDir)%(Filename)%(Extension)" />
-        <Compile Include="$(IkvmJavaFlavorDir)local\**\*.java" Link="local\%(RecursiveDir)%(Filename)%(Extension)" />
-        <ServiceFile Include="$(IkvmJavaFlavorDir)local\META-INF\services\*" />
-        <Transform Include="$(IkvmJavaFlavorDir)local\META-INF\MANIFEST.MF.tt" TargetPath="$(IntermediateOutputPath)transform\local\META-INF\MANIFEST.MF" />
+        <None Include="$(IkvmJavaSourceDir)local\**\*" Link="local\%(RecursiveDir)%(Filename)%(Extension)" />
+        <Compile Include="$(IkvmJavaSourceDir)local\**\*.java" Link="local\%(RecursiveDir)%(Filename)%(Extension)" />
+        <ServiceFile Include="$(IkvmJavaSourceDir)local\META-INF\services\*" />
+        <Transform Include="$(IkvmJavaSourceDir)local\META-INF\MANIFEST.MF.tt" TargetPath="$(IntermediateOutputPath)transform\local\META-INF\MANIFEST.MF" />
         <JavaResource Include="$(IntermediateOutputPath)transform\local\META-INF\MANIFEST.MF" Visible="False" ResourcePath="META-INF/MANIFEST.MF" Link="local\META-INF\MANIFEST.MF" />
     </ItemGroup>
 
@@ -101,7 +90,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <MapFile Include="$(IkvmJavaFlavorDir)map.xml" />
+        <MapFile Include="$(IkvmJavaSourceDir)map.xml" />
     </ItemGroup>
 
 </Project>
