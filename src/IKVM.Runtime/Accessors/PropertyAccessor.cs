@@ -42,7 +42,7 @@ namespace IKVM.Runtime.Accessors
         /// <summary>
         /// Gets the property being accessed.
         /// </summary>
-        protected PropertyInfo Property => AccessorUtil.LazyGet(ref property, () => type.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)) ?? throw new InvalidOperationException();
+        protected PropertyInfo Property => property ?? AccessorUtil.LazyGet(ref property, () => type.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)) ?? throw new InvalidOperationException();
 
     }
 
@@ -62,6 +62,12 @@ namespace IKVM.Runtime.Accessors
         /// <param name="signature"></param>
         /// <returns></returns>
         public static PropertyAccessor<TProperty> LazyGet(ref PropertyAccessor<TProperty> location, Type type, string name)
+        {
+            return location ?? Create(ref location, type, name);
+        }
+
+        // apart from LazyGet, whose callers would otherwise allocate the lambda's closure on every call
+        static PropertyAccessor<TProperty> Create(ref PropertyAccessor<TProperty> location, Type type, string name)
         {
             return AccessorUtil.LazyGet(ref location, () => new PropertyAccessor<TProperty>(type, name));
         }
@@ -83,12 +89,12 @@ namespace IKVM.Runtime.Accessors
         /// <summary>
         /// Gets the getter for the property.
         /// </summary>
-        Func<TProperty> Getter => AccessorUtil.LazyGet(ref getter, MakeGetter);
+        Func<TProperty> Getter => getter ?? AccessorUtil.LazyGet(ref getter, MakeGetter);
 
         /// <summary>
         /// Gets the setter for the property.
         /// </summary>
-        Action<TProperty> Setter => AccessorUtil.LazyGet(ref setter, MakeSetter);
+        Action<TProperty> Setter => setter ?? AccessorUtil.LazyGet(ref setter, MakeSetter);
 
         /// <summary>
         /// Creates a new getter.
@@ -164,6 +170,12 @@ namespace IKVM.Runtime.Accessors
         /// <returns></returns>
         public static PropertyAccessor<TObject, TProperty> LazyGet(ref PropertyAccessor<TObject, TProperty> location, Type type, string name)
         {
+            return location ?? Create(ref location, type, name);
+        }
+
+        // apart from LazyGet, whose callers would otherwise allocate the lambda's closure on every call
+        static PropertyAccessor<TObject, TProperty> Create(ref PropertyAccessor<TObject, TProperty> location, Type type, string name)
+        {
             return AccessorUtil.LazyGet(ref location, () => new PropertyAccessor<TObject, TProperty>(type, name));
         }
 
@@ -184,12 +196,12 @@ namespace IKVM.Runtime.Accessors
         /// <summary>
         /// Gets the getter for the property.
         /// </summary>
-        Func<TObject, TProperty> Getter => AccessorUtil.LazyGet(ref getter, MakeGetter);
+        Func<TObject, TProperty> Getter => getter ?? AccessorUtil.LazyGet(ref getter, MakeGetter);
 
         /// <summary>
         /// Gets the setter for the property.
         /// </summary>
-        Action<TObject, TProperty> Setter => AccessorUtil.LazyGet(ref setter, MakeSetter);
+        Action<TObject, TProperty> Setter => setter ?? AccessorUtil.LazyGet(ref setter, MakeSetter);
 
         /// <summary>
         /// Creates a new getter.

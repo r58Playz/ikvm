@@ -21,6 +21,12 @@ namespace IKVM.Runtime.Accessors
         /// <returns></returns>
         public static AccessorCache Get(ref AccessorCache cache, Assembly assembly)
         {
+            return cache ?? Create(ref cache, assembly);
+        }
+
+        // apart from Get, whose callers would otherwise allocate the lambda's closure on every call
+        static AccessorCache Create(ref AccessorCache cache, Assembly assembly)
+        {
             return AccessorUtil.LazyGet(ref cache, () => new AccessorCache(assembly));
         }
 
@@ -46,7 +52,7 @@ namespace IKVM.Runtime.Accessors
         public TAccessor Get<TAccessor>(ref TAccessor accessor)
             where TAccessor : Accessor
         {
-            return AccessorUtil.LazyGet(ref accessor, () => (TAccessor)cache.GetOrAdd(typeof(TAccessor), Make));
+            return accessor ?? AccessorUtil.LazyGet(ref accessor, () => (TAccessor)cache.GetOrAdd(typeof(TAccessor), Make));
         }
 
         /// <summary>

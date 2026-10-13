@@ -31,7 +31,7 @@ namespace IKVM.Runtime.Accessors
         /// <summary>
         /// Gets the type being accessed.
         /// </summary>
-        public Type Type => AccessorUtil.LazyGet(ref type, () => Resolve(typeName));
+        public Type Type => type ?? AccessorUtil.LazyGet(ref type, () => Resolve(typeName));
 
         /// <summary>
         /// Resolves the given type name.
@@ -46,7 +46,10 @@ namespace IKVM.Runtime.Accessors
         /// <param name="type"></param>
         /// <param name="typeName"></param>
         /// <returns></returns>
-        protected Type Resolve(ref Type type, string typeName) => AccessorUtil.LazyGet(ref type, () => Resolve(typeName));
+        protected Type Resolve(ref Type type, string typeName) => type ?? ResolveSlow(ref type, typeName);
+
+        // apart from Resolve, whose callers would otherwise allocate the lambda's closure on every call
+        Type ResolveSlow(ref Type type, string typeName) => AccessorUtil.LazyGet(ref type, () => Resolve(typeName));
 
         /// <summary>
         /// Creates a new array of the accessed type.

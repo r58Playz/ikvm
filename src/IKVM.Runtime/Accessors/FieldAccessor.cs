@@ -44,7 +44,7 @@ namespace IKVM.Runtime.Accessors
         /// <summary>
         /// Gets the field being accessed.
         /// </summary>
-        protected FieldInfo Field => AccessorUtil.LazyGet(ref field, () => type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)) ?? throw new InvalidOperationException();
+        protected FieldInfo Field => field ?? AccessorUtil.LazyGet(ref field, () => type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)) ?? throw new InvalidOperationException();
 
     }
 
@@ -63,6 +63,12 @@ namespace IKVM.Runtime.Accessors
         /// <param name="name"></param>
         /// <returns></returns>
         public static FieldAccessor<TField> LazyGet(ref FieldAccessor<TField> location, Type type, string name)
+        {
+            return location ?? Create(ref location, type, name);
+        }
+
+        // apart from LazyGet, whose callers would otherwise allocate the lambda's closure on every call
+        static FieldAccessor<TField> Create(ref FieldAccessor<TField> location, Type type, string name)
         {
             return AccessorUtil.LazyGet(ref location, () => new FieldAccessor<TField>(type, name));
         }
@@ -84,12 +90,12 @@ namespace IKVM.Runtime.Accessors
         /// <summary>
         /// Gets the getter for the field.
         /// </summary>
-        Func<TField> Getter => AccessorUtil.LazyGet(ref getter, MakeGetter);
+        Func<TField> Getter => getter ?? AccessorUtil.LazyGet(ref getter, MakeGetter);
 
         /// <summary>
         /// Gets the setter for the field.
         /// </summary>
-        Action<TField> Setter => AccessorUtil.LazyGet(ref setter, MakeSetter);
+        Action<TField> Setter => setter ?? AccessorUtil.LazyGet(ref setter, MakeSetter);
 
         /// <summary>
         /// Creates a new getter.
@@ -189,6 +195,12 @@ namespace IKVM.Runtime.Accessors
         /// <returns></returns>
         public static FieldAccessor<TObject, TField> LazyGet(ref FieldAccessor<TObject, TField> location, Type type, string name)
         {
+            return location ?? Create(ref location, type, name);
+        }
+
+        // apart from LazyGet, whose callers would otherwise allocate the lambda's closure on every call
+        static FieldAccessor<TObject, TField> Create(ref FieldAccessor<TObject, TField> location, Type type, string name)
+        {
             return AccessorUtil.LazyGet(ref location, () => new FieldAccessor<TObject, TField>(type, name));
         }
 
@@ -211,22 +223,22 @@ namespace IKVM.Runtime.Accessors
         /// <summary>
         /// Gets the getter for the field.
         /// </summary>
-        GetterDelegate Getter => AccessorUtil.LazyGet(ref getter, MakeGetter);
+        GetterDelegate Getter => getter ?? AccessorUtil.LazyGet(ref getter, MakeGetter);
 
         /// <summary>
         /// Gets the setter for the field.
         /// </summary>
-        SetterDelegate Setter => AccessorUtil.LazyGet(ref setter, MakeSetter);
+        SetterDelegate Setter => setter ?? AccessorUtil.LazyGet(ref setter, MakeSetter);
 
         /// <summary>
         /// Gets the exchange operation for the field.
         /// </summary>
-        ExchangeDelegate Exchange => AccessorUtil.LazyGet(ref exchange, MakeExchange);
+        ExchangeDelegate Exchange => exchange ?? AccessorUtil.LazyGet(ref exchange, MakeExchange);
 
         /// <summary>
         /// Gets the compare and exchange operation for the field.
         /// </summary>
-        CompareExchangeDelegate CompareExchange => AccessorUtil.LazyGet(ref compareExchange, MakeCompareExchange);
+        CompareExchangeDelegate CompareExchange => compareExchange ?? AccessorUtil.LazyGet(ref compareExchange, MakeCompareExchange);
 
         /// <summary>
         /// Creates a new getter.

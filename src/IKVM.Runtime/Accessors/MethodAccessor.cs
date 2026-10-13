@@ -57,7 +57,7 @@ namespace IKVM.Runtime.Accessors
         /// <summary>
         /// Gets the method being accessed.
         /// </summary>
-        protected MethodBase Method => AccessorUtil.LazyGet(ref method, FindMethod) ?? throw new InternalException($"Could not locate method {Name}.");
+        protected MethodBase Method => method ?? AccessorUtil.LazyGet(ref method, FindMethod) ?? throw new InternalException($"Could not locate method {Name}.");
 
         /// <summary>
         /// Finds the appropriate method.
@@ -81,6 +81,12 @@ namespace IKVM.Runtime.Accessors
 
         public static MethodAccessor<TDelegate> LazyGet(ref MethodAccessor<TDelegate> location, Type type, string name, Type returnType, params Type[] parameterTypes)
         {
+            return location ?? Create(ref location, type, name, returnType, parameterTypes);
+        }
+
+        // apart from LazyGet, whose callers would otherwise allocate the lambda's closure on every call
+        static MethodAccessor<TDelegate> Create(ref MethodAccessor<TDelegate> location, Type type, string name, Type returnType, Type[] parameterTypes)
+        {
             return AccessorUtil.LazyGet(ref location, () => new MethodAccessor<TDelegate>(type, name, returnType, parameterTypes));
         }
 
@@ -102,7 +108,7 @@ namespace IKVM.Runtime.Accessors
         /// <summary>
         /// Gets the setter for the field.
         /// </summary>
-        public TDelegate Invoker => AccessorUtil.LazyGet(ref invoker, MakeInvoker);
+        public TDelegate Invoker => invoker ?? AccessorUtil.LazyGet(ref invoker, MakeInvoker);
 
         /// <summary>
         /// Creates a new invoker.
