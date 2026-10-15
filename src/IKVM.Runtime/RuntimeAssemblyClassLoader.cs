@@ -158,6 +158,48 @@ namespace IKVM.Runtime
                 get { return assembly; }
             }
 
+#if !IMPORTER && !EXPORTER
+
+            JavaResourceAttribute[] javaResources;
+            HashSet<string> manifestResources;
+
+            /// <summary>
+            /// The assembly's <see cref="JavaResourceAttribute"/>s, read once. <see cref="FindResources(string)"/> used to
+            /// enumerate them for every lookup that reached this assembly -- every parent-first class load walks every
+            /// delegate assembly -- allocating each attribute every time (1.1 s of a Minecraft boot's critical path).
+            /// </summary>
+            internal JavaResourceAttribute[] JavaResources
+            {
+                get
+                {
+                    var r = javaResources;
+                    if (r == null)
+                    {
+                        var l = new List<JavaResourceAttribute>();
+                        foreach (var a in assembly.GetCustomAttributes<JavaResourceAttribute>())
+                            l.Add(a);
+                        javaResources = r = l.ToArray();
+                    }
+                    return r;
+                }
+            }
+
+            HashSet<string> ManifestResources => manifestResources ??= new HashSet<string>(assembly.GetManifestResourceNames(), StringComparer.Ordinal);
+
+            /// <summary>
+            /// Whether the manifest holds a resource with exactly this name (what GetManifestResourceInfo(name) != null
+            /// answered), from the names read once.
+            /// </summary>
+            internal bool HasManifestResource(string name) => ManifestResources.Contains(name);
+
+            /// <summary>
+            /// Whether the manifest holds any resource at all; most .NET assemblies hold none, and then a lookup needs no
+            /// mangled name.
+            /// </summary>
+            internal bool HasAnyManifestResource => ManifestResources.Count > 0;
+
+#endif
+
             internal bool HasJavaModule
             {
                 get
@@ -888,14 +930,14 @@ namespace IKVM.Runtime
             if (assemblyLoader.HasJavaModule == false)
             {
                 // attempt to find an assembly resource with the exact name
-                if (unmangledName != "" && assemblyLoader.Assembly.GetManifestResourceInfo(unmangledName) != null)
+                if (unmangledName != "" && assemblyLoader.HasManifestResource(unmangledName))
                 {
                     found = true;
                     yield return MakeResourceURL(assemblyLoader.Assembly, unmangledName);
                 }
 
                 // the JavaResourceAttribute can be used to manufacture a named Java resource
-                foreach (var res in assemblyLoader.Assembly.GetCustomAttributes<JavaResourceAttribute>())
+                foreach (var res in assemblyLoader.JavaResources)
                 {
                     if (res.JavaName == unmangledName)
                     {
@@ -905,9 +947,9 @@ namespace IKVM.Runtime
                 }
             }
 
-            // find an assembly resource with the managed resource name
-            var name = JVM.MangleResourceName(unmangledName);
-            if (assemblyLoader.Assembly.GetManifestResourceInfo(name) != null)
+            // find an assembly resource with the managed resource name (mangled only when some manifest could hold it)
+            string name = null;
+            if (assemblyLoader.HasAnyManifestResource && assemblyLoader.HasManifestResource(name = JVM.MangleResourceName(unmangledName)))
             {
                 found = true;
                 yield return MakeResourceURL(assemblyLoader.Assembly, name);
@@ -936,7 +978,7 @@ namespace IKVM.Runtime
                         yield return (java.net.URL)urls.nextElement();
                     }
 
-                    if (loader.Assembly.GetManifestResourceInfo(name) != null)
+                    if (loader.HasAnyManifestResource && loader.HasManifestResource(name ??= JVM.MangleResourceName(unmangledName)))
                     {
                         found = true;
                         yield return MakeResourceURL(loader.Assembly, name);
