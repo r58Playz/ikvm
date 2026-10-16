@@ -8,8 +8,8 @@
 	url = https://gitlab.freedesktop.org/freetype/freetype.git
 	ignore = dirty
 	shallow = true
-[submodule "ext/openjdk25"]
-	path = ext/openjdk25
+[submodule "ext/openjdk"]
+	path = ext/openjdk
 	url = https://github.com/openjdk/jdk25u.git
 	ignore = dirty
 	shallow = true

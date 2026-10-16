@@ -35,7 +35,7 @@
 
     <!-- jdk25u (upstream, not yet forked); values from its make/conf/version-numbers.conf -->
     <PropertyGroup Label="OpenJDK Info">
-        <OpenJdkDir>$(MSBuildThisFileDirectory)ext\openjdk25\</OpenJdkDir>
+        <OpenJdkDir>$(MSBuildThisFileDirectory)ext\openjdk\</OpenJdkDir>
         <OpenJdkFeatureVersion>25</OpenJdkFeatureVersion>
         <OpenJdkInterimVersion>0</OpenJdkInterimVersion>
         <OpenJdkUpdateVersion>4</OpenJdkUpdateVersion>
