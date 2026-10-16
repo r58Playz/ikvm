@@ -115,6 +115,9 @@ namespace IKVM.Runtime
         internal readonly MethodInfo CompareAndSwapChar;
         internal readonly MethodInfo CloneArrayWithGhostTag;
         internal readonly MethodInfo GetDelegateForVarHandle;
+        /// <summary>A constant byte array view VarHandle's plain get and set; see VarHandleIntrinsics.</summary>
+        internal readonly MethodInfo ByteArrayViewGetShort, ByteArrayViewGetChar, ByteArrayViewGetInt, ByteArrayViewGetLong, ByteArrayViewGetFloat, ByteArrayViewGetDouble;
+        internal readonly MethodInfo ByteArrayViewSetShort, ByteArrayViewSetChar, ByteArrayViewSetInt, ByteArrayViewSetLong, ByteArrayViewSetFloat, ByteArrayViewSetDouble;
         internal readonly MethodInfo MapException;
         internal readonly MethodInfo GetDelegateForInvokeExact;
         internal readonly MethodInfo GetDelegateForInvoke;
@@ -207,6 +210,18 @@ namespace IKVM.Runtime
             CompareAndSwapChar = GetHelper(typeofByteCodeHelper, "CompareAndSwap", new[] { context.Types.Char.MakeByRefType(), context.Types.Char, context.Types.Char });
             CloneArrayWithGhostTag = GetHelper(typeofByteCodeHelper, "CloneArrayWithGhostTag");
             GetDelegateForVarHandle = GetHelper(typeofByteCodeHelper, "GetDelegateForVarHandle");
+            ByteArrayViewGetShort = GetHelper(typeofByteCodeHelper, "ByteArrayViewGetShort");
+            ByteArrayViewGetChar = GetHelper(typeofByteCodeHelper, "ByteArrayViewGetChar");
+            ByteArrayViewGetInt = GetHelper(typeofByteCodeHelper, "ByteArrayViewGetInt");
+            ByteArrayViewGetLong = GetHelper(typeofByteCodeHelper, "ByteArrayViewGetLong");
+            ByteArrayViewGetFloat = GetHelper(typeofByteCodeHelper, "ByteArrayViewGetFloat");
+            ByteArrayViewGetDouble = GetHelper(typeofByteCodeHelper, "ByteArrayViewGetDouble");
+            ByteArrayViewSetShort = GetHelper(typeofByteCodeHelper, "ByteArrayViewSetShort");
+            ByteArrayViewSetChar = GetHelper(typeofByteCodeHelper, "ByteArrayViewSetChar");
+            ByteArrayViewSetInt = GetHelper(typeofByteCodeHelper, "ByteArrayViewSetInt");
+            ByteArrayViewSetLong = GetHelper(typeofByteCodeHelper, "ByteArrayViewSetLong");
+            ByteArrayViewSetFloat = GetHelper(typeofByteCodeHelper, "ByteArrayViewSetFloat");
+            ByteArrayViewSetDouble = GetHelper(typeofByteCodeHelper, "ByteArrayViewSetDouble");
             MapException = GetHelper(typeofByteCodeHelper, "MapException");
             GetDelegateForInvokeExact = GetHelper(typeofByteCodeHelper, "GetDelegateForInvokeExact");
             GetDelegateForInvoke = GetHelper(typeofByteCodeHelper, "GetDelegateForInvoke");

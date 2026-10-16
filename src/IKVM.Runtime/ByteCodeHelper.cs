@@ -22,6 +22,7 @@
   
 */
 using System;
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -3050,6 +3051,93 @@ namespace IKVM.Runtime
 
             return d;
 #endif
+        }
+
+        /// <summary>
+        /// The offset a byte array view VarHandle (MethodHandles.byteArrayViewVarHandle) accesses for a value of
+        /// <paramref name="size"/> bytes at <paramref name="index"/>, checked as VarHandleByteArrayAs*.index checks it:
+        /// Preconditions.checkIndex(index, array.length - (size - 1)), with its exception and message.
+        /// </summary>
+        /// <remarks>
+        /// The ByteArrayView* methods below are what VarHandleIntrinsics compiles a constant byte array view handle's
+        /// plain get and set to. Without them each access is a linked VarHandle call (VarHandleLinker), which the JDK's
+        /// digests make 16 of per 64-byte block (ByteArrayAccess.b2iBig64).
+        /// </remarks>
+        static int ByteArrayViewIndex(byte[] array, int index, int size)
+        {
+            var length = array.Length - (size - 1);
+            if (index < 0 || index >= length)
+#if FIRST_PASS || IMPORTER || EXPORTER
+                throw new IndexOutOfRangeException();
+#else
+                throw new global::java.lang.ArrayIndexOutOfBoundsException($"Index {index} out of bounds for length {length}");
+#endif
+
+            return index;
+        }
+
+        public static short ByteArrayViewGetShort(byte[] array, int index, bool bigEndian)
+        {
+            var v = Unsafe.ReadUnaligned<short>(ref array[ByteArrayViewIndex(array, index, sizeof(short))]);
+            return bigEndian == BitConverter.IsLittleEndian ? BinaryPrimitives.ReverseEndianness(v) : v;
+        }
+
+        public static char ByteArrayViewGetChar(byte[] array, int index, bool bigEndian)
+        {
+            return (char)(ushort)ByteArrayViewGetShort(array, index, bigEndian);
+        }
+
+        public static int ByteArrayViewGetInt(byte[] array, int index, bool bigEndian)
+        {
+            var v = Unsafe.ReadUnaligned<int>(ref array[ByteArrayViewIndex(array, index, sizeof(int))]);
+            return bigEndian == BitConverter.IsLittleEndian ? BinaryPrimitives.ReverseEndianness(v) : v;
+        }
+
+        public static long ByteArrayViewGetLong(byte[] array, int index, bool bigEndian)
+        {
+            var v = Unsafe.ReadUnaligned<long>(ref array[ByteArrayViewIndex(array, index, sizeof(long))]);
+            return bigEndian == BitConverter.IsLittleEndian ? BinaryPrimitives.ReverseEndianness(v) : v;
+        }
+
+        public static float ByteArrayViewGetFloat(byte[] array, int index, bool bigEndian)
+        {
+            return BitConverter.Int32BitsToSingle(ByteArrayViewGetInt(array, index, bigEndian));
+        }
+
+        public static double ByteArrayViewGetDouble(byte[] array, int index, bool bigEndian)
+        {
+            return BitConverter.Int64BitsToDouble(ByteArrayViewGetLong(array, index, bigEndian));
+        }
+
+        public static void ByteArrayViewSetShort(byte[] array, int index, short value, bool bigEndian)
+        {
+            Unsafe.WriteUnaligned(ref array[ByteArrayViewIndex(array, index, sizeof(short))], bigEndian == BitConverter.IsLittleEndian ? BinaryPrimitives.ReverseEndianness(value) : value);
+        }
+
+        public static void ByteArrayViewSetChar(byte[] array, int index, char value, bool bigEndian)
+        {
+            ByteArrayViewSetShort(array, index, (short)value, bigEndian);
+        }
+
+        public static void ByteArrayViewSetInt(byte[] array, int index, int value, bool bigEndian)
+        {
+            Unsafe.WriteUnaligned(ref array[ByteArrayViewIndex(array, index, sizeof(int))], bigEndian == BitConverter.IsLittleEndian ? BinaryPrimitives.ReverseEndianness(value) : value);
+        }
+
+        public static void ByteArrayViewSetLong(byte[] array, int index, long value, bool bigEndian)
+        {
+            Unsafe.WriteUnaligned(ref array[ByteArrayViewIndex(array, index, sizeof(long))], bigEndian == BitConverter.IsLittleEndian ? BinaryPrimitives.ReverseEndianness(value) : value);
+        }
+
+        // the raw bits, as VarHandleByteArrayAsFloats/Doubles store them (floatToRawIntBits, doubleToRawLongBits)
+        public static void ByteArrayViewSetFloat(byte[] array, int index, float value, bool bigEndian)
+        {
+            ByteArrayViewSetInt(array, index, BitConverter.SingleToInt32Bits(value), bigEndian);
+        }
+
+        public static void ByteArrayViewSetDouble(byte[] array, int index, double value, bool bigEndian)
+        {
+            ByteArrayViewSetLong(array, index, BitConverter.DoubleToInt64Bits(value), bigEndian);
         }
 
 

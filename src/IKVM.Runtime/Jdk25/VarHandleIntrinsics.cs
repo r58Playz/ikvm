@@ -33,6 +33,12 @@ namespace IKVM.Runtime
     /// AtomicReference, ConcurrentLinkedQueue, FutureTask, ...). The call site's types must be ones the handle takes
     /// without conversion, except for the casts its own checks would make; anything else, and every mode this does not
     /// know (the bitwise ones), keeps the dynamic call. IKVM_VH_DIRECT=0 turns it off.
+    ///
+    /// <c>MethodHandles.byteArrayViewVarHandle(T[].class, ByteOrder.BIG_ENDIAN|LITTLE_ENDIAN)</c> is one too -- directly,
+    /// with <c>.withInvokeExactBehavior()</c> (sun.security.provider.ByteArrayAccess, which every digest reads its
+    /// blocks through), or returned by a static method of the class that is only that call (jdk.internal.util.ByteArray
+    /// and ByteArrayLittleEndian's <c>create</c>, behind DataInput/OutputStream). Its plain get and set, at a call site
+    /// of exactly the handle's types, become a call of a ByteCodeHelper.ByteArrayView* method. R496.
     /// </remarks>
     static class VarHandleIntrinsics
     {
@@ -57,6 +63,7 @@ namespace IKVM.Runtime
             InstanceField,
             StaticField,
             ArrayElement,
+            ByteArrayView,
         }
 
         sealed class ConstantVarHandle
@@ -64,7 +71,13 @@ namespace IKVM.Runtime
 
             internal Kind Kind;
             internal RuntimeJavaField Field;
+
+            /// <summary>
+            /// The array type of an ArrayElement handle; the view array type (int[] for an int view) of a ByteArrayView.
+            /// </summary>
             internal RuntimeJavaType ArrayType;
+
+            internal bool BigEndian;
 
         }
 
@@ -95,7 +108,12 @@ namespace IKVM.Runtime
                 return false;
             }
 
-            var emitted = vh.Kind == Kind.ArrayElement ? EmitArrayElement(eic, cpi.Name, vh.ArrayType, args, ret) : EmitField(eic, cpi.Name, vh, args, ret);
+            var emitted = vh.Kind switch
+            {
+                Kind.ArrayElement => EmitArrayElement(eic, cpi.Name, vh.ArrayType, args, ret),
+                Kind.ByteArrayView => EmitByteArrayView(eic, cpi.Name, vh, args, ret),
+                _ => EmitField(eic, cpi.Name, vh, args, ret),
+            };
             System.Threading.Interlocked.Increment(ref emitted ? ref Direct : ref Kept);
             if (emitted == false && trace)
                 Console.WriteLine($"[IKVM vh] kept {eic.Caller.DeclaringType.Name}.{eic.Caller.Name}: {receiver.Name}.{cpi.Name}{cpi.Signature} ({vh.Kind} {vh.Field?.DeclaringType.Name}.{vh.Field?.Name} {vh.Field?.GetType().Name} {vh.ArrayType?.Name})");
@@ -217,6 +235,11 @@ namespace IKVM.Runtime
             /// </summary>
             internal string Type;
 
+            /// <summary>
+            /// A ByteArrayView's byte order (its view array class is <see cref="Class"/>).
+            /// </summary>
+            internal bool BigEndian;
+
         }
 
         /// <summary>
@@ -305,6 +328,70 @@ namespace IKVM.Runtime
                 return spec.Type != null && spec.Name != null ? spec : null;
             }
 
+            // MethodHandles.byteArrayViewVarHandle(T[].class, ByteOrder.X), optionally .withInvokeExactBehavior(): an exact
+            // handle throws for a call site of any other type, and only a call site of exactly its types is compiled
+            var view = call;
+            if (IsInvoke(classFile, code[view], NormalizedByteCode.__invokevirtual, "java.lang.invoke.VarHandle", "withInvokeExactBehavior", "()Ljava.lang.invoke.VarHandle;"))
+                view--;
+
+            if (view >= 2 && IsByteArrayViewCall(classFile, code[view]) && ByteOrderLiteral(classFile, code[view - 1]) is bool bigEndian)
+                return ClassLiteral(classFile, code[view - 2]) is string viewArray && viewArray.StartsWith("[") ? new Spec() { Kind = Kind.ByteArrayView, Class = viewArray, BigEndian = bigEndian } : null;
+
+            // ByteArray.create(T[].class): a static method of the class that is only that call on its argument
+            if (view >= 1 && code[view].NormalizedOpCode == NormalizedByteCode.__invokestatic && ByteArrayViewFactory(classFile, classFile.GetMethodref(code[view].Arg1)) is bool factoryBigEndian)
+                return ClassLiteral(classFile, code[view - 1]) is string factoryViewArray && factoryViewArray.StartsWith("[") ? new Spec() { Kind = Kind.ByteArrayView, Class = factoryViewArray, BigEndian = factoryBigEndian } : null;
+
+            return null;
+        }
+
+        static bool IsByteArrayViewCall(ClassFile classFile, ClassFile.Method.Instruction instr)
+        {
+            return IsInvoke(classFile, instr, NormalizedByteCode.__invokestatic, "java.lang.invoke.MethodHandles", "byteArrayViewVarHandle", "(Ljava.lang.Class;Ljava.nio.ByteOrder;)Ljava.lang.invoke.VarHandle;");
+        }
+
+        /// <summary>
+        /// The byte order an instruction pushes, true for big endian: a getstatic of ByteOrder.BIG_ENDIAN or LITTLE_ENDIAN.
+        /// </summary>
+        static bool? ByteOrderLiteral(ClassFile classFile, ClassFile.Method.Instruction instr)
+        {
+            if (instr.NormalizedOpCode != NormalizedByteCode.__getstatic)
+                return null;
+
+            var f = classFile.GetFieldref(instr.Arg1);
+            if (f.Class != "java.nio.ByteOrder" || f.Signature != "Ljava.nio.ByteOrder;")
+                return null;
+
+            return f.Name switch
+            {
+                "BIG_ENDIAN" => true,
+                "LITTLE_ENDIAN" => false,
+                _ => null,
+            };
+        }
+
+        /// <summary>
+        /// The byte order of the handles a static method of the class makes, if its code is exactly
+        /// <c>return MethodHandles.byteArrayViewVarHandle(arg0, ByteOrder.X);</c>
+        /// </summary>
+        static bool? ByteArrayViewFactory(ClassFile classFile, ClassFile.ConstantPoolItemMI m)
+        {
+            if (m.Class != classFile.Name || m.Signature != "(Ljava.lang.Class;)Ljava.lang.invoke.VarHandle;")
+                return null;
+
+            foreach (var method in classFile.Methods)
+            {
+                if (method.Name != m.Name || method.Signature != m.Signature)
+                    continue;
+
+                // aload_0, getstatic ByteOrder.X, invokestatic byteArrayViewVarHandle, areturn, and the terminating nop
+                var code = method.IsStatic ? method.Instructions : null;
+                if (code == null || code.Length != 5 || code[0].NormalizedOpCode != NormalizedByteCode.__aload || code[0].NormalizedArg1 != 0 ||
+                    IsByteArrayViewCall(classFile, code[2]) == false || code[3].NormalizedOpCode != NormalizedByteCode.__areturn)
+                    return null;
+
+                return ByteOrderLiteral(classFile, code[1]);
+            }
+
             return null;
         }
 
@@ -330,6 +417,12 @@ namespace IKVM.Runtime
                 {
                     var arrayType = loader.LoadClassByName(spec.Class);
                     return arrayType.IsArray && arrayType.IsUnloadable == false ? new ConstantVarHandle() { Kind = Kind.ArrayElement, ArrayType = arrayType } : null;
+                }
+
+                if (spec.Kind == Kind.ByteArrayView)
+                {
+                    var viewType = loader.LoadClassByName(spec.Class);
+                    return viewType.IsArray && viewType.IsUnloadable == false && viewType.ArrayRank == 1 ? new ConstantVarHandle() { Kind = Kind.ByteArrayView, ArrayType = viewType, BigEndian = spec.BigEndian } : null;
                 }
 
                 var recv = spec.Class == null ? declaring : loader.LoadClassByName(spec.Class);
@@ -823,6 +916,70 @@ namespace IKVM.Runtime
                 il.ReleaseTempLocal(temps[i]);
 
             eic.NonLeaf = false;
+            return true;
+        }
+
+        /// <summary>
+        /// A byte array view handle's plain get, (byte[], int) to the view's type, and set, (byte[], int, value) to
+        /// void, as a call of the ByteCodeHelper method that does the access with the handle's index check and byte
+        /// order. Other modes (the volatile and atomic ones, which also check alignment) and other call site types keep
+        /// the dynamic call.
+        /// </summary>
+        static bool EmitByteArrayView(EmitIntrinsicContext eic, string mode, ConstantVarHandle vh, RuntimeJavaType[] args, RuntimeJavaType ret)
+        {
+            var context = eic.Context.Context;
+            var p = context.PrimitiveJavaTypeFactory;
+            var helpers = context.ByteCodeHelperMethods;
+            var view = vh.ArrayType.ElementTypeWrapper;
+
+            MethodInfo get, set;
+            if (view == p.SHORT)
+                (get, set) = (helpers.ByteArrayViewGetShort, helpers.ByteArrayViewSetShort);
+            else if (view == p.CHAR)
+                (get, set) = (helpers.ByteArrayViewGetChar, helpers.ByteArrayViewSetChar);
+            else if (view == p.INT)
+                (get, set) = (helpers.ByteArrayViewGetInt, helpers.ByteArrayViewSetInt);
+            else if (view == p.LONG)
+                (get, set) = (helpers.ByteArrayViewGetLong, helpers.ByteArrayViewSetLong);
+            else if (view == p.FLOAT)
+                (get, set) = (helpers.ByteArrayViewGetFloat, helpers.ByteArrayViewSetFloat);
+            else if (view == p.DOUBLE)
+                (get, set) = (helpers.ByteArrayViewGetDouble, helpers.ByteArrayViewSetDouble);
+            else
+                return false;
+
+            if (args.Length < 2 || args[0].IsArray == false || args[0].ArrayRank != 1 || args[0].ElementTypeWrapper != p.BYTE || args[1] != p.INT)
+                return false;
+
+            MethodInfo helper;
+            if (mode == "get" && args.Length == 2 && ret == view)
+                helper = get;
+            else if (mode == "set" && args.Length == 3 && args[2] == view && ret == p.VOID)
+                helper = set;
+            else
+                return false;
+
+            // consume the call site: the arguments, then the handle
+            var il = eic.Emitter;
+            var temps = new CodeEmitterLocal[args.Length];
+            for (int i = args.Length - 1; i >= 0; i--)
+            {
+                temps[i] = il.AllocTempLocal(args[i].TypeAsLocalOrStackType);
+                il.Emit(OpCodes.Stloc, temps[i]);
+            }
+
+            il.EmitNullCheck();
+
+            for (int i = 0; i < temps.Length; i++)
+            {
+                il.Emit(OpCodes.Ldloc, temps[i]);
+                il.ReleaseTempLocal(temps[i]);
+            }
+
+            il.EmitLdc_I4(vh.BigEndian ? 1 : 0);
+            il.Emit(OpCodes.Call, helper);
+
+            eic.NonLeaf = true;
             return true;
         }
 
