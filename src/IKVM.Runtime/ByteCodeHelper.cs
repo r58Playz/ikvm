@@ -245,6 +245,12 @@ namespace IKVM.Runtime
             try
             {
                 var context = RuntimeJavaType.FromClass(callerId.getCallerClass());
+
+                // A hidden class is not registered with its loader, so its own name, which its constant pool uses for
+                // it (a method handle constant to one of its own methods, say), is the caller, as HotSpot resolves it.
+                if (context.IsHidden && context.Name == clazz)
+                    return context;
+
                 var wrapper = RuntimeClassLoader.FromCallerID(callerId).LoadClassByName(clazz);
                 var loader = callerId.getCallerClassLoader();
                 if (loader != null)

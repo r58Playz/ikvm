@@ -302,6 +302,9 @@ namespace IKVM.Java.Externs.java.lang.invoke
                 self.vmtarget = CreateMemberNameDelegate(mw, caller, self.hasReceiverTypeDispatch(), methodType);
             }
 
+            // the class that declares the method, as HotSpot resolves it: Lookup's access checks go by it (a protected
+            // method inherited through a reference class in another package is accessible from the declarer's package)
+            self._clazz(mw.DeclaringType.ClassObject);
             SetModifiers(self, mw);
             self._flags(self._flags() | (mw.IsConstructor ? MN_IS_CONSTRUCTOR : MN_IS_METHOD));
 
@@ -325,6 +328,8 @@ namespace IKVM.Java.Externs.java.lang.invoke
             if (fw == null)
                 throw new global::java.lang.NoSuchFieldError(self.getName());
 
+            // the class that declares the field (see ResolveMethod)
+            self._clazz(fw.DeclaringType.ClassObject);
             SetModifiers(self, fw);
             self._flags(self._flags() | MN_IS_FIELD);
             if (IsTrustedFinal(fw))

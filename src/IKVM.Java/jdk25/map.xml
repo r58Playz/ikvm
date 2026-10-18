@@ -1984,6 +1984,19 @@
                 <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
             </field>
         </class>
+        <!-- the browser's libnio has no inotify, without which LinuxWatchService fails to start: there a watch service
+             that takes registrations and never signals them (local\java.base\sun\nio\fs\InertWatchService.java) -->
+        <class name="sun.nio.fs.LinuxFileSystem">
+            <method name="newWatchService" sig="()Ljava.nio.file.WatchService;">
+                <prologue>
+                    <call type="System.OperatingSystem" name="IsBrowser" sig="()Z" />
+                    <brfalse name="inotify" />
+                    <newobj class="sun.nio.fs.InertWatchService" name="&lt;init&gt;" sig="()V" />
+                    <ret />
+                    <label name="inotify" />
+                </prologue>
+            </method>
+        </class>
         <class name="sun.security.provider.SeedGenerator">
             <method name="getSystemEntropy" sig="()[B">
                 <prologue>

@@ -91,16 +91,60 @@ namespace IKVM.Java.Externs.com.sun.management.@internal
     }
 
     /// <summary>
-    /// Implements the native methods of JDK 25's 'com.sun.management.internal.Flag': the runtime has no VM flags.
+    /// Implements the native methods of JDK 25's 'com.sun.management.internal.Flag'. The runtime has no VM flags of its
+    /// own; it answers, read-only, the ones mods ask HotSpotDiagnosticMXBean.getVMOption for and break without. A name
+    /// it does not know is not a flag, as on HotSpot, so getVMOption still throws IllegalArgumentException for it.
     /// </summary>
     static class Flag
     {
 
-        public static string[] getAllFlagNames() => Array.Empty<string>();
+        /// <summary>
+        /// Name and value of each flag answered. UseFMA: Iris's AdvancedShadowCullingFrustum.&lt;clinit&gt; reads it
+        /// and fails with ExceptionInInitializerError ("VM option "UseFMA" does not exist") when it is missing, which
+        /// takes shadow rendering down; there is no FMA-using JIT here, so it is off.
+        /// </summary>
+        static readonly string[] known = { "UseFMA" };
+        static readonly bool[] knownValue = { false };
 
-        public static int getFlags(string[] names, object[] flags, int count) => 0;
+        public static string[] getAllFlagNames() => (string[])known.Clone();
 
-        public static int getInternalFlagCount() => 0;
+        /// <summary>
+        /// As HotSpot's: with names, flags[i] is set for each names[i] that is a flag; without, the first count flags
+        /// are stored in order. Returns how many were set.
+        /// </summary>
+        public static int getFlags(string[] names, object[] flags, int count)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            int n = 0;
+            if (names == null)
+            {
+                for (int i = 0; i < known.Length && i < count && i < flags.Length; i++)
+                    flags[n++] = Create(i);
+                return n;
+            }
+
+            for (int i = 0; i < names.Length && i < count && i < flags.Length; i++)
+            {
+                int k = Array.IndexOf(known, names[i]);
+                if (k >= 0)
+                {
+                    flags[i] = Create(k);
+                    n++;
+                }
+            }
+
+            return n;
+#endif
+        }
+
+#if !FIRST_PASS
+        static global::com.sun.management.@internal.Flag Create(int k) =>
+            new global::com.sun.management.@internal.Flag(known[k], global::java.lang.Boolean.valueOf(knownValue[k]), false, true, global::com.sun.management.VMOption.Origin.DEFAULT);
+#endif
+
+        public static int getInternalFlagCount() => known.Length;
 
         public static void setLongValue(string name, long value) => throw new global::java.lang.IllegalArgumentException("VM option \"" + name + "\" does not exist");
 
