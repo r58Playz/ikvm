@@ -251,6 +251,16 @@ namespace IKVM.Tests.Runtime
             new StubDefiningClassLoader().Define(bytes).Should().BeSameAs((global::java.lang.Class)typeof(string));
         }
 
+        [TestMethod]
+        public void GeneratedStubOfRemappedClassHasVarArgsMethods()
+        {
+            // String.formatted is an instance method of a sealed type, and so a static helper with ModifiersAttribute:
+            // it has the varargs the ParamArrayAttribute of map.xml gives it, as String.format has
+            using var clazz = ClassFile.Read(ReadJdkClassFile(typeof(global::java.lang.Object), "/java/lang/String.class"));
+            FindMethod(clazz, "formatted", "([Ljava/lang/Object;)Ljava/lang/String;").Value.AccessFlags.Should().Be(AccessFlag.Public | AccessFlag.VarArgs);
+            FindMethod(clazz, "format", "(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;").Value.AccessFlags.Should().Be(AccessFlag.Public | AccessFlag.Static | AccessFlag.VarArgs);
+        }
+
         /// <summary>
         /// Reads the class file of a class of the class library by its resource name.
         /// </summary>
