@@ -22,9 +22,22 @@ namespace IKVM.Tests.Runtime.Vfs
             var asm = typeof(VfsAssemblyDirectoryTests).Assembly.GetName();
             var ent = dir.GetEntry($"{asm.Name}__{asm.Version}__{BitConverter.ToString(asm.GetPublicKeyToken()).ToLower().Replace("-", "")}") as VfsDirectory;
             ent.Should().NotBeNull();
-            ent.List().Should().HaveCount(2);
+            ent.List().Should().HaveCount(3);
             ent.GetEntry("classes").Should().BeAssignableTo<VfsDirectory>();
             ent.GetEntry("resources").Should().BeAssignableTo<VfsDirectory>();
+            ent.GetEntry("modules").Should().BeAssignableTo<VfsDirectory>();
+        }
+
+        [TestMethod]
+        public void CanFindModuleInfo()
+        {
+            // the module-info.class of a module the class library holds, as the JDK image has it
+            var dir = new VfsAssemblyModuleDirectory(JVM.Vfs.Context, typeof(global::java.lang.Object).Assembly);
+            dir.List().Should().Contain("java.base");
+            var ent = (dir.GetEntry("java.base") as VfsDirectory)?.GetEntry("module-info.class") as VfsFile;
+            ent.Should().NotBeNull();
+            new BinaryReader(ent.Open(FileMode.Open, FileAccess.Read)).ReadUInt32().Should().Be(0xBEBAFECA);
+            dir.GetEntry("no.such.module").Should().BeNull();
         }
 
         [TestMethod]
@@ -34,7 +47,7 @@ namespace IKVM.Tests.Runtime.Vfs
             var asm = typeof(VfsAssemblyDirectoryTests).Assembly.GetName();
             var ent = dir.GetEntry($"{asm.Name}__{asm.Version}__{BitConverter.ToString(asm.GetPublicKeyToken()).ToLower().Replace("-", "")}") as VfsDirectory;
             ent.Should().NotBeNull();
-            ent.List().Should().HaveCount(2);
+            ent.List().Should().HaveCount(3);
             var res = ent.GetEntry("resources") as VfsDirectory;
             res.Should().NotBeNull();
             var rsx = res.GetEntry("IKVM.Tests.Runtime.Vfs.VfsTestResource.txt") as VfsFile;

@@ -75,6 +75,51 @@ namespace IKVM.Tests.Runtime
             Run("ikvm.tests.jdk25.SealedFixture").Should().Be("ok,icce,icce");
         }
 
+        [TestMethod]
+        public void StubFixture()
+        {
+            Run("ikvm.tests.jdk25.StubFixture").Should().Be("7,7,local,anonymous,10,3,4");
+        }
+
+        /// <summary>
+        /// Loads a class of the fixtures through the class loader of StubFixture: a nested class is not a type of the
+        /// compiled assembly by its Java name.
+        /// </summary>
+        java.lang.Class GetFixtureClass(string className)
+        {
+            return java.lang.Class.forName(className, true, GetFixture("ikvm.tests.jdk25.StubFixture").getClassLoader());
+        }
+
+        [TestMethod]
+        public void NestHostAndMembers()
+        {
+            var host = GetFixtureClass("ikvm.tests.jdk25.StubFixture");
+            var inner = GetFixtureClass("ikvm.tests.jdk25.StubFixture$Inner");
+            inner.getNestHost().Should().BeSameAs(host);
+            host.getNestHost().Should().BeSameAs(host);
+            host.getNestMembers().Should().Contain(inner);
+            inner.isNestmateOf(host).Should().BeTrue();
+        }
+
+        [TestMethod]
+        public void RecordComponentAnnotations()
+        {
+            var components = GetFixtureClass("ikvm.tests.jdk25.StubFixture$Circle").getRecordComponents();
+            components.Should().HaveCount(2);
+
+            // the RUNTIME annotation is there, the CLASS one is not
+            var annotations = components[0].getAnnotations();
+            annotations.Should().ContainSingle();
+            var visible = (java.lang.annotation.Annotation)annotations[0];
+            visible.annotationType().getName().Should().Be("ikvm.tests.jdk25.StubFixture$Visible");
+            ((string)visible.annotationType().getMethod("value").invoke(visible)).Should().Be("radius");
+
+            // the type annotation of the component's type
+            var typeAnnotations = components[1].getAnnotatedType().getAnnotations();
+            typeAnnotations.Should().ContainSingle();
+            ((java.lang.annotation.Annotation)typeAnnotations[0]).annotationType().getName().Should().Be("ikvm.tests.jdk25.StubFixture$TypeUse");
+        }
+
     }
 
     /// <summary>
@@ -190,12 +235,13 @@ namespace IKVM.Tests.Runtime
         [TestMethod]
         public async Task MultiReleaseJar()
         {
-            // ikvmc compiles the entries of a multi-release JAR that this IKVM's Java version would use, and skips its
-            // module-info.class
+            // ikvmc compiles the entries of a multi-release JAR that this IKVM's Java version would use, and keeps its
+            // module-info.class as it is rather than compiling it
             var mr = await CompileJar("jdk25mr.jar", TestContext);
             var clazz = (java.lang.Class)mr.GetType("ikvm.tests.mr.Release", true);
             ((string)clazz.getMethod("run").invoke(null)).Should().Be(ExpectedMultiReleaseResult);
             mr.GetType("module-info").Should().BeNull();
+            mr.GetManifestResourceNames().Should().Contain("module-info-ikvm.tests.mr.class");
         }
 
     }
