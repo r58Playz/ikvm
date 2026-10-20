@@ -54,13 +54,21 @@ namespace IKVM.Runtime.StubGen
             else if (type.BaseTypeWrapper != null)
                 super = type.BaseTypeWrapper.Name.Replace('.', '/');
 
-            // the class file version of the Java SE release this runtime implements, as the class files of OpenJDK 25
-            var builder = new ClassFileBuilder(ClassFormatVersion.Java25, (AccessFlag)type.Modifiers, name, super);
+            // the version of the class file the type is compiled from, or that of the Java SE release this runtime
+            // implements (69.0, as the class files of OpenJDK 25) if it has none
+            var version = type.ClassFileVersion;
+            var builder = new ClassFileBuilder(new ClassFormatVersion((ushort)(version & 0xFFFF), (ushort)(version >> 16)), (AccessFlag)type.Modifiers, name, super);
 
             AddInterfaces(builder, type, includeNonPublicInterfaces);
             AddMethods(builder, type, includeNonPublicMembers, includeParameterNames);
+            AddClassInitializer(builder, type);
             AddFields(builder, type, includeNonPublicMembers, includeSerialVersionUID);
+            AddSourceFileAttribute(builder, type);
+            AddNestAttributes(builder, type);
             AddInnerClassesAttribute(builder, type, name, includeNonPublicTypes);
+            AddEnclosingMethodAttribute(builder, type);
+            AddRecordAttribute(builder, type);
+            AddPermittedSubclassesAttribute(builder, type);
             AddSignatureAttribute(builder, type);
             AddAssemblyAttribute(builder, type, assemblyName);
             AddDeprecatedAttribute(builder, type);
@@ -260,6 +268,120 @@ namespace IKVM.Runtime.StubGen
         }
 
         /// <summary>
+        /// Adds the class's static initializer, which a compiled Java class has if its class file did: a type compiled
+        /// by ikvmc has a type initializer then. Its wrapper is not among the type's methods, but for a class being
+        /// compiled.
+        /// </summary>
+        /// <param name="builder"></param>
+        /// <param name="type"></param>
+        void AddClassInitializer(ClassFileBuilder builder, RuntimeJavaType type)
+        {
+            if (type is RuntimeManagedByteCodeJavaType && type.TypeAsTBD is { IsArray: false, TypeInitializer: { } clinit } && context.AttributeHelper.IsHideFromJava(clinit) == false)
+            {
+                var attributes = new AttributeTableBuilder(builder.Constants);
+                AddThrowingCode(builder, attributes, 0);
+                builder.AddMethod(AccessFlag.Static, "<clinit>", "()V", attributes);
+            }
+        }
+
+        /// <summary>
+        /// Adds the SourceFile attribute.
+        /// </summary>
+        /// <param name="builder"></param>
+        /// <param name="type"></param>
+        void AddSourceFileAttribute(ClassFileBuilder builder, RuntimeJavaType type)
+        {
+#if !IMPORTER && !EXPORTER
+            if (type.GetSourceFileName() is string sourceFile)
+                builder.Attributes.SourceFile(sourceFile);
+#endif
+        }
+
+        /// <summary>
+        /// Adds the NestHost or NestMembers attribute.
+        /// </summary>
+        /// <param name="builder"></param>
+        /// <param name="type"></param>
+        void AddNestAttributes(ClassFileBuilder builder, RuntimeJavaType type)
+        {
+            if (type.NestHostName is string host)
+                builder.Attributes.NestHost(builder.Constants.GetOrAddClass(host.Replace('.', '/')));
+
+            if (type.NestMemberNames is string[] members)
+                builder.Attributes.NestMembers(e =>
+                {
+                    foreach (var member in members)
+                        e.Class(builder.Constants.GetOrAddClass(member.Replace('.', '/')));
+                });
+        }
+
+        /// <summary>
+        /// Adds the EnclosingMethod attribute of a local or anonymous class.
+        /// </summary>
+        /// <param name="builder"></param>
+        /// <param name="type"></param>
+        void AddEnclosingMethodAttribute(ClassFileBuilder builder, RuntimeJavaType type)
+        {
+#if !IMPORTER && !EXPORTER
+            // the class, and the method if the class is declared in one rather than in an initializer
+            if (type.GetEnclosingMethod() is string[] enc)
+                builder.Attributes.EnclosingMethod(
+                    builder.Constants.GetOrAddClass(enc[0].Replace('.', '/')),
+                    enc[1] != null ? builder.Constants.GetOrAddNameAndType(enc[1], enc[2].Replace('.', '/')) : default);
+#endif
+        }
+
+        /// <summary>
+        /// Adds the Record attribute of a record class.
+        /// </summary>
+        /// <param name="builder"></param>
+        /// <param name="type"></param>
+        void AddRecordAttribute(ClassFileBuilder builder, RuntimeJavaType type)
+        {
+            if (type.RecordComponents is not RecordComponentInfo[] components)
+                return;
+
+            builder.Attributes.Record(e =>
+            {
+                foreach (var component in components)
+                {
+                    e.RecordComponent(builder.Constants.GetOrAddUtf8(component.Name), builder.Constants.GetOrAddUtf8(component.Descriptor.Replace('.', '/')), e2 =>
+                    {
+                        if (component.Signature != null)
+                            e2.Signature(builder.Constants.GetOrAddUtf8(AttributeName.Signature), builder.Constants.GetOrAddUtf8(component.Signature));
+
+                        if (component.Annotations is { Length: > 0 } annotations)
+                            e2.RuntimeVisibleAnnotations(builder.Constants.GetOrAddUtf8(AttributeName.RuntimeVisibleAnnotations), e3 =>
+                            {
+                                foreach (object[] annotation in annotations)
+                                    EncodeAnnotation(builder, ref e3, annotation);
+                            });
+
+                        var typeAnnotationsBlob = new BlobBuilder();
+                        var typeAnnotations = new TypeAnnotationTableEncoder(typeAnnotationsBlob);
+                        if (ImportTypeAnnotations(builder, ref typeAnnotations, type, component.TypeAnnotations))
+                            e2.Attribute(builder.Constants.GetOrAddUtf8(AttributeName.RuntimeVisibleTypeAnnotations), typeAnnotationsBlob);
+                    });
+                }
+            });
+        }
+
+        /// <summary>
+        /// Adds the PermittedSubclasses attribute of a sealed class.
+        /// </summary>
+        /// <param name="builder"></param>
+        /// <param name="type"></param>
+        void AddPermittedSubclassesAttribute(ClassFileBuilder builder, RuntimeJavaType type)
+        {
+            if (type.PermittedSubclassNames is string[] names)
+                builder.Attributes.PermittedSubclasses(e =>
+                {
+                    foreach (var subclass in names)
+                        e.Class(builder.Constants.GetOrAddClass(subclass.Replace('.', '/')));
+                });
+        }
+
+        /// <summary>
         /// Adds the InnerClasses attribute.
         /// </summary>
         /// <param name="builder"></param>
@@ -287,6 +409,36 @@ namespace IKVM.Runtime.StubGen
 
                 any = true;
             }
+#if !IMPORTER && !EXPORTER
+            else if (javaType.GetEnclosingMethod() != null)
+            {
+                // a local or anonymous class: it has no outer class, and an anonymous class has no name
+                var simpleName = javaType.GetSimpleBinaryName();
+                encoder.InnerClass(
+                    builder.Constants.GetOrAddClass(name),
+                    default,
+                    simpleName != null ? builder.Constants.GetOrAddUtf8(simpleName) : default,
+                    (AccessFlag)javaType.ReflectiveModifiers);
+
+                any = true;
+            }
+
+            // the local and anonymous classes declared in the class, which are not among its inner classes
+            foreach (var localType in javaType.LocalAndAnonymousClasses)
+            {
+                if (localType.IsPublic || includeNonPublicTypes)
+                {
+                    var simpleName = localType.GetSimpleBinaryName();
+                    encoder.InnerClass(
+                        builder.Constants.GetOrAddClass(localType.Name.Replace('.', '/')),
+                        default,
+                        simpleName != null ? builder.Constants.GetOrAddUtf8(simpleName) : default,
+                        (AccessFlag)localType.ReflectiveModifiers);
+
+                    any = true;
+                }
+            }
+#endif
 
             foreach (var innerType in javaType.InnerClasses)
             {
@@ -484,7 +636,7 @@ namespace IKVM.Runtime.StubGen
         {
             var blob = new BlobBuilder();
             var encoder = new ParameterAnnotationTableEncoder(blob);
-            if (EncodeParameterAnnotations(builder, ref encoder, method.GetMethod()))
+            if (EncodeParameterAnnotations(builder, ref encoder, method))
                 attributes.Attribute(AttributeName.RuntimeVisibleParameterAnnotations, blob);
         }
 
@@ -631,7 +783,7 @@ namespace IKVM.Runtime.StubGen
         {
             var blob = new BlobBuilder();
             var encoder = new AnnotationTableEncoder(blob);
-            if (EncodeAnnotations(builder, ref encoder, field.GetField()))
+            if (EncodeAnnotations(builder, ref encoder, (MemberInfo)field.GetField() ?? (field as RuntimeManagedByteCodePropertyJavaField)?.GetProperty()))
                 attributes.Attribute(AttributeName.RuntimeVisibleAnnotations, blob);
         }
 
@@ -669,17 +821,22 @@ namespace IKVM.Runtime.StubGen
         /// <param name="builder"></param>
         /// <param name="encoder"></param>
         /// <param name="source"></param>
-        bool EncodeParameterAnnotations(ClassFileBuilder builder, ref ParameterAnnotationTableEncoder encoder, MethodBase source)
+        bool EncodeParameterAnnotations(ClassFileBuilder builder, ref ParameterAnnotationTableEncoder encoder, RuntimeJavaMethod method)
         {
             var any = false;
 
 #if !FIRST_PASS && !EXPORTER && !IMPORTER
+            var source = method.GetMethod();
             if (source != null)
             {
+                // the Java method's parameters: less the instance of an instance method compiled as a static method, and
+                // the trailing CallerID, as Executable.getParameterAnnotations reports them
                 var parameters = source.GetParameters();
-                if (parameters.Length > 0)
+                var skip = source.IsStatic && method.IsStatic == false && method.Name != "<init>" ? 1 : 0;
+                var skipEnd = method.HasCallerID ? 1 : 0;
+                if (parameters.Length - skip - skipEnd > 0)
                 {
-                    for (int i = 0; i < parameters.Length; i++)
+                    for (int i = skip; i < parameters.Length - skipEnd; i++)
                     {
                         encoder.ParameterAnnotation(e2 =>
                         {

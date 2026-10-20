@@ -289,24 +289,7 @@ namespace IKVM.Java.Externs.java.lang
             {
                 var type = RuntimeJavaType.FromClass(self);
                 type.Finish();
-
-                string enclosingName;
-                if (type.DeclaringTypeWrapper != null)
-                    enclosingName = type.DeclaringTypeWrapper.Name;
-                else if (type.GetEnclosingMethod() is string[] enc)
-                    enclosingName = enc[0];
-                else
-                    return null;
-
-                var name = type.Name;
-                if (name.Length <= enclosingName.Length + 1 || name.StartsWith(enclosingName, StringComparison.Ordinal) == false)
-                    return null;
-
-                var simple = name.Substring(enclosingName.Length + 1);
-                if (type.DeclaringTypeWrapper == null)
-                    simple = simple.TrimStart('0', '1', '2', '3', '4', '5', '6', '7', '8', '9');
-
-                return simple.Length > 0 ? simple : null;
+                return type.GetSimpleBinaryName();
             }
             catch (RetargetableJavaException x)
             {

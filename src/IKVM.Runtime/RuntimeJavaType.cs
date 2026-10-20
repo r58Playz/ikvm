@@ -1900,6 +1900,36 @@ namespace IKVM.Runtime
             return null;
         }
 
+        /// <summary>
+        /// The local and anonymous classes declared in this class, which are not among its <see cref="InnerClasses"/>.
+        /// </summary>
+        internal virtual RuntimeJavaType[] LocalAndAnonymousClasses => Array.Empty<RuntimeJavaType>();
+
+        /// <summary>
+        /// The class's name in the InnerClasses attribute, which is null for an anonymous class or one that is not
+        /// nested. As javac names nested classes, it is what follows the enclosing class's name and '$', less the digits
+        /// of a local class.
+        /// </summary>
+        internal string GetSimpleBinaryName()
+        {
+            string enclosingName;
+            if (DeclaringTypeWrapper != null)
+                enclosingName = DeclaringTypeWrapper.Name;
+            else if (GetEnclosingMethod() is string[] enc)
+                enclosingName = enc[0];
+            else
+                return null;
+
+            if (Name.Length <= enclosingName.Length + 1 || Name.StartsWith(enclosingName, StringComparison.Ordinal) == false)
+                return null;
+
+            var simple = Name.Substring(enclosingName.Length + 1);
+            if (DeclaringTypeWrapper == null)
+                simple = simple.TrimStart('0', '1', '2', '3', '4', '5', '6', '7', '8', '9');
+
+            return simple.Length > 0 ? simple : null;
+        }
+
         internal virtual object[] GetDeclaredAnnotations()
         {
             return null;

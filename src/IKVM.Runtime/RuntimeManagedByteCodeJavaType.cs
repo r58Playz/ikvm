@@ -1206,6 +1206,21 @@ namespace IKVM.Runtime
             return null;
         }
 
+        internal override RuntimeJavaType[] LocalAndAnonymousClasses
+        {
+            get
+            {
+                // ikvmc compiles a local or anonymous class as a type nested in that of the class it is declared in,
+                // unless it cannot nest it, and then the class it is declared in does not know it
+                var list = new List<RuntimeJavaType>();
+                foreach (var nested in type.GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                    if (IsNestedTypeAnonymousOrLocalClass(nested) && Context.AttributeHelper.IsHideFromJava(nested) == false)
+                        list.Add(Context.ClassLoaderFactory.GetJavaTypeFromType(nested));
+
+                return list.ToArray();
+            }
+        }
+
         internal override object[] GetDeclaredAnnotations()
         {
             return type.GetCustomAttributes(false);
