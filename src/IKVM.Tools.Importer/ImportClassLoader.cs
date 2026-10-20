@@ -1116,7 +1116,7 @@ namespace IKVM.Tools.Importer
                 private MethodBuilder mbHelper;
 
                 internal RemappedConstructorWrapper(RemapperTypeWrapper typeWrapper, IKVM.Tools.Importer.MapXml.Constructor m)
-                    : base(typeWrapper, "<init>", m.Sig, (Modifiers)m.Modifiers)
+                    : base(typeWrapper, "<init>", m.Sig, GetModifiers(m))
                 {
                     this.m = m;
                 }
@@ -1157,7 +1157,7 @@ namespace IKVM.Tools.Importer
                             }
                         }
                         SetParameters(DeclaringType.ClassLoader, mbHelper, m.Parameters);
-                        DeclaringType.Context.AttributeHelper.SetModifiers(mbHelper, (Modifiers)m.Modifiers, false);
+                        DeclaringType.Context.AttributeHelper.SetModifiers(mbHelper, GetModifiers(m), false);
                         DeclaringType.Context.AttributeHelper.SetNameSig(mbHelper, "<init>", m.Sig);
                         AddDeclaredExceptions(DeclaringType.Context, mbHelper, m.Throws);
                     }
@@ -1274,7 +1274,7 @@ namespace IKVM.Tools.Importer
                 private bool inherited;
 
                 internal RemappedMethodWrapper(RemapperTypeWrapper typeWrapper, IKVM.Tools.Importer.MapXml.Method m, IKVM.Tools.Importer.MapXml.Root map, bool inherited)
-                    : base(typeWrapper, m.Name, m.Sig, (Modifiers)m.Modifiers)
+                    : base(typeWrapper, m.Name, m.Sig, GetModifiers(m))
                 {
                     this.m = m;
                     this.map = map;
@@ -1538,7 +1538,7 @@ namespace IKVM.Tools.Importer
                             {
                                 DeclaringType.Context.AttributeHelper.SetEditorBrowsableNever(mbHelper);
                             }
-                            DeclaringType.Context.AttributeHelper.SetModifiers(mbHelper, (Modifiers)m.Modifiers, false);
+                            DeclaringType.Context.AttributeHelper.SetModifiers(mbHelper, GetModifiers(m), false);
                             DeclaringType.Context.AttributeHelper.SetNameSig(mbHelper, m.Name, m.Sig);
                             AddDeclaredExceptions(DeclaringType.Context, mbHelper, m.Throws);
                             mbHelper.SetCustomAttribute(new CustomAttributeBuilder(DeclaringType.Context.Resolver.ResolveCoreType(typeof(ObsoleteAttribute).FullName).AsReflection().GetConstructor([DeclaringType.Context.Types.String]), ["This function will be removed from future versions. Please use extension methods from ikvm.extensions namespace instead."]));
@@ -1818,6 +1818,24 @@ namespace IKVM.Tools.Importer
                         mw.EmitCall(ilgen);
                     }
                 }
+            }
+
+            /// <summary>
+            /// Gets the modifiers of a method or constructor of the map: those it has, and varargs if its last parameter
+            /// has ParamArrayAttribute, as the runtime finds it for a method without ModifiersAttribute. A helper has
+            /// ModifiersAttribute, which the runtime takes as they are.
+            /// </summary>
+            /// <param name="m"></param>
+            /// <returns></returns>
+            private static Modifiers GetModifiers(IKVM.Tools.Importer.MapXml.MethodConstructorBase m)
+            {
+                var modifiers = (Modifiers)m.Modifiers;
+                if (m.Parameters is { Length: > 0 } parameters && parameters[parameters.Length - 1].Attributes is { } attributes)
+                    foreach (var attr in attributes)
+                        if (attr.Type == "System.ParamArrayAttribute")
+                            return modifiers | Modifiers.VarArgs;
+
+                return modifiers;
             }
 
             private static void SetParameters(RuntimeClassLoader loader, MethodBuilder mb, IKVM.Tools.Importer.MapXml.Parameter[] parameters)
