@@ -242,6 +242,30 @@ namespace IKVM.Tests.Runtime
             ((string)clazz.getMethod("run").invoke(null)).Should().Be(ExpectedMultiReleaseResult);
             mr.GetType("module-info").Should().BeNull();
             mr.GetManifestResourceNames().Should().Contain("module-info-ikvm.tests.mr.class");
+
+            // the assembly's modules directory has the module, with the stub of the class the class path has: that of
+            // the entry for this Java version
+            var modules = new IKVM.Runtime.Vfs.VfsAssemblyModuleDirectory(IKVM.Runtime.JVM.Vfs.Context, mr);
+            modules.List().Should().Equal("ikvm.tests.mr");
+            IKVM.Runtime.Vfs.VfsEntry entry = modules;
+            foreach (var name in new[] { "ikvm.tests.mr", "ikvm", "tests", "mr", "Release.class" })
+                entry = (entry as IKVM.Runtime.Vfs.VfsDirectory)?.GetEntry(name);
+
+            var file = entry as IKVM.Runtime.Vfs.VfsFile;
+            file.Should().NotBeNull();
+            using var stub = new MemoryStream();
+            using (var s = file.Open(FileMode.Open, FileAccess.Read))
+                s.CopyTo(stub);
+
+            var expected = clazz.getResourceAsStream("Release.class");
+            try
+            {
+                stub.ToArray().Should().Equal(expected.readAllBytes());
+            }
+            finally
+            {
+                expected.close();
+            }
         }
 
     }
