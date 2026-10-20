@@ -51,7 +51,22 @@ namespace IKVM.Java.Externs.sun.management
 #if FIRST_PASS
 		    return null;
 #else
+            // The GC's statistics from its last collection, an O(1) read -- the same source Runtime.totalMemory() and
+            // freeMemory() use, for the same reason: GC.GetTotalMemory resolves on mono/sgen to a walk of every object in
+            // the major heap (sgen-marksweep.c major_get_used_size), and Minecraft's F3 screen (Sodium's line on it, and
+            // 26.2's own DebugEntryMemory) asks MemoryMXBean for usage every frame: 38-66 ms a frame at Minecraft's heap
+            // sizes (1.16.5 61 -> 17 fps, 26.2 106 -> 12 with F3 open).
+#if NETFRAMEWORK
             long mem = System.GC.GetTotalMemory(false);
+#else
+            var info = System.GC.GetGCMemoryInfo();
+            long mem = info.HeapSizeBytes - info.FragmentedBytes;
+
+            // Before the first collection the cached statistics are zero; the cumulative allocation count is the
+            // cheap stand-in, as in Runtime.GetHeapInfo.
+            if (mem <= 0)
+                mem = System.GC.GetTotalAllocatedBytes(false);
+#endif
             return new global::java.lang.management.MemoryUsage(-1, mem, mem, -1);
 #endif
         }

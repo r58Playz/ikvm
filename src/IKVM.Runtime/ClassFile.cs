@@ -1428,29 +1428,40 @@ namespace IKVM.Runtime
 
             readonly RuntimeContext context;
             readonly IDiagnosticHandler diagnostics;
+            // exactly one of the two: the decoded reader, or (IKVM_REPARSE_BYTES) the bytes it was decoded from
             readonly IKVM.ByteCode.Decoding.ClassFile clazz;
+            readonly byte[] bytes;
             readonly ClassFileParseOptions parseOptions;
 
-            internal ReparseSource(RuntimeContext context, IDiagnosticHandler diagnostics, IKVM.ByteCode.Decoding.ClassFile clazz, ClassFileParseOptions parseOptions)
+            internal ReparseSource(RuntimeContext context, IDiagnosticHandler diagnostics, IKVM.ByteCode.Decoding.ClassFile clazz, byte[] bytes, ClassFileParseOptions parseOptions)
             {
                 this.context = context;
                 this.diagnostics = diagnostics;
-                this.clazz = clazz;
+                this.clazz = bytes == null ? clazz : null;
+                this.bytes = bytes;
                 this.parseOptions = parseOptions;
             }
 
-            internal ClassFile Reparse() => new ClassFile(context, diagnostics, clazz, null, parseOptions, null);
+            internal ClassFile Reparse() => new ClassFile(context, diagnostics, clazz ?? IKVM.ByteCode.Decoding.ClassFile.Read(bytes), null, parseOptions, null);
 
         }
 
         ReparseSource reparseSource;
+
+        /// <summary>
+        /// wasm fork (R513, IKVM_REPARSE_BYTES): the bytes <see cref="clazz"/> was decoded from, when the defining class loader
+        /// passed its private copy; what a <see cref="ReparseSource"/> keeps instead of the decoded reader. Null otherwise.
+        /// </summary>
+        byte[] rawBytes;
+
+        internal void SetRawBytes(byte[] bytes) => rawBytes = bytes;
 
         internal ReparseSource GetReparseSource()
         {
             if (hadConstantPoolPatches)
                 return null;
 
-            return reparseSource ??= new ReparseSource(context, diagnostics, clazz, parseOptions);
+            return reparseSource ??= new ReparseSource(context, diagnostics, clazz, JVM.ReparseBytes ? rawBytes : null, parseOptions);
         }
 
         internal object[] GetConstantPool()

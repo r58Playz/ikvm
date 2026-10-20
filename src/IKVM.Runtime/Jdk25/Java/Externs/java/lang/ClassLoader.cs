@@ -37,7 +37,7 @@ namespace IKVM.Java.Externs.java.lang
 #else
             var buf = new byte[len];
             Array.Copy(b, off, buf, 0, len);
-            return DefineClass(loader, name, ReadClass(buf), pd, source);
+            return DefineClass(loader, name, ReadClass(buf), buf, pd, source);
 #endif
         }
 
@@ -48,7 +48,7 @@ namespace IKVM.Java.Externs.java.lang
 #else
             var buf = new byte[len];
             bb.get(off, buf);
-            return DefineClass(loader, name, ReadClass(buf), pd, source);
+            return DefineClass(loader, name, ReadClass(buf), buf, pd, source);
 #endif
         }
 
@@ -73,6 +73,7 @@ namespace IKVM.Java.Externs.java.lang
                     var host = RuntimeJavaType.FromClass(lookup);
                     var cl = host.ClassLoader;
                     var cf = new IKVM.Runtime.ClassFile(JVM.Context, JVM.Context.Diagnostics, ReadClass(buf), name ?? "<Unknown>", cl.ClassFileParseOptions, null);
+                    cf.SetRawBytes(buf);
                     var type = cl.GetTypeWrapperFactory().DefineClassImpl(null, host, cf, cl, pd ?? lookup.pd);
 
                     // Java's own checks of private access go by nests: a nestmate joins the lookup class's
@@ -88,7 +89,7 @@ namespace IKVM.Java.Externs.java.lang
             }
             else
             {
-                clazz = DefineClass(loader, name, ReadClass(buf), pd, null);
+                clazz = DefineClass(loader, name, ReadClass(buf), buf, pd, null);
             }
 
             if (classData != null)
@@ -131,7 +132,8 @@ namespace IKVM.Java.Externs.java.lang
         /// <summary>
         /// Defines a new class with the specified information.
         /// </summary>
-        static global::java.lang.Class DefineClass(global::java.lang.ClassLoader loader, string name, IKVM.ByteCode.Decoding.ClassFile clazz, global::java.security.ProtectionDomain pd, string source)
+        /// <param name="bytes">The private copy <paramref name="clazz"/> was decoded from (R513: kept for a reparse).</param>
+        static global::java.lang.Class DefineClass(global::java.lang.ClassLoader loader, string name, IKVM.ByteCode.Decoding.ClassFile clazz, byte[] bytes, global::java.security.ProtectionDomain pd, string source)
         {
             // a binary name, or (from Lookup.defineClass) an internal one
             name = name?.Replace('/', '.');
@@ -140,6 +142,7 @@ namespace IKVM.Java.Externs.java.lang
             {
                 var runtimeClassLoader = JVM.Context.ClassLoaderFactory.GetClassLoaderWrapper(loader);
                 var classFile = new IKVM.Runtime.ClassFile(JVM.Context, JVM.Context.Diagnostics, clazz, name, runtimeClassLoader.ClassFileParseOptions, null);
+                classFile.SetRawBytes(bytes);
                 if (name != null && classFile.Name != name)
                     throw new global::java.lang.NoClassDefFoundError(name + " (wrong name: " + classFile.Name + ")");
 

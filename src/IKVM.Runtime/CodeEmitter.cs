@@ -432,7 +432,8 @@ namespace IKVM.Runtime
             }
             else if (arg is string s)
             {
-                ilgen_real.Emit(opcode, s);
+                // JVM.InternLdstr (R513): one object per literal content, as Java requires and as the token table can share
+                ilgen_real.Emit(opcode, JVM.InternLdstr && opcode == OpCodes.Ldstr ? string.Intern(s) : s);
             }
             else if (arg is Type type)
             {

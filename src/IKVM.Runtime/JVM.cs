@@ -65,6 +65,24 @@ namespace IKVM.Runtime
         internal static readonly bool LazySlim = SafeGetEnvironmentVariable("IKVM_LAZY_SLIM") != "0";
 
         /// <summary>
+        /// IKVM_REPARSE_BYTES (wasm fork, R513): a ReparseSource keeps the class's raw bytes -- the private copy the defining
+        /// class loader made -- and decodes them again when a recompile reparses, instead of keeping the decoded reader. A
+        /// lazy entry whose method never runs is never released, so its class's decoded constant pool (ConstantData[],
+        /// Utf8ConstantData[] with one string per UTF-8 constant, Attribute[]) stayed alive for good: ~80 MB on the 26.2
+        /// world-load heap (R512). "0" keeps the decoded reader, as before.
+        /// </summary>
+        internal static readonly bool ReparseBytes = SafeGetEnvironmentVariable("IKVM_REPARSE_BYTES") != "0";
+
+        /// <summary>
+        /// IKVM_INTERN_LDSTR (wasm fork, R513): every ldstr operand CodeEmitter emits is interned. In a dynamic assembly mono's
+        /// ldstr returns exactly the object handed to the ILGenerator, which for a Java string literal was that class's own
+        /// copy of the UTF-8 constant -- so equal literals in two classes were two objects (Java requires one), and every
+        /// interpreter/JIT literal table and the dynamic image's token table kept its own copy (~30 MB of duplicate strings
+        /// referenced from native memory on the 26.2 world-load heap). "0" emits the string as given, as before.
+        /// </summary>
+        internal static readonly bool InternLdstr = SafeGetEnvironmentVariable("IKVM_INTERN_LDSTR") != "0";
+
+        /// <summary>
         /// IKVM_ARRAYCOPY_OBJ (R429/R430/R435): System.arraycopy between reference arrays is copied inside
         /// ByteCodeHelper.arraycopy -- a ref-store loop (or Span.CopyTo past IKVM_ARRAYCOPY_LOOP elements) when no
         /// element can need a store check, otherwise a loop that store-checks only on a change of element class. "0"
