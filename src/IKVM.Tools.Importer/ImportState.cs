@@ -41,6 +41,7 @@ namespace IKVM.Tools.Importer
     {
 
         internal List<Jar> jars = new List<Jar>();
+        internal List<(string Module, byte[] Data)> moduleInfos = new List<(string Module, byte[] Data)>();
         private Dictionary<string, int> jarMap = new Dictionary<string, int>();
         internal int classesJar = -1;
         internal int resourcesJar = -1;
@@ -99,6 +100,7 @@ namespace IKVM.Tools.Importer
         {
             ImportState copy = (ImportState)MemberwiseClone();
             copy.jars = Copy(jars);
+            copy.moduleInfos = new List<(string Module, byte[] Data)>(moduleInfos);
             copy.jarMap = new Dictionary<string, int>(jarMap);
             if (props != null)
             {

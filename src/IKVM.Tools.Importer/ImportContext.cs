@@ -1053,6 +1053,12 @@ namespace IKVM.Tools.Importer
                     {
                         found = true;
                         var data = ReadFromZip(ze);
+                        if (name == "module-info.class")
+                        {
+                            AddModuleInfo(options, diagnostics, file, data);
+                            continue;
+                        }
+
                         if (IsExcludedOrStubLegacy(context, compiler, options, diagnostics, ze, data))
                         {
                             continue;
@@ -1088,7 +1094,6 @@ namespace IKVM.Tools.Importer
         /// manifest says Multi-Release: true) an entry under META-INF/versions/N/ for the highest N not above that version
         /// stands in for the entry of the same path outside it, under that path; entries for later versions are left out.
         /// A plain JAR's META-INF/versions entries are left out too: they are not classes, nor resources anyone loads.
-        /// module-info.class, which describes a JPMS module rather than being a class, is left out as well.
         /// </summary>
         static IEnumerable<(string Name, ZipArchiveEntry Entry)> SelectVersionedEntries(ZipArchive zf)
         {
@@ -1123,9 +1128,6 @@ namespace IKVM.Tools.Importer
                         continue;
                 }
 
-                if (path == "module-info.class")
-                    continue;
-
                 if (chosen.TryGetValue(path, out var current))
                 {
                     if (version > current.Version)
@@ -1142,6 +1144,60 @@ namespace IKVM.Tools.Importer
                 yield return (path, chosen[path].Entry);
         }
 
+        /// <summary>
+        /// Keeps a module-info.class, which describes a JPMS module rather than being a class: it is not compiled, but
+        /// stored as it is, for the module's resources to have it.
+        /// </summary>
+        /// <param name="options"></param>
+        /// <param name="diagnostics"></param>
+        /// <param name="file"></param>
+        /// <param name="data"></param>
+        static void AddModuleInfo(ImportState options, IDiagnosticHandler diagnostics, string file, byte[] data)
+        {
+            var module = GetModuleName(data);
+            if (module == null)
+            {
+                diagnostics.GenericCompilerWarning($"{file}: module-info.class does not describe a module, skipped");
+                return;
+            }
+
+            foreach (var moduleInfo in options.moduleInfos)
+            {
+                if (moduleInfo.Module == module)
+                {
+                    diagnostics.GenericCompilerWarning($"{file}: module-info.class of module {module} seen before, skipped");
+                    return;
+                }
+            }
+
+            options.moduleInfos.Add((module, data));
+        }
+
+        /// <summary>
+        /// Gets the name of the module a module-info.class describes, or null if it does not describe one.
+        /// </summary>
+        /// <param name="data"></param>
+        /// <returns></returns>
+        static string GetModuleName(byte[] data)
+        {
+            try
+            {
+                using var clazz = IKVM.ByteCode.Decoding.ClassFile.Read(data);
+                if ((clazz.AccessFlags & AccessFlag.Module) == 0)
+                    return null;
+
+                foreach (var attribute in clazz.Attributes)
+                    if (clazz.Constants.Get(attribute.Name).Value == AttributeName.Module)
+                        return clazz.Constants.Get(((IKVM.ByteCode.Decoding.ModuleAttribute)attribute).Name).Name;
+
+                return null;
+            }
+            catch (ByteCodeException)
+            {
+                return null;
+            }
+        }
+
         void ProcessFile(RuntimeContext context, StaticCompiler compiler, ImportState options, IDiagnosticHandler diagnostics, DirectoryInfo baseDir, string file)
         {
             var fileInfo = GetFileInfo(file);
@@ -1151,6 +1207,12 @@ namespace IKVM.Tools.Importer
             }
             else
             {
+                if (fileInfo.Name.Equals("module-info.class", StringComparison.Ordinal))
+                {
+                    AddModuleInfo(options, diagnostics, file, ReadAllBytes(fileInfo));
+                    return;
+                }
+
                 if (fileInfo.Extension.Equals(".class", StringComparison.OrdinalIgnoreCase))
                 {
                     byte[] data = ReadAllBytes(fileInfo);

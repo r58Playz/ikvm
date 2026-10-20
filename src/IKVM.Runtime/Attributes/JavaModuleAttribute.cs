@@ -33,6 +33,7 @@ namespace IKVM.Attributes
     {
         private string[] classMap;
         private string[] jars;
+        private string[] moduleInfos;
 
         public JavaModuleAttribute()
         {
@@ -53,6 +54,16 @@ namespace IKVM.Attributes
         {
             get { return jars; }
             set { jars = value; }
+        }
+
+        /// <summary>
+        /// The module-info.class of each JPMS module among the classes compiled into the module: pairs of the name of
+        /// the JPMS module and that of the manifest resource holding the class file as it is.
+        /// </summary>
+        public string[] ModuleInfos
+        {
+            get { return moduleInfos; }
+            set { moduleInfos = value; }
         }
 
     }

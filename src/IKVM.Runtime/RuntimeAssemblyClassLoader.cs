@@ -84,6 +84,7 @@ namespace IKVM.Runtime
             bool hasDotNetModule;
             AssemblyName[] internalsVisibleTo;
             string[] jarList;
+            List<string> moduleInfoList;
 #if !IMPORTER && !EXPORTER && !FIRST_PASS
             jdk.@internal.loader.URLClassPath urlClassPath;
 #elif !IMPORTER && !EXPORTER && !FIRST_PASS
@@ -129,6 +130,13 @@ namespace IKVM.Runtime
                                 }
                             }
 
+                            // pairs of a JPMS module's name and the resource holding its module-info.class
+                            if (jma.ModuleInfos is string[] moduleInfos)
+                            {
+                                moduleInfoList ??= new List<string>();
+                                moduleInfoList.AddRange(moduleInfos);
+                            }
+
                             var jars = jma.Jars;
                             if (jars != null)
                             {
@@ -156,6 +164,32 @@ namespace IKVM.Runtime
             internal Assembly Assembly
             {
                 get { return assembly; }
+            }
+
+            /// <summary>
+            /// The JPMS modules whose module-info.class the assembly holds.
+            /// </summary>
+            internal IEnumerable<string> ModuleInfoModules
+            {
+                get
+                {
+                    if (moduleInfoList != null)
+                        for (int i = 0; i + 1 < moduleInfoList.Count; i += 2)
+                            yield return moduleInfoList[i];
+                }
+            }
+
+            /// <summary>
+            /// The name of the manifest resource holding the module-info.class of the given JPMS module, or null.
+            /// </summary>
+            internal string GetModuleInfoResource(string module)
+            {
+                if (moduleInfoList != null)
+                    for (int i = 0; i + 1 < moduleInfoList.Count; i += 2)
+                        if (moduleInfoList[i] == module)
+                            return moduleInfoList[i + 1];
+
+                return null;
             }
 
 #if !IMPORTER && !EXPORTER
@@ -899,6 +933,40 @@ namespace IKVM.Runtime
 
 #if !IMPORTER && !EXPORTER
 
+        /// <summary>
+        /// The JPMS modules whose module-info.class the assembly holds.
+        /// </summary>
+        internal IEnumerable<string> ModuleInfoModules => assemblyLoader.ModuleInfoModules;
+
+        /// <summary>
+        /// The name of the manifest resource holding the module-info.class of the given JPMS module, or null.
+        /// </summary>
+        internal string GetModuleInfoResource(string module) => assemblyLoader.GetModuleInfoResource(module);
+
+        /// <summary>
+        /// Finds the module-info.class of the given JPMS module, if the assembly holds it.
+        /// </summary>
+        internal java.net.URL FindModuleInfo(string module)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            if (assemblyLoader.Assembly.IsDynamic || assemblyLoader.GetModuleInfoResource(module) == null)
+                return null;
+
+            return MakeModuleInfoURL(assemblyLoader.Assembly, module);
+#endif
+        }
+
+        static java.net.URL MakeModuleInfoURL(Assembly asm, string module)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            return new java.io.File(Path.Combine(VfsTable.GetAssemblyModulesPath(JVM.Vfs.Context, asm, JVM.Properties.HomePath), module, "module-info.class")).toURI().toURL();
+#endif
+        }
+
         static java.net.URL MakeResourceURL(Assembly asm, string name)
         {
 #if FIRST_PASS
@@ -918,6 +986,17 @@ namespace IKVM.Runtime
                 yield break;
 
             var found = false;
+
+            // module-info.class is not in a package, so it is that of each JPMS module the assembly holds, as the
+            // resources of the modules defined to a built-in class loader are (BuiltinClassLoader.findMiscResource)
+            if (unmangledName == "module-info.class")
+            {
+                foreach (var module in assemblyLoader.ModuleInfoModules)
+                {
+                    found = true;
+                    yield return MakeModuleInfoURL(assemblyLoader.Assembly, module);
+                }
+            }
 
             var urls = assemblyLoader.FindResources(unmangledName);
             while (urls.hasMoreElements())

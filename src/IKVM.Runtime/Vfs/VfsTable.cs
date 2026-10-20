@@ -208,6 +208,29 @@ namespace IKVM.Runtime.Vfs
         }
 
         /// <summary>
+        /// Gets the path within the default virtual file system where the module-info.class files of the JPMS modules
+        /// the given assembly holds are mapped, each in the directory named after its module.
+        /// </summary>
+        /// <param name="context"></param>
+        /// <param name="assembly"></param>
+        /// <param name="ikvmHome"></param>
+        /// <returns></returns>
+        public static string GetAssemblyModulesPath(VfsContext context, Assembly assembly, string ikvmHome)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            if (assembly is null)
+                throw new ArgumentNullException(nameof(assembly));
+
+            if (Directory.Exists(ikvmHome) == false)
+                throw new DirectoryNotFoundException("Could not locate IkvmHome when finding VFS.");
+
+            return PathExtensions.EnsureEndingDirectorySeparator(Path.Combine(ikvmHome, "assembly", GetAssemblyDirectoryName(context, assembly), "modules"));
+#endif
+        }
+
+        /// <summary>
         /// Returns <c>true</c> if the assembly is loadable by name.
         /// </summary>
         /// <param name="context"></param>

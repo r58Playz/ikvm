@@ -52,6 +52,24 @@ namespace IKVM.Java.Externs.jdk.@internal.loader
 #endif
         }
 
+        /// <summary>
+        /// Implements the native method 'getBootstrapModuleResource': a resource of the named module defined to the boot
+        /// loader. Its modules' resources are all the boot loader's, but for their module-info.class, which is each
+        /// module's own.
+        /// </summary>
+        public static global::java.net.URL getBootstrapModuleResource(string mn, string name)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            var loader = JVM.Context.ClassLoaderFactory.GetBootstrapClassLoader();
+            if (mn != null && name == "module-info.class")
+                return loader.FindModuleInfo(mn);
+
+            return loader.GetResources(name).FirstOrDefault();
+#endif
+        }
+
         public static global::java.util.Enumeration getBootstrapResources(string name)
         {
 #if FIRST_PASS

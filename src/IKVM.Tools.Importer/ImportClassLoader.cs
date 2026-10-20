@@ -81,6 +81,7 @@ namespace IKVM.Tools.Importer
         readonly List<RuntimeClassLoader> internalsVisibleTo = new List<RuntimeClassLoader>();
         readonly List<RuntimeJavaType> dynamicallyImportedTypes = new List<RuntimeJavaType>();
         readonly List<string> jarList = new List<string>();
+        readonly List<string> moduleInfoList = new List<string>();
         List<RuntimeJavaType> javaTypes;
         FakeTypes fakeTypes;
 
@@ -669,6 +670,11 @@ namespace IKVM.Tools.Importer
             var typeofJavaModuleAttribute = Context.Resolver.ResolveRuntimeType(typeof(JavaModuleAttribute).FullName).AsReflection();
             var propInfos = new[] { typeofJavaModuleAttribute.GetProperty("Jars") };
             var propValues = new object[] { jarList.ToArray() };
+            if (moduleInfoList.Count > 0)
+            {
+                propInfos = [.. propInfos, typeofJavaModuleAttribute.GetProperty("ModuleInfos")];
+                propValues = [.. propValues, moduleInfoList.ToArray()];
+            }
 
             if (nameMappings.Count > 0)
             {
@@ -842,6 +848,18 @@ namespace IKVM.Tools.Importer
                     jarList.Add(name);
                     moduleBuilder.DefineManifestResource(name, mem, ResourceAttributes.Public);
                 }
+            }
+
+            // the module-info.class of each JPMS module, as it is
+            foreach (var (module, data) in state.moduleInfos)
+            {
+                var name = "module-info-" + module + ".class";
+                if (state.targetIsModule)
+                    name = Path.GetFileNameWithoutExtension(name) + "-" + moduleBuilder.ModuleVersionId.ToString("N") + Path.GetExtension(name);
+
+                moduleInfoList.Add(module);
+                moduleInfoList.Add(name);
+                moduleBuilder.DefineManifestResource(name, new MemoryStream(data), ResourceAttributes.Public);
             }
         }
 

@@ -153,8 +153,8 @@ public class BootLoader {
      * Returns a URL to a resource in a module defined to the boot loader.
      */
     public static URL findResource(String mn, String name) throws IOException {
-        // IKVM: the IKVM.Java assembly holds the resources of the system modules
-        return getBootstrapResource(name);
+        // IKVM: the IKVM.Java assembly holds the resources of the system modules, each module's module-info.class among them
+        return getBootstrapModuleResource(mn, name);
     }
 
     /**
@@ -164,8 +164,8 @@ public class BootLoader {
     public static InputStream findResourceAsStream(String mn, String name)
         throws IOException
     {
-        // IKVM: the IKVM.Java assembly holds the resources of the system modules
-        URL url = getBootstrapResource(name);
+        // IKVM: the IKVM.Java assembly holds the resources of the system modules, each module's module-info.class among them
+        URL url = getBootstrapModuleResource(mn, name);
         return url != null ? url.openStream() : null;
     }
 
@@ -335,5 +335,6 @@ public class BootLoader {
 
     // IKVM: the resources of the boot loader's assemblies
     private static native URL getBootstrapResource(String name);
+    private static native URL getBootstrapModuleResource(String mn, String name);
     private static native Enumeration<URL> getBootstrapResources(String name);
 }

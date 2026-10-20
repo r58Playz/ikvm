@@ -33,13 +33,13 @@
 
     <!--
         The JDK's classes go to ikvmc as they are, except where local\ replaces a source file: then its class and the
-        nested classes compiled from it come from IKVM's version. module-info is not a class.
+        nested classes compiled from it come from IKVM's version. Each module's module-info.class goes too: ikvmc keeps it
+        as it is, for Module.getResourceAsStream("module-info.class") to read.
     -->
     <Target Name="_OpenJdkConvert" AfterTargets="CompileJava">
         <ItemGroup>
             <_OpenJdkReplaced Include="@(OpenJdkOverlaySource->'$(OpenJdkModulesDir)%(RecursiveDir)%(Filename).class')" />
             <_OpenJdkReplaced Include="@(OpenJdkOverlaySource->'$(OpenJdkModulesDir)%(RecursiveDir)%(Filename)$*.class')" />
-            <_OpenJdkReplaced Include="$(OpenJdkModulesDir)*\module-info.class" />
             <!-- the classes map.xml maps onto .NET types (their nested classes stay) -->
             <_OpenJdkReplaced Include="$(OpenJdkModulesDir)java.base\java\lang\Object.class" />
             <_OpenJdkReplaced Include="$(OpenJdkModulesDir)java.base\java\lang\String.class" />
