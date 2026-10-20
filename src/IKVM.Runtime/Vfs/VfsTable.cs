@@ -35,6 +35,10 @@ namespace IKVM.Runtime.Vfs
 
             var table = new VfsTable(context);
             table.AddMount(Path.Combine(ikvmHome, "assembly"), new VfsAssemblyDirectory(context));
+
+            // the run-time image is an exploded image of the modules the class library holds, there being no
+            // lib/modules: jrt:/ (jrtfs, the jrt URL handler) and ModuleFinder.ofSystem() read it
+            table.AddMount(Path.Combine(ikvmHome, "modules"), new VfsAssemblyModuleDirectory(context, context.Context.Resolver.ResolveBaseAssembly().AsReflection()));
             return table;
 #endif
         }
