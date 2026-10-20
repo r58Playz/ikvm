@@ -30,9 +30,12 @@ namespace IKVM.Java.Externs.java.io
 
         const string Name = "java/io/UnixFileSystem";
 
-        static bool IsVfs(object f) => JVM.Vfs.IsPath(((global::java.io.File)f).getPath());
+        static VfsPath Resolve(object f) => JVM.Vfs.Resolve(((global::java.io.File)f).getPath());
 
-        static string GetPath(object f) => ((global::java.io.File)f).getPath();
+        /// <summary>
+        /// Gets the file to give libjava: the original, unless the virtual file system rewrote its path.
+        /// </summary>
+        static object HostFile(VfsPath p, object f) => p.Rewritten ? new global::java.io.File(p.Path) : f;
 
 #endif
 
@@ -59,13 +62,14 @@ namespace IKVM.Java.Externs.java.io
             throw new NotImplementedException();
 #else
             // the virtual file system has no links
-            if (JVM.Vfs.IsPath(path))
-                return Path.GetFullPath(path);
+            var p = JVM.Vfs.Resolve(path);
+            if (p.IsVfs)
+                return p.Path;
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                return (string)jni.Unwrap(((delegate* unmanaged<nint, nint, nint, nint>)JniForward.Resolve(ref canonicalize0Ptr, CallerID, Name, "canonicalize0", "(Ljava/lang/String;)Ljava/lang/String;"))(jni.Env, jni.Ref(self), jni.Ref(path)));
+                return (string)jni.Unwrap(((delegate* unmanaged<nint, nint, nint, nint>)JniForward.Resolve(ref canonicalize0Ptr, CallerID, Name, "canonicalize0", "(Ljava/lang/String;)Ljava/lang/String;"))(jni.Env, jni.Ref(self), jni.Ref(p.Path)));
             }
             finally
             {
@@ -79,13 +83,14 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (IsVfs(f))
-                return JVM.Vfs.GetBooleanAttributes(GetPath(f));
+            var p = Resolve(f);
+            if (p.IsVfs)
+                return JVM.Vfs.GetBooleanAttributes(p);
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                return ((delegate* unmanaged<nint, nint, nint, int>)JniForward.Resolve(ref getBooleanAttributes0Ptr, CallerID, Name, "getBooleanAttributes0", "(Ljava/io/File;)I"))(jni.Env, jni.Ref(self), jni.Ref(f));
+                return ((delegate* unmanaged<nint, nint, nint, int>)JniForward.Resolve(ref getBooleanAttributes0Ptr, CallerID, Name, "getBooleanAttributes0", "(Ljava/io/File;)I"))(jni.Env, jni.Ref(self), jni.Ref(HostFile(p, f)));
             }
             finally
             {
@@ -99,10 +104,11 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (IsVfs(f))
+            var p = Resolve(f);
+            if (p.IsVfs)
             {
                 // read, and execute (search) of a directory
-                return JVM.Vfs.GetEntry(GetPath(f)) switch
+                return JVM.Vfs.GetEntry(p) switch
                 {
                     VfsDirectory => access != ACCESS_WRITE,
                     VfsFile => access != ACCESS_WRITE && access != 0x01,
@@ -113,7 +119,7 @@ namespace IKVM.Java.Externs.java.io
             var jni = JniForward.Enter(CallerID);
             try
             {
-                return ((delegate* unmanaged<nint, nint, nint, int, byte>)JniForward.Resolve(ref checkAccess0Ptr, CallerID, Name, "checkAccess0", "(Ljava/io/File;I)Z"))(jni.Env, jni.Ref(self), jni.Ref(f), access) != 0;
+                return ((delegate* unmanaged<nint, nint, nint, int, byte>)JniForward.Resolve(ref checkAccess0Ptr, CallerID, Name, "checkAccess0", "(Ljava/io/File;I)Z"))(jni.Env, jni.Ref(self), jni.Ref(HostFile(p, f)), access) != 0;
             }
             finally
             {
@@ -127,13 +133,14 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (IsVfs(f))
+            var p = Resolve(f);
+            if (p.IsVfs)
                 return 0;
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                return ((delegate* unmanaged<nint, nint, nint, long>)JniForward.Resolve(ref getLastModifiedTime0Ptr, CallerID, Name, "getLastModifiedTime0", "(Ljava/io/File;)J"))(jni.Env, jni.Ref(self), jni.Ref(f));
+                return ((delegate* unmanaged<nint, nint, nint, long>)JniForward.Resolve(ref getLastModifiedTime0Ptr, CallerID, Name, "getLastModifiedTime0", "(Ljava/io/File;)J"))(jni.Env, jni.Ref(self), jni.Ref(HostFile(p, f)));
             }
             finally
             {
@@ -147,13 +154,14 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (IsVfs(f))
-                return JVM.Vfs.GetLength(GetPath(f));
+            var p = Resolve(f);
+            if (p.IsVfs)
+                return JVM.Vfs.GetLength(p);
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                return ((delegate* unmanaged<nint, nint, nint, long>)JniForward.Resolve(ref getLength0Ptr, CallerID, Name, "getLength0", "(Ljava/io/File;)J"))(jni.Env, jni.Ref(self), jni.Ref(f));
+                return ((delegate* unmanaged<nint, nint, nint, long>)JniForward.Resolve(ref getLength0Ptr, CallerID, Name, "getLength0", "(Ljava/io/File;)J"))(jni.Env, jni.Ref(self), jni.Ref(HostFile(p, f)));
             }
             finally
             {
@@ -167,13 +175,14 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (IsVfs(f))
+            var p = Resolve(f);
+            if (p.IsVfs)
                 return false;
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                return ((delegate* unmanaged<nint, nint, nint, int, byte, byte, byte>)JniForward.Resolve(ref setPermission0Ptr, CallerID, Name, "setPermission0", "(Ljava/io/File;IZZ)Z"))(jni.Env, jni.Ref(self), jni.Ref(f), access, enable ? (byte)1 : (byte)0, owneronly ? (byte)1 : (byte)0) != 0;
+                return ((delegate* unmanaged<nint, nint, nint, int, byte, byte, byte>)JniForward.Resolve(ref setPermission0Ptr, CallerID, Name, "setPermission0", "(Ljava/io/File;IZZ)Z"))(jni.Env, jni.Ref(self), jni.Ref(HostFile(p, f)), access, enable ? (byte)1 : (byte)0, owneronly ? (byte)1 : (byte)0) != 0;
             }
             finally
             {
@@ -187,13 +196,21 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (JVM.Vfs.IsPath(path))
-                return false;
+            // false if the file exists, as libjava's (O_EXCL fails with EEXIST), else the error the read-only file system reports
+            var p = JVM.Vfs.Resolve(path);
+            if (p.IsVfs)
+            {
+                var status = JVM.Vfs.CheckCreate(p);
+                if (status == VfsStatus.Exists)
+                    return false;
+
+                throw new global::java.io.IOException(status.GetMessage());
+            }
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                return ((delegate* unmanaged<nint, nint, nint, byte>)JniForward.Resolve(ref createFileExclusively0Ptr, CallerID, Name, "createFileExclusively0", "(Ljava/lang/String;)Z"))(jni.Env, jni.Ref(self), jni.Ref(path)) != 0;
+                return ((delegate* unmanaged<nint, nint, nint, byte>)JniForward.Resolve(ref createFileExclusively0Ptr, CallerID, Name, "createFileExclusively0", "(Ljava/lang/String;)Z"))(jni.Env, jni.Ref(self), jni.Ref(p.Path)) != 0;
             }
             finally
             {
@@ -207,13 +224,14 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (IsVfs(f))
+            var p = Resolve(f);
+            if (p.IsVfs)
                 return false;
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                return ((delegate* unmanaged<nint, nint, nint, byte>)JniForward.Resolve(ref delete0Ptr, CallerID, Name, "delete0", "(Ljava/io/File;)Z"))(jni.Env, jni.Ref(self), jni.Ref(f)) != 0;
+                return ((delegate* unmanaged<nint, nint, nint, byte>)JniForward.Resolve(ref delete0Ptr, CallerID, Name, "delete0", "(Ljava/io/File;)Z"))(jni.Env, jni.Ref(self), jni.Ref(HostFile(p, f))) != 0;
             }
             finally
             {
@@ -227,13 +245,14 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (IsVfs(f))
-                return JVM.Vfs.List(GetPath(f));
+            var p = Resolve(f);
+            if (p.IsVfs)
+                return JVM.Vfs.List(p);
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                return (string[])jni.Unwrap(((delegate* unmanaged<nint, nint, nint, nint>)JniForward.Resolve(ref list0Ptr, CallerID, Name, "list0", "(Ljava/io/File;)[Ljava/lang/String;"))(jni.Env, jni.Ref(self), jni.Ref(f)));
+                return (string[])jni.Unwrap(((delegate* unmanaged<nint, nint, nint, nint>)JniForward.Resolve(ref list0Ptr, CallerID, Name, "list0", "(Ljava/io/File;)[Ljava/lang/String;"))(jni.Env, jni.Ref(self), jni.Ref(HostFile(p, f))));
             }
             finally
             {
@@ -247,13 +266,14 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (IsVfs(f))
+            var p = Resolve(f);
+            if (p.IsVfs)
                 return false;
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                return ((delegate* unmanaged<nint, nint, nint, byte>)JniForward.Resolve(ref createDirectory0Ptr, CallerID, Name, "createDirectory0", "(Ljava/io/File;)Z"))(jni.Env, jni.Ref(self), jni.Ref(f)) != 0;
+                return ((delegate* unmanaged<nint, nint, nint, byte>)JniForward.Resolve(ref createDirectory0Ptr, CallerID, Name, "createDirectory0", "(Ljava/io/File;)Z"))(jni.Env, jni.Ref(self), jni.Ref(HostFile(p, f))) != 0;
             }
             finally
             {
@@ -267,13 +287,15 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (IsVfs(f1) || IsVfs(f2))
+            var p1 = Resolve(f1);
+            var p2 = Resolve(f2);
+            if (p1.IsVfs || p2.IsVfs)
                 return false;
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                return ((delegate* unmanaged<nint, nint, nint, nint, byte>)JniForward.Resolve(ref rename0Ptr, CallerID, Name, "rename0", "(Ljava/io/File;Ljava/io/File;)Z"))(jni.Env, jni.Ref(self), jni.Ref(f1), jni.Ref(f2)) != 0;
+                return ((delegate* unmanaged<nint, nint, nint, nint, byte>)JniForward.Resolve(ref rename0Ptr, CallerID, Name, "rename0", "(Ljava/io/File;Ljava/io/File;)Z"))(jni.Env, jni.Ref(self), jni.Ref(HostFile(p1, f1)), jni.Ref(HostFile(p2, f2))) != 0;
             }
             finally
             {
@@ -287,13 +309,14 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (IsVfs(f))
+            var p = Resolve(f);
+            if (p.IsVfs)
                 return false;
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                return ((delegate* unmanaged<nint, nint, nint, long, byte>)JniForward.Resolve(ref setLastModifiedTime0Ptr, CallerID, Name, "setLastModifiedTime0", "(Ljava/io/File;J)Z"))(jni.Env, jni.Ref(self), jni.Ref(f), time) != 0;
+                return ((delegate* unmanaged<nint, nint, nint, long, byte>)JniForward.Resolve(ref setLastModifiedTime0Ptr, CallerID, Name, "setLastModifiedTime0", "(Ljava/io/File;J)Z"))(jni.Env, jni.Ref(self), jni.Ref(HostFile(p, f)), time) != 0;
             }
             finally
             {
@@ -307,13 +330,14 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (IsVfs(f))
+            var p = Resolve(f);
+            if (p.IsVfs)
                 return false;
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                return ((delegate* unmanaged<nint, nint, nint, byte>)JniForward.Resolve(ref setReadOnly0Ptr, CallerID, Name, "setReadOnly0", "(Ljava/io/File;)Z"))(jni.Env, jni.Ref(self), jni.Ref(f)) != 0;
+                return ((delegate* unmanaged<nint, nint, nint, byte>)JniForward.Resolve(ref setReadOnly0Ptr, CallerID, Name, "setReadOnly0", "(Ljava/io/File;)Z"))(jni.Env, jni.Ref(self), jni.Ref(HostFile(p, f))) != 0;
             }
             finally
             {
@@ -327,13 +351,14 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (IsVfs(f))
+            var p = Resolve(f);
+            if (p.IsVfs)
                 return 0;
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                return ((delegate* unmanaged<nint, nint, nint, int, long>)JniForward.Resolve(ref getSpace0Ptr, CallerID, Name, "getSpace0", "(Ljava/io/File;I)J"))(jni.Env, jni.Ref(self), jni.Ref(f), t);
+                return ((delegate* unmanaged<nint, nint, nint, int, long>)JniForward.Resolve(ref getSpace0Ptr, CallerID, Name, "getSpace0", "(Ljava/io/File;I)J"))(jni.Env, jni.Ref(self), jni.Ref(HostFile(p, f)), t);
             }
             finally
             {
@@ -347,13 +372,14 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (JVM.Vfs.IsPath(path))
+            var p = JVM.Vfs.Resolve(path);
+            if (p.IsVfs)
                 return 255;
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                return ((delegate* unmanaged<nint, nint, nint, long>)JniForward.Resolve(ref getNameMax0Ptr, CallerID, Name, "getNameMax0", "(Ljava/lang/String;)J"))(jni.Env, jni.Ref(self), jni.Ref(path));
+                return ((delegate* unmanaged<nint, nint, nint, long>)JniForward.Resolve(ref getNameMax0Ptr, CallerID, Name, "getNameMax0", "(Ljava/lang/String;)J"))(jni.Env, jni.Ref(self), jni.Ref(p.Path));
             }
             finally
             {

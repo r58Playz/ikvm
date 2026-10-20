@@ -1983,6 +1983,116 @@
             <field name="stream" sig="Lcli.System.IO.Stream;" modifiers="">
                 <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
             </field>
+            <!-- a file of the virtual file system is open while its file descriptor holds its stream, though its number
+                 is -1 (FileCleanable's cleanupClose0 closes nothing for -1) -->
+            <method name="valid" sig="()Z">
+                <prologue>
+                    <ldarg_0 />
+                    <ldfld class="java.io.FileDescriptor" name="stream" sig="Lcli.System.IO.Stream;" />
+                    <brfalse name="fd" />
+                    <ldc_i4_1 />
+                    <ret />
+                    <label name="fd" />
+                </prologue>
+            </method>
+        </class>
+        <!-- the virtual file system: libnio needs a file descriptor of a file to read it, which a file of the virtual file
+             system has none of, so the channels of one, the entries of a directory of it, the copy of a file of it and
+             the file store it is in are IKVM's (local\java.base\sun\nio\fs\VfsSupport.java, sun\nio\ch\VfsFileChannel.java,
+             sun\nio\ch\VfsAsynchronousFileChannel.java), which return null (or false) for the host's -->
+        <class name="sun.nio.fs.UnixChannelFactory">
+            <method name="open" sig="(ILsun.nio.fs.UnixPath;Lsun.nio.fs.UnixChannelFactory$Flags;I)Ljava.io.FileDescriptor;">
+                <prologue>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <ldarg_2 />
+                    <call class="sun.nio.fs.VfsSupport" name="open" sig="(ILsun.nio.fs.UnixPath;Lsun.nio.fs.UnixChannelFactory$Flags;)Ljava.io.FileDescriptor;" />
+                    <stloc name="vfs" class="java.io.FileDescriptor" />
+                    <ldloc name="vfs" />
+                    <brfalse name="host" />
+                    <ldloc name="vfs" />
+                    <ret />
+                    <label name="host" />
+                </prologue>
+            </method>
+        </class>
+        <class name="sun.nio.fs.UnixFileSystemProvider">
+            <method name="newDirectoryStream" sig="(Ljava.nio.file.Path;Ljava.nio.file.DirectoryStream$Filter;)Ljava.nio.file.DirectoryStream;">
+                <prologue>
+                    <ldarg_1 />
+                    <ldarg_2 />
+                    <call class="sun.nio.fs.VfsSupport" name="newDirectoryStream" sig="(Ljava.nio.file.Path;Ljava.nio.file.DirectoryStream$Filter;)Ljava.nio.file.DirectoryStream;" />
+                    <stloc name="vfs" class="java.nio.file.DirectoryStream" />
+                    <ldloc name="vfs" />
+                    <brfalse name="host" />
+                    <ldloc name="vfs" />
+                    <ret />
+                    <label name="host" />
+                </prologue>
+            </method>
+            <method name="getFileStore" sig="(Ljava.nio.file.Path;)Ljava.nio.file.FileStore;">
+                <prologue>
+                    <ldarg_1 />
+                    <call class="sun.nio.fs.VfsSupport" name="getFileStore" sig="(Ljava.nio.file.Path;)Ljava.nio.file.FileStore;" />
+                    <stloc name="vfs" class="java.nio.file.FileStore" />
+                    <ldloc name="vfs" />
+                    <brfalse name="host" />
+                    <ldloc name="vfs" />
+                    <ret />
+                    <label name="host" />
+                </prologue>
+            </method>
+        </class>
+        <class name="sun.nio.fs.UnixFileSystem">
+            <method name="copyFile" sig="(Lsun.nio.fs.UnixPath;Lsun.nio.fs.UnixFileAttributes;Lsun.nio.fs.UnixPath;Lsun.nio.fs.UnixFileSystem$Flags;J)V">
+                <prologue>
+                    <ldarg_1 />
+                    <ldarg_2 />
+                    <ldarg_3 />
+                    <ldarg_s argNum="4" />
+                    <ldarg_s argNum="5" />
+                    <call class="sun.nio.fs.VfsSupport" name="copyFile" sig="(Lsun.nio.fs.UnixPath;Lsun.nio.fs.UnixFileAttributes;Lsun.nio.fs.UnixPath;Lsun.nio.fs.UnixFileSystem$Flags;J)Z" />
+                    <brfalse name="host" />
+                    <ret />
+                    <label name="host" />
+                </prologue>
+            </method>
+        </class>
+        <class name="sun.nio.ch.FileChannelImpl">
+            <method name="open" sig="(Ljava.io.FileDescriptor;Ljava.lang.String;ZZZZLjava.io.Closeable;)Ljava.nio.channels.FileChannel;">
+                <prologue>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <ldarg_2 />
+                    <ldarg_3 />
+                    <ldarg_s argNum="6" />
+                    <call class="sun.nio.ch.VfsFileChannel" name="open" sig="(Ljava.io.FileDescriptor;Ljava.lang.String;ZZLjava.io.Closeable;)Ljava.nio.channels.FileChannel;" />
+                    <stloc name="vfs" class="java.nio.channels.FileChannel" />
+                    <ldloc name="vfs" />
+                    <brfalse name="host" />
+                    <ldloc name="vfs" />
+                    <ret />
+                    <label name="host" />
+                </prologue>
+            </method>
+        </class>
+        <class name="sun.nio.ch.SimpleAsynchronousFileChannelImpl">
+            <method name="open" sig="(Ljava.io.FileDescriptor;Ljava.lang.String;ZZLsun.nio.ch.ThreadPool;)Ljava.nio.channels.AsynchronousFileChannel;">
+                <prologue>
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <ldarg_2 />
+                    <ldarg_3 />
+                    <ldarg_s argNum="4" />
+                    <call class="sun.nio.ch.VfsAsynchronousFileChannel" name="open" sig="(Ljava.io.FileDescriptor;Ljava.lang.String;ZZLsun.nio.ch.ThreadPool;)Ljava.nio.channels.AsynchronousFileChannel;" />
+                    <stloc name="vfs" class="java.nio.channels.AsynchronousFileChannel" />
+                    <ldloc name="vfs" />
+                    <brfalse name="host" />
+                    <ldloc name="vfs" />
+                    <ret />
+                    <label name="host" />
+                </prologue>
+            </method>
         </class>
         <!-- the browser's libnio has no inotify, without which LinuxWatchService fails to start: there a watch service
              that takes registrations and never signals them (local\java.base\sun\nio\fs\InertWatchService.java) -->

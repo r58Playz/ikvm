@@ -64,11 +64,29 @@ namespace IKVM.Runtime.Vfs
         public VfsEntry Item => item;
 
         /// <summary>
-        /// Returns <c>true</c> if the given path is within the virtual file system mount.
+        /// Returns <c>true</c> if the given path is within the virtual file system mount. The root of a directory mount
+        /// is within it with or without the trailing separator (java.io and NIO both drop the separator); a file mount
+        /// is only its own path.
         /// </summary>
         /// <param name="path"></param>
         /// <returns></returns>
-        public bool IsPath(string path) => path.StartsWith(this.path, StringComparison.Ordinal);
+        public bool IsPath(string path)
+        {
+            if (item is not VfsDirectory)
+                return string.Equals(path, this.path, StringComparison.Ordinal);
+
+            if (path.StartsWith(this.path, StringComparison.Ordinal))
+                return true;
+
+            return path.Length == this.path.Length - 1 && this.path.StartsWith(path, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Gets the part of the given path, which is within the mount, below its root.
+        /// </summary>
+        /// <param name="path"></param>
+        /// <returns></returns>
+        public string GetRelativePath(string path) => path.Length > this.path.Length ? path.Substring(this.path.Length) : "";
 
         /// <summary>
         /// Gets the entry for the given path.

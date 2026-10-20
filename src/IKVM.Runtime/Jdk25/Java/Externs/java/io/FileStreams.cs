@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.CompilerServices;
 
 using IKVM.Runtime;
 using IKVM.Runtime.Accessors.Java.Io;
@@ -11,14 +12,16 @@ namespace IKVM.Java.Externs.java.io
 
     /// <summary>
     /// Implements the native methods of JDK 25's 'java.io.FileDescriptor'. A file of IKVM's virtual file system is a
-    /// .NET stream (map.xml adds the 'stream' field), and its file descriptor's number stays -1, so that no cleaner
-    /// closes a file of the file system with it. Any other file is the file system's, and libjava's natives do the rest.
+    /// .NET stream (map.xml adds the 'stream' field, and has valid() report the file descriptor open while it holds one),
+    /// and its file descriptor's number stays -1, so that no cleaner closes a file of the file system with it. Its channel
+    /// is a 'sun.nio.ch.VfsFileChannel'. Any other file is the file system's, and libjava's natives do the rest.
     /// </summary>
     static class FileDescriptor
     {
 
 #if FIRST_PASS == false
 
+        static readonly ConditionalWeakTable<Stream, string> vfsPaths = new();
         static FileDescriptorAccessor fileDescriptorAccessor;
         static global::ikvm.@internal.CallerID callerID;
         static nint initIDsPtr, getHandlePtr, getAppendPtr, close0Ptr, sync0Ptr;
@@ -42,29 +45,89 @@ namespace IKVM.Java.Externs.java.io
         }
 
         /// <summary>
-        /// Opens a file of the virtual file system for a file descriptor; the virtual file system is read-only.
+        /// Opens a file of the virtual file system for a file descriptor as libjava's open(2) of a read-only file
+        /// system does, failing with the reason in a FileNotFoundException as libjava's does.
         /// </summary>
         /// <param name="fd"></param>
+        /// <param name="name">the path as given, for the message</param>
         /// <param name="path"></param>
         /// <param name="write"></param>
-        internal static void OpenVfs(object fd, string path, bool write)
+        /// <param name="create"></param>
+        /// <param name="truncate"></param>
+        internal static void OpenVfs(object fd, string name, VfsPath path, bool write, bool create, bool truncate)
         {
-            if (JVM.Vfs.GetEntry(path) is VfsDirectory)
-                throw new global::java.io.FileNotFoundException(path + " (Is a directory)");
-            if (write)
-                throw new global::java.io.FileNotFoundException(path + " (Read-only file system)");
+            var status = JVM.Vfs.CheckOpen(path, write, create, false, truncate);
+
+            // java.io opens no directory (handleOpen's fstat check)
+            if (status == VfsStatus.Ok && JVM.Vfs.GetEntry(path) is VfsDirectory)
+                status = VfsStatus.IsDirectory;
+
+            if (status != VfsStatus.Ok)
+                throw new global::java.io.FileNotFoundException(name + " (" + status.GetMessage() + ")");
 
             try
             {
-                FileDescriptorAccessor.SetStream(fd, JVM.Vfs.Open(path, FileMode.Open, FileAccess.Read));
+                SetVfsStream(fd, path, JVM.Vfs.Open(path, FileMode.Open, FileAccess.Read));
             }
             catch (FileNotFoundException)
             {
-                throw new global::java.io.FileNotFoundException(path + " (No such file or directory)");
+                throw new global::java.io.FileNotFoundException(name + " (" + VfsStatus.NotFound.GetMessage() + ")");
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                throw new global::java.io.FileNotFoundException(path + " (" + e.Message + ")");
+                throw new global::java.io.FileNotFoundException(name + " (" + e.Message + ")");
+            }
+        }
+
+        /// <summary>
+        /// Makes a file descriptor the one of an open file of the virtual file system.
+        /// </summary>
+        /// <param name="fd"></param>
+        /// <param name="path"></param>
+        /// <param name="stream"></param>
+        internal static void SetVfsStream(object fd, VfsPath path, Stream stream)
+        {
+            vfsPaths.Remove(stream);
+            vfsPaths.Add(stream, path.Path);
+            FileDescriptorAccessor.SetStream(fd, stream);
+        }
+
+        /// <summary>
+        /// Gets the normalized path of the file of the virtual file system a stream is open on.
+        /// </summary>
+        /// <param name="stream"></param>
+        /// <returns></returns>
+        internal static string GetVfsPath(Stream stream) => vfsPaths.TryGetValue(stream, out var path) ? path : null;
+
+        /// <summary>
+        /// Translates an exception a stream of the virtual file system threw into the one libjava would.
+        /// </summary>
+        /// <param name="e"></param>
+        /// <returns></returns>
+        static Exception ToJavaException(Exception e) => e switch
+        {
+            ObjectDisposedException => new global::java.io.IOException("Stream Closed"),
+            NotSupportedException => new global::java.io.IOException("Illegal seek"),
+            _ => new global::java.io.IOException(e.Message),
+        };
+
+        static bool IsStreamException(Exception e) => e is IOException or NotSupportedException or ObjectDisposedException or ArgumentException;
+
+        /// <summary>
+        /// Reads a byte from a stream of the virtual file system as the JDK's natives read a file.
+        /// </summary>
+        internal static int ReadByte(Stream stream)
+        {
+            lock (stream)
+            {
+                try
+                {
+                    return stream.ReadByte();
+                }
+                catch (Exception e) when (IsStreamException(e))
+                {
+                    throw ToJavaException(e);
+                }
             }
         }
 
@@ -80,14 +143,172 @@ namespace IKVM.Java.Externs.java.io
             if (len == 0)
                 return 0;
 
-            try
+            lock (stream)
             {
-                var n = stream.Read(b, off, len);
-                return n == 0 ? -1 : n;
+                try
+                {
+                    var n = stream.Read(b, off, len);
+                    return n == 0 ? -1 : n;
+                }
+                catch (Exception e) when (IsStreamException(e))
+                {
+                    throw ToJavaException(e);
+                }
             }
-            catch (IOException e)
+        }
+
+        /// <summary>
+        /// Reads from a stream of the virtual file system at a position, leaving its position as it is (pread).
+        /// </summary>
+        internal static int ReadBytes(Stream stream, byte[] b, int off, int len, long position)
+        {
+            if (b == null)
+                throw new global::java.lang.NullPointerException();
+            if (off < 0 || len < 0 || b.Length - off < len)
+                throw new global::java.lang.IndexOutOfBoundsException();
+            if (position < 0)
+                throw new global::java.io.IOException("Invalid argument");
+            if (len == 0)
+                return 0;
+
+            lock (stream)
             {
-                throw new global::java.io.IOException(e.Message);
+                try
+                {
+                    var saved = stream.Position;
+                    try
+                    {
+                        stream.Position = position;
+                        var n = stream.Read(b, off, len);
+                        return n == 0 ? -1 : n;
+                    }
+                    finally
+                    {
+                        stream.Position = saved;
+                    }
+                }
+                catch (Exception e) when (IsStreamException(e))
+                {
+                    throw ToJavaException(e);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Skips over bytes of a stream of the virtual file system as lseek(2) does: backwards if negative, and past
+        /// the end.
+        /// </summary>
+        internal static long Skip(Stream stream, long n)
+        {
+            lock (stream)
+            {
+                try
+                {
+                    if (stream.CanSeek)
+                    {
+                        var position = stream.Position;
+                        var target = position + n;
+                        if (target < 0 || (n > 0 && target < position))
+                            throw new global::java.io.IOException("Invalid argument");
+
+                        stream.Position = target;
+                        return n;
+                    }
+
+                    if (n <= 0)
+                        return 0;
+
+                    var buffer = new byte[(int)Math.Min(n, 8192)];
+                    long skipped = 0;
+                    while (skipped < n)
+                    {
+                        var read = stream.Read(buffer, 0, (int)Math.Min(buffer.Length, n - skipped));
+                        if (read <= 0)
+                            break;
+                        skipped += read;
+                    }
+
+                    return skipped;
+                }
+                catch (Exception e) when (IsStreamException(e))
+                {
+                    throw ToJavaException(e);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the position of a stream of the virtual file system.
+        /// </summary>
+        internal static long GetPosition(Stream stream)
+        {
+            lock (stream)
+            {
+                try
+                {
+                    return stream.Position;
+                }
+                catch (Exception e) when (IsStreamException(e))
+                {
+                    throw ToJavaException(e);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Sets the position of a stream of the virtual file system; past the end is allowed, as lseek(2) allows it.
+        /// </summary>
+        internal static void SetPosition(Stream stream, long position)
+        {
+            if (position < 0)
+                throw new global::java.io.IOException("Invalid argument");
+
+            lock (stream)
+            {
+                try
+                {
+                    stream.Position = position;
+                }
+                catch (Exception e) when (IsStreamException(e))
+                {
+                    throw ToJavaException(e);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the length of a stream of the virtual file system, as fstat(2) does: 0 if it has none.
+        /// </summary>
+        internal static long GetLength(Stream stream)
+        {
+            lock (stream)
+            {
+                try
+                {
+                    return stream.CanSeek ? stream.Length : 0;
+                }
+                catch (Exception e) when (IsStreamException(e))
+                {
+                    throw ToJavaException(e);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the number of bytes of a stream of the virtual file system that remain to be read.
+        /// </summary>
+        internal static int GetAvailable(Stream stream)
+        {
+            lock (stream)
+            {
+                try
+                {
+                    return stream.CanSeek ? (int)Math.Min(int.MaxValue, Math.Max(0, stream.Length - stream.Position)) : 0;
+                }
+                catch (Exception e) when (IsStreamException(e))
+                {
+                    throw ToJavaException(e);
+                }
             }
         }
 
@@ -238,16 +459,17 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (JVM.Vfs.IsPath(path))
+            var p = JVM.Vfs.Resolve(path);
+            if (p.IsVfs)
             {
-                FileDescriptor.OpenVfs(FileInputStreamAccessor.GetFd(self), path, false);
+                FileDescriptor.OpenVfs(FileInputStreamAccessor.GetFd(self), path, p, false, false, false);
                 return;
             }
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                ((delegate* unmanaged<nint, nint, nint, void>)JniForward.Resolve(ref open0Ptr, CallerID, Name, "open0", "(Ljava/lang/String;)V"))(jni.Env, jni.Ref(self), jni.Ref(path));
+                ((delegate* unmanaged<nint, nint, nint, void>)JniForward.Resolve(ref open0Ptr, CallerID, Name, "open0", "(Ljava/lang/String;)V"))(jni.Env, jni.Ref(self), jni.Ref(p.Path));
             }
             finally
             {
@@ -262,7 +484,7 @@ namespace IKVM.Java.Externs.java.io
             throw new NotImplementedException();
 #else
             if (GetVfsStream(self) is Stream stream)
-                return stream.ReadByte();
+                return FileDescriptor.ReadByte(stream);
 
             var jni = JniForward.Enter(CallerID);
             try
@@ -302,7 +524,7 @@ namespace IKVM.Java.Externs.java.io
             throw new NotImplementedException();
 #else
             if (GetVfsStream(self) is Stream stream)
-                return stream.CanSeek ? stream.Length : 0;
+                return FileDescriptor.GetLength(stream);
 
             var jni = JniForward.Enter(CallerID);
             try
@@ -322,7 +544,7 @@ namespace IKVM.Java.Externs.java.io
             throw new NotImplementedException();
 #else
             if (GetVfsStream(self) is Stream stream)
-                return stream.CanSeek ? stream.Position : 0;
+                return FileDescriptor.GetPosition(stream);
 
             var jni = JniForward.Enter(CallerID);
             try
@@ -342,26 +564,7 @@ namespace IKVM.Java.Externs.java.io
             throw new NotImplementedException();
 #else
             if (GetVfsStream(self) is Stream stream)
-            {
-                if (stream.CanSeek)
-                {
-                    var position = stream.Position;
-                    stream.Seek(n, SeekOrigin.Current);
-                    return stream.Position - position;
-                }
-
-                var buffer = new byte[(int)Math.Min(n, 8192)];
-                long skipped = 0;
-                while (skipped < n)
-                {
-                    var read = stream.Read(buffer, 0, (int)Math.Min(buffer.Length, n - skipped));
-                    if (read <= 0)
-                        break;
-                    skipped += read;
-                }
-
-                return skipped;
-            }
+                return FileDescriptor.Skip(stream, n);
 
             var jni = JniForward.Enter(CallerID);
             try
@@ -381,7 +584,7 @@ namespace IKVM.Java.Externs.java.io
             throw new NotImplementedException();
 #else
             if (GetVfsStream(self) is Stream stream)
-                return stream.CanSeek ? (int)Math.Min(int.MaxValue, Math.Max(0, stream.Length - stream.Position)) : 0;
+                return FileDescriptor.GetAvailable(stream);
 
             var jni = JniForward.Enter(CallerID);
             try
@@ -459,16 +662,18 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (JVM.Vfs.IsPath(path))
+            // O_WRONLY | O_CREAT, and O_APPEND or O_TRUNC, which the read-only file system refuses
+            var p = JVM.Vfs.Resolve(path);
+            if (p.IsVfs)
             {
-                FileDescriptor.OpenVfs(null, path, true);
+                FileDescriptor.OpenVfs(null, path, p, true, true, append == false);
                 return;
             }
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                ((delegate* unmanaged<nint, nint, nint, byte, void>)JniForward.Resolve(ref open0Ptr, CallerID, Name, "open0", "(Ljava/lang/String;Z)V"))(jni.Env, jni.Ref(self), jni.Ref(path), append ? (byte)1 : (byte)0);
+                ((delegate* unmanaged<nint, nint, nint, byte, void>)JniForward.Resolve(ref open0Ptr, CallerID, Name, "open0", "(Ljava/lang/String;Z)V"))(jni.Env, jni.Ref(self), jni.Ref(p.Path), append ? (byte)1 : (byte)0);
             }
             finally
             {
@@ -562,16 +767,19 @@ namespace IKVM.Java.Externs.java.io
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (JVM.Vfs.IsPath(path))
+            // "rw" is O_RDWR | O_CREAT
+            var p = JVM.Vfs.Resolve(path);
+            if (p.IsVfs)
             {
-                FileDescriptor.OpenVfs(RandomAccessFileAccessor.GetFd(self), path, (mode & O_RDWR) != 0);
+                var write = (mode & O_RDWR) != 0;
+                FileDescriptor.OpenVfs(RandomAccessFileAccessor.GetFd(self), path, p, write, write, false);
                 return;
             }
 
             var jni = JniForward.Enter(CallerID);
             try
             {
-                ((delegate* unmanaged<nint, nint, nint, int, void>)JniForward.Resolve(ref open0Ptr, CallerID, Name, "open0", "(Ljava/lang/String;I)V"))(jni.Env, jni.Ref(self), jni.Ref(path), mode);
+                ((delegate* unmanaged<nint, nint, nint, int, void>)JniForward.Resolve(ref open0Ptr, CallerID, Name, "open0", "(Ljava/lang/String;I)V"))(jni.Env, jni.Ref(self), jni.Ref(p.Path), mode);
             }
             finally
             {
@@ -586,7 +794,7 @@ namespace IKVM.Java.Externs.java.io
             throw new NotImplementedException();
 #else
             if (GetVfsStream(self) is Stream stream)
-                return stream.ReadByte();
+                return FileDescriptor.ReadByte(stream);
 
             var jni = JniForward.Enter(CallerID);
             try
@@ -666,7 +874,7 @@ namespace IKVM.Java.Externs.java.io
             throw new NotImplementedException();
 #else
             if (GetVfsStream(self) is Stream stream)
-                return stream.Position;
+                return FileDescriptor.GetPosition(stream);
 
             var jni = JniForward.Enter(CallerID);
             try
@@ -690,7 +898,7 @@ namespace IKVM.Java.Externs.java.io
                 if (pos < 0)
                     throw new global::java.io.IOException("Negative seek offset");
 
-                stream.Position = pos;
+                FileDescriptor.SetPosition(stream, pos);
                 return;
             }
 
@@ -712,7 +920,7 @@ namespace IKVM.Java.Externs.java.io
             throw new NotImplementedException();
 #else
             if (GetVfsStream(self) is Stream stream)
-                return stream.Length;
+                return FileDescriptor.GetLength(stream);
 
             var jni = JniForward.Enter(CallerID);
             try

@@ -85,7 +85,28 @@ namespace IKVM.Runtime
         static UnixConstantsAccessor UnixConstantsAccessor => JVM.Internal.BaseAccessors.Get(ref unixConstantsAccessor);
 
         static Dictionary<int, int> map;
+        static Dictionary<int, int> inverse;
         static bool resolved;
+
+        /// <summary>
+        /// Gets the host libc's errno of an errno in the numbering of the JDK image.
+        /// </summary>
+        /// <param name="errno"></param>
+        /// <returns></returns>
+        internal static int ToHost(int errno)
+        {
+            try
+            {
+                if (Resolve() != null && inverse.TryGetValue(errno, out var host))
+                    return host;
+            }
+            catch
+            {
+                // the image's numbering, then
+            }
+
+            return errno;
+        }
 
         /// <summary>
         /// Translates the errno of <paramref name="e"/> in place, if it is a 'sun.nio.fs.UnixException' thrown by
@@ -140,6 +161,7 @@ namespace IKVM.Runtime
             }
 
             var built = new Dictionary<int, int>();
+            var builtInverse = new Dictionary<int, int>();
             foreach (var (name, host) in HostErrno)
             {
                 var field = type.GetField(name, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
@@ -149,8 +171,11 @@ namespace IKVM.Runtime
                 var image = Convert.ToInt32(field.IsLiteral ? field.GetRawConstantValue() : field.GetValue(null));
                 if (image != host && built.ContainsKey(host) == false)
                     built.Add(host, image);
+                if (image != host && builtInverse.ContainsKey(image) == false)
+                    builtInverse.Add(image, host);
             }
 
+            inverse = builtInverse;
             map = built.Count > 0 ? built : null;
             resolved = true;
             return map;
