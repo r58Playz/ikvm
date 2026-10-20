@@ -30,7 +30,7 @@ namespace IKVM.Runtime
     sealed partial class ClassFile
     {
 
-        static class SupportedVersions
+        internal static class SupportedVersions
         {
 
             /// <summary>

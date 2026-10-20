@@ -1386,6 +1386,11 @@ namespace IKVM.Runtime
                     MarkConstantPoolUsage(classFile, in field.RuntimeVisibleTypeAnnotations, ref constantPool, ref inUse);
                 }
 
+                // the type annotations of record components, which the RecordComponentsAttribute holds as they are
+                if (classFile.RecordComponentTypeAnnotations is { } recordComponentTypeAnnotations)
+                    for (int i = 0; i < recordComponentTypeAnnotations.Length; i++)
+                        MarkConstantPoolUsage(classFile, in recordComponentTypeAnnotations[i], ref constantPool, ref inUse);
+
                 if (constantPool != null)
                 {
                     // to save space, we clear out the items that aren't used by the RuntimeVisibleTypeAnnotations and

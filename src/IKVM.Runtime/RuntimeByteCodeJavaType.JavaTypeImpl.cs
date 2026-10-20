@@ -565,7 +565,17 @@ namespace IKVM.Runtime
 
                     // Class.getRecordComponents
                     if (classFile.RecordComponents != null)
-                        wrapper.Context.AttributeHelper.SetRecordComponentsAttribute(typeBuilder, classFile.RecordComponents);
+                        wrapper.Context.AttributeHelper.SetRecordComponentsAttribute(wrapper.classLoader, typeBuilder, classFile.RecordComponents);
+
+                    // Class.getNestHost, Class.getNestMembers and the access checks between nestmates
+                    if (classFile.NestHost != null)
+                        wrapper.Context.AttributeHelper.SetNestHostAttribute(typeBuilder, classFile.NestHost);
+                    if (classFile.NestMembers != null)
+                        wrapper.Context.AttributeHelper.SetNestMembersAttribute(typeBuilder, classFile.NestMembers);
+
+                    // Class.getClassFileVersion and the class's stub, for a class file of another Java SE release
+                    if (classFile.MajorVersion != ClassFile.SupportedVersions.Maximum || classFile.MinorVersion != 0)
+                        wrapper.Context.AttributeHelper.SetClassFileVersionAttribute(typeBuilder, classFile.MajorVersion, classFile.MinorVersion);
 
                     if (wrapper.classLoader.EmitStackTraceInfo)
                     {

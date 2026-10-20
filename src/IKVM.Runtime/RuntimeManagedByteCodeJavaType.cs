@@ -371,6 +371,49 @@ namespace IKVM.Runtime
 
         internal override string[] PermittedSubclassNames => PermittedSubclasses;
 
+        string nestHostName;
+        string[] nestMemberNames;
+        bool nestRead;
+
+        /// <summary>
+        /// Reads the NestHost or NestMembers attribute ikvmc recorded for the type.
+        /// </summary>
+        void ReadNest()
+        {
+            if (nestRead == false)
+            {
+                nestHostName = Context.AttributeHelper.GetNestHost(type);
+                nestMemberNames = Context.AttributeHelper.GetNestMembers(type);
+                nestRead = true;
+            }
+        }
+
+        internal override string NestHostName
+        {
+            get
+            {
+                ReadNest();
+                return nestHostName;
+            }
+        }
+
+        internal override string[] NestMemberNames
+        {
+            get
+            {
+                ReadNest();
+                return nestMemberNames;
+            }
+        }
+
+        internal override bool ListsNestMember(string name) => NestMemberNames is { } names && Array.IndexOf(names, name) >= 0;
+
+        /// <summary>
+        /// The version of the class file the type is compiled from, which ikvmc records when it is not that of the Java
+        /// SE release IKVM implements.
+        /// </summary>
+        internal override int ClassFileVersion => Context.AttributeHelper.TryGetClassFileVersion(type, out var major, out var minor) ? major | (minor << 16) : base.ClassFileVersion;
+
         RecordComponentInfo[] recordComponents;
         bool recordComponentsRead;
 

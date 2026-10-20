@@ -73,6 +73,7 @@ namespace IKVM.Runtime
         readonly string sourceFileName;
         readonly string nestHostName;
         readonly string[] nestMemberNames;
+        readonly int classFileVersion;
         readonly string[] permittedSubclassNames;
         readonly RecordComponentInfo[] recordComponents;
 #if !IMPORTER
@@ -133,6 +134,7 @@ namespace IKVM.Runtime
             this.sourceFileName = f.SourceFileAttribute;
             this.nestHostName = f.NestHost;
             this.nestMemberNames = f.NestMembers;
+            this.classFileVersion = f.MajorVersion | (f.MinorVersion << 16);
 #if EMITTERS
             this.constantVarHandles = VarHandleIntrinsics.Scan(f);
 #endif
@@ -335,6 +337,8 @@ namespace IKVM.Runtime
         internal override RuntimeClassLoader ClassLoader => classLoader;
 
         internal override string NestHostName => nestHostName;
+
+        internal override int ClassFileVersion => classFileVersion;
 
 #if EMITTERS
 

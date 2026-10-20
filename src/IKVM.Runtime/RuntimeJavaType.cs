@@ -1113,6 +1113,13 @@ namespace IKVM.Runtime
         internal virtual RecordComponentInfo[] RecordComponents => null;
 
         /// <summary>
+        /// The version of the class file this type is defined from, the major version in the low 16 bits and the minor
+        /// in the high, as Class.getClassFileVersion0 has it. A type that has no class file of its own reports that of
+        /// the Java SE release IKVM implements, 69.0 (ClassFile.SupportedVersions.Maximum).
+        /// </summary>
+        internal virtual int ClassFileVersion => 69;
+
+        /// <summary>
         /// Whether this type and <paramref name="other"/> are nestmates, which may access each other's private members
         /// (JVMS 5.4.4): they name the same nest host, are in the same run-time package, and the host lists each of them
         /// that is not the host itself.

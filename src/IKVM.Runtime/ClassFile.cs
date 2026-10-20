@@ -334,6 +334,7 @@ namespace IKVM.Runtime
         readonly string[] nestMembers;
         readonly string[] permittedSubclasses;
         readonly RecordComponentInfo[] recordComponents;
+        readonly TypeAnnotationTable[] recordComponentTypeAnnotations;
         readonly TypeAnnotationTable runtimeVisibleTypeAnnotations = TypeAnnotationTable.Empty;
 
 #if IMPORTER
@@ -697,7 +698,7 @@ namespace IKVM.Runtime
                             if (nestHost != null || nestMembers != null)
                                 throw new ClassFormatError("{0} (Multiple NestHost attributes, or both NestHost and NestMembers)", inputClassName);
 
-                            var nestHostAttribute = (NestHostAttribute)attribute;
+                            var nestHostAttribute = (IKVM.ByteCode.Decoding.NestHostAttribute)attribute;
                             ValidateConstantPoolItemClass(inputClassName, nestHostAttribute.NestHost);
                             nestHost = GetConstantPoolClass(nestHostAttribute.NestHost);
                             break;
@@ -734,14 +735,44 @@ namespace IKVM.Runtime
                                 var component = recordAttribute.Components[j];
 
                                 string componentSignature = null;
+                                object[] componentAnnotations = null;
+                                byte[] componentTypeAnnotations = null;
                                 for (int k = 0; k < component.Attributes.Count; k++)
-                                    if (GetConstantPoolUtf8String(utf8_cp, component.Attributes[k].Name) == AttributeName.Signature)
-                                        componentSignature = GetConstantPoolUtf8String(utf8_cp, ((IKVM.ByteCode.Decoding.SignatureAttribute)component.Attributes[k]).Signature);
+                                {
+                                    switch (GetConstantPoolUtf8String(utf8_cp, component.Attributes[k].Name))
+                                    {
+                                        case AttributeName.Signature:
+                                            componentSignature = GetConstantPoolUtf8String(utf8_cp, ((IKVM.ByteCode.Decoding.SignatureAttribute)component.Attributes[k]).Signature);
+                                            break;
+                                        case AttributeName.RuntimeVisibleAnnotations:
+                                            componentAnnotations = ReadAnnotations(((RuntimeVisibleAnnotationsAttribute)component.Attributes[k]).Annotations, this, utf8_cp);
+                                            break;
+                                        case AttributeName.RuntimeVisibleTypeAnnotations:
+                                            // kept as they are, against the constant pool, as RecordComponent.getAnnotatedType reads them
+                                            var componentTypeAnnotationTable = ((IKVM.ByteCode.Decoding.RuntimeVisibleTypeAnnotationsAttribute)component.Attributes[k]).TypeAnnotations;
+                                            CreateUtf8ConstantPoolItems(utf8_cp);
+                                            if (recordComponentTypeAnnotations == null)
+                                            {
+                                                recordComponentTypeAnnotations = new TypeAnnotationTable[recordComponents.Length];
+                                                for (int l = 0; l < recordComponentTypeAnnotations.Length; l++)
+                                                    recordComponentTypeAnnotations[l] = TypeAnnotationTable.Empty;
+                                            }
+
+                                            recordComponentTypeAnnotations[j] = componentTypeAnnotationTable;
+                                            var componentTypeAnnotationBlob = new IKVM.ByteCode.Buffers.BlobBuilder();
+                                            var componentTypeAnnotationEncoder = new IKVM.ByteCode.Encoding.TypeAnnotationTableEncoder(componentTypeAnnotationBlob);
+                                            componentTypeAnnotationTable.WriteTo(ref componentTypeAnnotationEncoder);
+                                            componentTypeAnnotations = componentTypeAnnotationBlob.ToArray();
+                                            break;
+                                    }
+                                }
 
                                 recordComponents[j] = new RecordComponentInfo(
                                     GetConstantPoolUtf8String(utf8_cp, component.Name),
                                     GetConstantPoolUtf8String(utf8_cp, component.Descriptor).Replace('/', '.'),
-                                    componentSignature);
+                                    componentSignature,
+                                    componentAnnotations,
+                                    componentTypeAnnotations);
                             }
 
                             break;
@@ -752,7 +783,7 @@ namespace IKVM.Runtime
                             if (nestHost != null || nestMembers != null)
                                 throw new ClassFormatError("{0} (Multiple NestMembers attributes, or both NestHost and NestMembers)", inputClassName);
 
-                            var nestMembersAttribute = (NestMembersAttribute)attribute;
+                            var nestMembersAttribute = (IKVM.ByteCode.Decoding.NestMembersAttribute)attribute;
                             nestMembers = new string[nestMembersAttribute.NestMembers.Count];
                             for (int j = 0; j < nestMembers.Length; j++)
                             {
@@ -1063,6 +1094,8 @@ namespace IKVM.Runtime
         /// Gets the major version of the class.
         /// </summary>
         public int MajorVersion => clazz.Version.Major;
+
+        public int MinorVersion => clazz.Version.Minor;
 
         /// <summary>
         /// Initiates linkage of this class file to the specified java type instance.
@@ -1394,6 +1427,11 @@ namespace IKVM.Runtime
         /// The components the Record attribute declares, or null if there is none (JVMS 4.7.30).
         /// </summary>
         internal RecordComponentInfo[] RecordComponents => recordComponents;
+
+        /// <summary>
+        /// For each record component, its RuntimeVisibleTypeAnnotations, or null if no component has any.
+        /// </summary>
+        internal TypeAnnotationTable[] RecordComponentTypeAnnotations => recordComponentTypeAnnotations;
 
         internal ref readonly TypeAnnotationTable RuntimeVisibleTypeAnnotations => ref runtimeVisibleTypeAnnotations;
 

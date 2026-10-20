@@ -166,6 +166,18 @@ namespace IKVM.Runtime
 
         Type TypeOfRecordComponentsAttribute => typeofRecordComponentsAttribute ??= LoadType(typeof(IKVM.Attributes.RecordComponentsAttribute));
 
+        Type typeofNestHostAttribute;
+
+        Type TypeOfNestHostAttribute => typeofNestHostAttribute ??= LoadType(typeof(IKVM.Attributes.NestHostAttribute));
+
+        Type typeofNestMembersAttribute;
+
+        Type TypeOfNestMembersAttribute => typeofNestMembersAttribute ??= LoadType(typeof(IKVM.Attributes.NestMembersAttribute));
+
+        Type typeofClassFileVersionAttribute;
+
+        Type TypeOfClassFileVersionAttribute => typeofClassFileVersionAttribute ??= LoadType(typeof(IKVM.Attributes.ClassFileVersionAttribute));
+
         Type TypeOfMethodParametersAttribute => typeofMethodParametersAttribute ??= LoadType(typeof(IKVM.Attributes.MethodParametersAttribute));
 
         Type TypeOfRuntimeVisibleTypeAnnotationsAttribute => typeofRuntimeVisibleTypeAnnotationsAttribute ??= LoadType(typeof(IKVM.Attributes.RuntimeVisibleTypeAnnotationsAttribute));
@@ -876,21 +888,61 @@ namespace IKVM.Runtime
 			tb.SetCustomAttribute(new CustomAttributeBuilder(con, new object[] { names }));
 		}
 
-		internal void SetRecordComponentsAttribute(TypeBuilder tb, RecordComponentInfo[] components)
+		internal void SetRecordComponentsAttribute(RuntimeClassLoader loader, TypeBuilder tb, RecordComponentInfo[] components)
 		{
 			var names = new string[components.Length];
 			var descriptors = new string[components.Length];
 			var signatures = new string[components.Length];
+			var annotations = new object[components.Length];
+			var typeAnnotations = new object[components.Length];
+			var anyAnnotations = false;
 			for (int i = 0; i < components.Length; i++)
 			{
 				names[i] = components[i].Name;
 				descriptors[i] = components[i].Descriptor;
 				signatures[i] = components[i].Signature;
+
+				// a component without annotations has empty arrays, which a custom attribute holds more simply than nulls
+				var definitions = components[i].Annotations ?? Array.Empty<object>();
+				var encoded = new object[definitions.Length];
+				for (int j = 0; j < definitions.Length; j++)
+					encoded[j] = Annotation.EncodeDefinition(loader, definitions[j]);
+
+				annotations[i] = encoded;
+				typeAnnotations[i] = components[i].TypeAnnotations ?? Array.Empty<byte>();
+				anyAnnotations |= encoded.Length > 0 || components[i].TypeAnnotations != null;
 			}
 
 			var stringArray = context.Types.String.MakeArrayType();
-			var con = TypeOfRecordComponentsAttribute.GetConstructor(new Type[] { stringArray, stringArray, stringArray });
-			tb.SetCustomAttribute(new CustomAttributeBuilder(con, new object[] { names, descriptors, signatures }));
+			if (anyAnnotations)
+			{
+				var objectArray = context.Types.Object.MakeArrayType();
+				var con = TypeOfRecordComponentsAttribute.GetConstructor(new Type[] { stringArray, stringArray, stringArray, objectArray, objectArray });
+				tb.SetCustomAttribute(new CustomAttributeBuilder(con, new object[] { names, descriptors, signatures, annotations, typeAnnotations }));
+			}
+			else
+			{
+				var con = TypeOfRecordComponentsAttribute.GetConstructor(new Type[] { stringArray, stringArray, stringArray });
+				tb.SetCustomAttribute(new CustomAttributeBuilder(con, new object[] { names, descriptors, signatures }));
+			}
+		}
+
+		internal void SetNestHostAttribute(TypeBuilder tb, string name)
+		{
+			var con = TypeOfNestHostAttribute.GetConstructor(new Type[] { context.Types.String });
+			tb.SetCustomAttribute(new CustomAttributeBuilder(con, new object[] { UnicodeUtil.EscapeInvalidSurrogates(name) }));
+		}
+
+		internal void SetNestMembersAttribute(TypeBuilder tb, string[] names)
+		{
+			var con = TypeOfNestMembersAttribute.GetConstructor(new Type[] { context.Types.String.MakeArrayType() });
+			tb.SetCustomAttribute(new CustomAttributeBuilder(con, new object[] { names }));
+		}
+
+		internal void SetClassFileVersionAttribute(TypeBuilder tb, int major, int minor)
+		{
+			var con = TypeOfClassFileVersionAttribute.GetConstructor(new Type[] { context.Types.UInt16, context.Types.UInt16 });
+			tb.SetCustomAttribute(new CustomAttributeBuilder(con, new object[] { (ushort)major, (ushort)minor }));
 		}
 
 		internal void SetSignatureAttribute(TypeBuilder tb, string signature)
@@ -1304,7 +1356,16 @@ namespace IKVM.Runtime
             var record = (IKVM.Attributes.RecordComponentsAttribute)attr[0];
             var components = new RecordComponentInfo[record.Names.Length];
             for (int i = 0; i < components.Length; i++)
-                components[i] = new RecordComponentInfo(record.Names[i], record.Descriptors[i], record.Signatures[i]);
+            {
+                var annotations = (object[])record.Annotations?[i];
+                var typeAnnotations = (byte[])record.TypeAnnotations?[i];
+                components[i] = new RecordComponentInfo(
+                    record.Names[i],
+                    record.Descriptors[i],
+                    record.Signatures[i],
+                    annotations is { Length: > 0 } ? annotations : null,
+                    typeAnnotations is { Length: > 0 } ? typeAnnotations : null);
+            }
 
             return components;
 #else
@@ -1322,6 +1383,66 @@ namespace IKVM.Runtime
 
             return null;
 #endif
+        }
+
+        /// <summary>
+        /// The nest host recorded on a type compiled from a class with a NestHost attribute, or null.
+        /// </summary>
+        internal string GetNestHost(Type type)
+        {
+#if !IMPORTER && !EXPORTER
+            var attr = type.GetCustomAttributes(typeof(IKVM.Attributes.NestHostAttribute), false);
+            return attr.Length == 1 ? ((IKVM.Attributes.NestHostAttribute)attr[0]).Name : null;
+#else
+            foreach (var cad in CustomAttributeData.__GetCustomAttributes(type, TypeOfNestHostAttribute, false))
+                return UnicodeUtil.UnescapeInvalidSurrogates((string)cad.ConstructorArguments[0].Value);
+
+            return null;
+#endif
+        }
+
+        /// <summary>
+        /// The nest members recorded on a type compiled from a class with a NestMembers attribute, or null.
+        /// </summary>
+        internal string[] GetNestMembers(Type type)
+        {
+#if !IMPORTER && !EXPORTER
+            var attr = type.GetCustomAttributes(typeof(IKVM.Attributes.NestMembersAttribute), false);
+            return attr.Length == 1 ? ((IKVM.Attributes.NestMembersAttribute)attr[0]).Names : null;
+#else
+            foreach (var cad in CustomAttributeData.__GetCustomAttributes(type, TypeOfNestMembersAttribute, false))
+                return DecodeArray<string>(cad.ConstructorArguments[0]);
+
+            return null;
+#endif
+        }
+
+        /// <summary>
+        /// The version of the class file a type is compiled from, if it is recorded: one of a Java SE release other
+        /// than the one IKVM implements.
+        /// </summary>
+        internal bool TryGetClassFileVersion(Type type, out int major, out int minor)
+        {
+#if !IMPORTER && !EXPORTER
+            var attr = type.GetCustomAttributes(typeof(IKVM.Attributes.ClassFileVersionAttribute), false);
+            if (attr.Length == 1)
+            {
+                major = ((IKVM.Attributes.ClassFileVersionAttribute)attr[0]).Major;
+                minor = ((IKVM.Attributes.ClassFileVersionAttribute)attr[0]).Minor;
+                return true;
+            }
+#else
+            foreach (var cad in CustomAttributeData.__GetCustomAttributes(type, TypeOfClassFileVersionAttribute, false))
+            {
+                major = (ushort)cad.ConstructorArguments[0].Value;
+                minor = (ushort)cad.ConstructorArguments[1].Value;
+                return true;
+            }
+#endif
+
+            major = 0;
+            minor = 0;
+            return false;
         }
 
         internal IKVM.Attributes.EnclosingMethodAttribute GetEnclosingMethodAttribute(Type type)

@@ -140,14 +140,18 @@ namespace IKVM.Runtime
                     }
                 }
 
+                // the type annotations of record components are against the constant pool too
+                var recordComponentTypeAnnotations = classFile.RecordComponentTypeAnnotations != null;
+
                 if (genericMetaData != null ||
                     annotations != null ||
                     methodParameters != null ||
                     runtimeVisibleTypeAnnotations.Count > 0 ||
                     fieldRuntimeVisibleTypeAnnotations != null ||
-                    methodRuntimeVisibleTypeAnnotations != null)
+                    methodRuntimeVisibleTypeAnnotations != null ||
+                    recordComponentTypeAnnotations)
                 {
-                    var constantPool = runtimeVisibleTypeAnnotations.Count > 0 || fieldRuntimeVisibleTypeAnnotations != null || methodRuntimeVisibleTypeAnnotations != null ? classFile.GetConstantPool() : null;
+                    var constantPool = runtimeVisibleTypeAnnotations.Count > 0 || fieldRuntimeVisibleTypeAnnotations != null || methodRuntimeVisibleTypeAnnotations != null || recordComponentTypeAnnotations ? classFile.GetConstantPool() : null;
                     return new Metadata(genericMetaData, annotations, methodParameters, runtimeVisibleTypeAnnotations, fieldRuntimeVisibleTypeAnnotations, methodRuntimeVisibleTypeAnnotations, constantPool);
                 }
 
