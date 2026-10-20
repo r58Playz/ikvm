@@ -328,10 +328,20 @@ namespace IKVM.Runtime.StubGen
         /// <param name="javaType"></param>
         void AddAssemblyAttribute(ClassFileBuilder builder, RuntimeJavaType javaType, string assemblyName)
         {
+            AddAssemblyAttribute(builder, assemblyName ?? GetAssemblyName(javaType));
+        }
 
+        /// <summary>
+        /// Adds the IKVM.NET.Assembly attribute naming the assembly a stub's class is compiled into: defining the stub
+        /// gives that class, and ikvmc does not compile a class file that has it.
+        /// </summary>
+        /// <param name="builder"></param>
+        /// <param name="assemblyName"></param>
+        internal static void AddAssemblyAttribute(ClassFileBuilder builder, string assemblyName)
+        {
             // consists of a U2 constant pointing to the full name of the assembly
             var assemblyAttributeBlob = new BlobBuilder();
-            new ClassFormatWriter(assemblyAttributeBlob.ReserveBytes(ClassFormatWriter.U2).GetBytes()).WriteU2(builder.Constants.GetOrAddUtf8(assemblyName ?? GetAssemblyName(javaType)).Slot);
+            new ClassFormatWriter(assemblyAttributeBlob.ReserveBytes(ClassFormatWriter.U2).GetBytes()).WriteU2(builder.Constants.GetOrAddUtf8(assemblyName).Slot);
             builder.Attributes.Encoder.Attribute(builder.Constants.GetOrAddUtf8("IKVM.NET.Assembly"), assemblyAttributeBlob);
         }
 

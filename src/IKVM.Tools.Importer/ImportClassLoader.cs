@@ -38,6 +38,7 @@ using IKVM.CoreLib.Diagnostics;
 using IKVM.Reflection;
 using IKVM.Reflection.Emit;
 using IKVM.Runtime;
+using IKVM.Runtime.StubGen;
 
 using Type = IKVM.Reflection.Type;
 
@@ -391,7 +392,7 @@ namespace IKVM.Tools.Importer
                         }
                         else
                         {
-                            itemRef.MarkAsStub(tw);
+                            itemRef.MarkAsStub(tw, WriteClassFileStub(name, itemRef.GetData()));
                         }
 
                         int pos = f.Name.LastIndexOf('.');
@@ -766,6 +767,28 @@ namespace IKVM.Tools.Importer
             GetTypeWrapperFactory().ModuleBuilder.DefineManifestResource("ikvm.exports", ms, ResourceAttributes.Public);
         }
 
+        /// <summary>
+        /// Writes the stub of a class from its class file, which is the class file but for its method bodies. It is
+        /// written as the class is defined, so that the class file need not be held until the resources are. Returns
+        /// null if the class file has an attribute that cannot be copied, leaving the stub to be generated from the
+        /// compiled type.
+        /// </summary>
+        /// <param name="name"></param>
+        /// <param name="classFile"></param>
+        /// <returns></returns>
+        byte[] WriteClassFileStub(string name, byte[] classFile)
+        {
+            try
+            {
+                return ClassFileStubWriter.Write(classFile, assemblyBuilder.FullName);
+            }
+            catch (ByteCodeException e)
+            {
+                Diagnostics.GenericCompilerWarning($"Stub of {name} generated from its compiled type: {e.Message}");
+                return null;
+            }
+        }
+
         void WriteResources()
         {
             Diagnostics.GenericCompilerInfo("CompilerClassLoader adding resources...");
@@ -789,7 +812,10 @@ namespace IKVM.Tools.Importer
 
                             var stubZipEntry = zip.CreateEntry(item.Name, state.compressedResources ? CompressionLevel.Optimal : CompressionLevel.NoCompression);
                             using var stubStream = stubZipEntry.Open();
-                            Context.StubGenerator.Write(stubStream, item.StubType, true, true, true, true, false, assemblyBuilder.FullName);
+                            if (item.GetStub() is byte[] stub)
+                                stubStream.Write(stub, 0, stub.Length);
+                            else
+                                Context.StubGenerator.Write(stubStream, item.StubType, true, true, true, true, false, assemblyBuilder.FullName);
                             hasEntries = true;
                             continue;
                         }

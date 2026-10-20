@@ -62,13 +62,15 @@ namespace IKVM.Tools.Importer
             internal readonly byte[] data;
             internal readonly FileInfo path;            // path of the original file, if it was individual file (used to construct source file path)
             internal readonly RuntimeJavaType stubType;
+            internal readonly byte[] stub;              // the stub written from the class file, if it could be
 
-            internal JarItem(string name, byte[] data, FileInfo path, RuntimeJavaType stubType = null)
+            internal JarItem(string name, byte[] data, FileInfo path, RuntimeJavaType stubType = null, byte[] stub = null)
             {
                 this.name = name;
                 this.data = data;
                 this.path = path;
                 this.stubType = stubType;
+                this.stub = stub;
             }
         }
 
@@ -103,9 +105,13 @@ namespace IKVM.Tools.Importer
                 Jar.Items[Index] = new JarItem();
             }
 
-            internal void MarkAsStub(RuntimeJavaType type)
+            /// <summary>
+            /// Replaces the class file by a stub for the type compiled from it: the stub written from the class file, or
+            /// if there is none, one generated from the type when the resources are written.
+            /// </summary>
+            internal void MarkAsStub(RuntimeJavaType type, byte[] stub)
             {
-                Jar.Items[Index] = new JarItem(Jar.Items[Index].name, null, null, type);
+                Jar.Items[Index] = new JarItem(Jar.Items[Index].name, null, null, type, stub);
             }
 
             internal bool IsStub
@@ -114,6 +120,11 @@ namespace IKVM.Tools.Importer
             }
 
             internal RuntimeJavaType StubType => Jar.Items[Index].stubType;
+
+            internal byte[] GetStub()
+            {
+                return Jar.Items[Index].stub;
+            }
         }
 
         internal struct JarEnumerator
