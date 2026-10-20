@@ -36,7 +36,7 @@ namespace IKVM.Runtime
             /// <summary>
             /// The newest class file major version that can be read: Java 25.
             /// </summary>
-            internal const int Maximum = 69;
+            internal const int Maximum = JVM.ClassFileMajorVersion;
 
             /// <summary>
             /// Whether a class file of the given version can be read: 45.3 through <see cref="Maximum"/>, but not a

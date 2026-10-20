@@ -408,11 +408,22 @@ namespace IKVM.Runtime
 
         internal override bool ListsNestMember(string name) => NestMemberNames is { } names && Array.IndexOf(names, name) >= 0;
 
+        int classFileVersion;
+
         /// <summary>
         /// The version of the class file the type is compiled from, which ikvmc records when it is not that of the Java
         /// SE release IKVM implements.
         /// </summary>
-        internal override int ClassFileVersion => Context.AttributeHelper.TryGetClassFileVersion(type, out var major, out var minor) ? major | (minor << 16) : base.ClassFileVersion;
+        internal override int ClassFileVersion
+        {
+            get
+            {
+                if (classFileVersion == 0)
+                    classFileVersion = Context.AttributeHelper.TryGetClassFileVersion(type, out var major, out var minor) ? major | (minor << 16) : base.ClassFileVersion;
+
+                return classFileVersion;
+            }
+        }
 
         RecordComponentInfo[] recordComponents;
         bool recordComponentsRead;

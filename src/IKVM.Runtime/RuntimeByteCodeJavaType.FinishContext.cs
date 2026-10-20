@@ -1386,7 +1386,11 @@ namespace IKVM.Runtime
                     MarkConstantPoolUsage(classFile, in field.RuntimeVisibleTypeAnnotations, ref constantPool, ref inUse);
                 }
 
-                // the type annotations of record components, which the RecordComponentsAttribute holds as they are
+                // the annotations and type annotations of record components, which the RecordComponentsAttribute holds as they are
+                if (classFile.RecordComponentAnnotations is { } recordComponentAnnotations)
+                    for (int i = 0; i < recordComponentAnnotations.Length; i++)
+                        MarkConstantPoolUsage(classFile, in recordComponentAnnotations[i], ref constantPool, ref inUse);
+
                 if (classFile.RecordComponentTypeAnnotations is { } recordComponentTypeAnnotations)
                     for (int i = 0; i < recordComponentTypeAnnotations.Length; i++)
                         MarkConstantPoolUsage(classFile, in recordComponentTypeAnnotations[i], ref constantPool, ref inUse);
@@ -1421,6 +1425,51 @@ namespace IKVM.Runtime
                         {
                             ref readonly var i = ref annotation;
                             MarkConstantPoolUsageForTypeAnnotation(in i, inUse);
+                        }
+
+                        return;
+                    }
+                    catch (ClassFormatError)
+                    {
+
+                    }
+                    catch (IndexOutOfRangeException)
+                    {
+
+                    }
+                    catch (ByteCodeException)
+                    {
+
+                    }
+
+                    // if we fail to parse the annotations (e.g. due to a malformed attribute), we simply keep all the constant pool entries
+                    for (int i = 0; i < inUse.Length; i++)
+                        inUse[i] = true;
+                }
+            }
+
+            /// <summary>
+            /// Scans the specified <see cref="AnnotationTable"/> for used constant handles and marks them as in-use.
+            /// </summary>
+            /// <param name="classFile"></param>
+            /// <param name="annotations"></param>
+            /// <param name="constantPool"></param>
+            /// <param name="inUse"></param>
+            static void MarkConstantPoolUsage(ClassFile classFile, ref readonly AnnotationTable annotations, ref object[] constantPool, ref bool[] inUse)
+            {
+                if (annotations.Count > 0)
+                {
+                    if (constantPool == null)
+                    {
+                        constantPool = classFile.GetConstantPool();
+                        inUse = new bool[constantPool.Length];
+                    }
+                    try
+                    {
+                        for (int i = 0; i < annotations.Count; i++)
+                        {
+                            ref readonly var annotation = ref annotations[i];
+                            MarkConstantPoolUsageForAnnotation(in annotation, inUse);
                         }
 
                         return;

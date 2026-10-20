@@ -236,18 +236,6 @@ namespace IKVM.Runtime
             return false;
         }
 
-        /// <summary>
-        /// The definition of an annotation as a custom attribute holds it: with its class names qualified, so that they
-        /// resolve from another assembly, and invalid surrogates escaped.
-        /// </summary>
-        /// <param name="loader"></param>
-        /// <param name="annotation"></param>
-        /// <returns></returns>
-        internal static object EncodeDefinition(RuntimeClassLoader loader, object annotation)
-        {
-            return AnnotationDefaultAttribute.Escape(QualifyClassNames(loader, annotation));
-        }
-
         protected static object QualifyClassNames(RuntimeClassLoader loader, object annotation)
         {
             bool copy = false;

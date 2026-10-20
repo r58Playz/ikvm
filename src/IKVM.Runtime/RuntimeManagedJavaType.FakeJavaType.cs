@@ -32,6 +32,8 @@ namespace IKVM.Runtime
         internal abstract class FakeJavaType : RuntimeJavaType
         {
 
+            internal override int ClassFileVersion => DotNetClassFileVersion;
+
             readonly RuntimeJavaType baseWrapper;
 
             /// <summary>

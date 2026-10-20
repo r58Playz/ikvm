@@ -934,16 +934,6 @@ namespace IKVM.Runtime
 #if !IMPORTER && !EXPORTER
 
         /// <summary>
-        /// The JPMS modules whose module-info.class the assembly holds.
-        /// </summary>
-        internal IEnumerable<string> ModuleInfoModules => assemblyLoader.ModuleInfoModules;
-
-        /// <summary>
-        /// The name of the manifest resource holding the module-info.class of the given JPMS module, or null.
-        /// </summary>
-        internal string GetModuleInfoResource(string module) => assemblyLoader.GetModuleInfoResource(module);
-
-        /// <summary>
         /// Finds the module-info.class of the given JPMS module, if the assembly holds it.
         /// </summary>
         internal java.net.URL FindModuleInfo(string module)

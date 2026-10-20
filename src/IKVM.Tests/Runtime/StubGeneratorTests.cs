@@ -251,6 +251,151 @@ namespace IKVM.Tests.Runtime
             new StubDefiningClassLoader().Define(bytes).Should().BeSameAs((global::java.lang.Class)typeof(string));
         }
 
+        /// <summary>
+        /// Reads the class file of a class of the class library by its resource name.
+        /// </summary>
+        static ClassFile ReadBootClassFile(string resource)
+        {
+            return ClassFile.Read(ReadAll(((global::java.lang.Class)typeof(global::java.lang.Object)).getResourceAsStream("/" + resource)));
+        }
+
+        static IKVM.ByteCode.Decoding.Method? FindMethod(ClassFile clazz, string name, string descriptor)
+        {
+            foreach (var method in clazz.Methods)
+                if (clazz.Constants.Get(method.Name).Value == name && clazz.Constants.Get(method.Descriptor).Value == descriptor)
+                    return method;
+
+            return null;
+        }
+
+        static List<string> GetInnerClasses(ClassFile clazz)
+        {
+            var list = new List<string>();
+            if (FindAttribute(clazz, AttributeName.InnerClasses) is { } attribute)
+            {
+                var table = ((IKVM.ByteCode.Decoding.InnerClassesAttribute)attribute).Table;
+                for (int i = 0; i < table.Count; i++)
+                {
+                    var entry = table[i];
+                    var outer = entry.Outer.IsNotNil ? clazz.Constants.Get(entry.Outer).Name : "-";
+                    var name = entry.InnerName.IsNotNil ? clazz.Constants.Get(entry.InnerName).Value : "-";
+                    list.Add($"{clazz.Constants.Get(entry.Inner).Name} {outer} {name}");
+                }
+            }
+
+            return list;
+        }
+
+        /// <summary>
+        /// Generates the stub of a type as the runtime does for one that has no stored stub.
+        /// </summary>
+        static byte[] GenerateStub(global::java.lang.Class clazz)
+        {
+            using var stream = new MemoryStream();
+            IKVM.Runtime.JVM.Context.StubGenerator.Write(stream, IKVM.Runtime.RuntimeJavaType.FromClass(clazz), true, true, true, true, false);
+            return stream.ToArray();
+        }
+
+        [TestMethod]
+        public void StubOfInternalClassIsNotPublic()
+        {
+            // ikvm.lang.Internal makes the class internal to IKVM.Java
+            using var clazz = ReadBootClassFile("ikvm/internal/WeakIdentityMap.class");
+            clazz.AccessFlags.Should().NotHaveFlag(AccessFlag.Public);
+            clazz.AccessFlags.Should().HaveFlag(AccessFlag.Final);
+        }
+
+        [TestMethod]
+        public void StubOfInternalMethodIsNotPublic()
+        {
+            using var clazz = ReadBootClassFile("ikvm/internal/CallerID.class");
+            var internalMethod = FindMethod(clazz, "getCallerClass", "()Ljava/lang/Class;");
+            internalMethod.Should().NotBeNull();
+            internalMethod.Value.AccessFlags.Should().NotHaveFlag(AccessFlag.Public);
+            internalMethod.Value.AccessFlags.Should().HaveFlag(AccessFlag.Final);
+            FindMethod(clazz, "<init>", "()V").Value.AccessFlags.Should().HaveFlag(AccessFlag.Protected);
+        }
+
+        [TestMethod]
+        public void StubLeavesOutMembersHiddenFromJava()
+        {
+            // the HideFromJava attribute, applied as an annotation, hides these from Java
+            using var clazz = ReadBootClassFile("ikvm/extensions/ExtensionMethods.class");
+            FindMethod(clazz, "addSuppressed", "(Ljava/lang/Throwable;Ljava/lang/Throwable;)V").Should().BeNull();
+            FindMethod(clazz, "fillInStackTrace", "(Ljava/lang/Throwable;)Ljava/lang/Throwable;").Should().BeNull();
+            FindMethod(clazz, "<init>", "()V").Should().NotBeNull();
+        }
+
+        [TestMethod]
+        public void GeneratedStubOfCompiledClass()
+        {
+            using var clazz = ClassFile.Read(GenerateStub(global::java.lang.Class.forName("ikvm.tests.jdk25.StubFixture", true, FixtureLoader)));
+            clazz.Version.Should().Be(ClassFormatVersion.Java25);
+
+            // each method once, the static initializer among them
+            var methods = clazz.Methods.Select(i => clazz.Constants.Get(i.Name).Value + clazz.Constants.Get(i.Descriptor).Value).ToList();
+            methods.Should().OnlyHaveUniqueItems();
+            methods.Should().ContainSingle(i => i == "<clinit>()V");
+
+            clazz.Constants.Get(((IKVM.ByteCode.Decoding.SourceFileAttribute)FindAttribute(clazz, AttributeName.SourceFile).Value).SourceFile).Value.Should().Be("StubFixture.java");
+
+            var members = ((IKVM.ByteCode.Decoding.NestMembersAttribute)FindAttribute(clazz, AttributeName.NestMembers).Value).NestMembers;
+            Enumerable.Range(0, members.Count).Select(i => clazz.Constants.Get(members[i]).Name).Should().Contain("ikvm/tests/jdk25/StubFixture$Inner");
+
+            // a local or anonymous class has no outer class, and an anonymous class no name
+            GetInnerClasses(clazz).Should().Contain(new[] {
+                "ikvm/tests/jdk25/StubFixture$Inner ikvm/tests/jdk25/StubFixture Inner",
+                "ikvm/tests/jdk25/StubFixture$1Local - Local",
+                "ikvm/tests/jdk25/StubFixture$1 - -",
+            });
+        }
+
+        [TestMethod]
+        public void GeneratedStubOfLocalClassHasItsEnclosingMethod()
+        {
+            using var clazz = ClassFile.Read(GenerateStub(global::java.lang.Class.forName("ikvm.tests.jdk25.StubFixture$1Local", false, FixtureLoader)));
+            var enclosing = (IKVM.ByteCode.Decoding.EnclosingMethodAttribute)FindAttribute(clazz, AttributeName.EnclosingMethod).Value;
+            clazz.Constants.Get(enclosing.Class).Name.Should().Be("ikvm/tests/jdk25/StubFixture");
+            clazz.Constants.Get(enclosing.Method).Name.Should().Be("local");
+            GetInnerClasses(clazz).Should().Contain("ikvm/tests/jdk25/StubFixture$1Local - Local");
+        }
+
+        [TestMethod]
+        public void GeneratedStubOfRecordAfterItsComponentsAreRead()
+        {
+            // reading the components' annotations does not change what the stub is generated from
+            var circle = global::java.lang.Class.forName("ikvm.tests.jdk25.StubFixture$Circle", true, FixtureLoader);
+            circle.getRecordComponents()[0].getAnnotations().Should().ContainSingle();
+            circle.getRecordComponents()[0].getAnnotations().Should().ContainSingle();
+
+            using var clazz = ClassFile.Read(GenerateStub(circle));
+            var components = ((IKVM.ByteCode.Decoding.RecordAttribute)FindAttribute(clazz, AttributeName.Record).Value).Components;
+            components.Count.Should().Be(2);
+
+            List<string> AttributeNames(int index) => components[index].Attributes.Select(i => clazz.Constants.Get(i.Name).Value).ToList();
+            clazz.Constants.Get(components[0].Name).Value.Should().Be("radius");
+            AttributeNames(0).Should().Contain(AttributeName.RuntimeVisibleAnnotations);
+            clazz.Constants.Get(components[1].Name).Value.Should().Be("tags");
+            AttributeNames(1).Should().Contain(new[] { AttributeName.Signature, AttributeName.RuntimeVisibleTypeAnnotations });
+        }
+
+        [TestMethod]
+        public void GeneratedStubOfSealedInterfaceHasItsPermittedSubclasses()
+        {
+            using var clazz = ClassFile.Read(GenerateStub(global::java.lang.Class.forName("ikvm.tests.jdk25.StubFixture$Shape", false, FixtureLoader)));
+            var subclasses = ((IKVM.ByteCode.Decoding.PermittedSubclassesAttribute)FindAttribute(clazz, AttributeName.PermittedSubclasses).Value).PermittedSubclasses;
+            Enumerable.Range(0, subclasses.Count).Select(i => clazz.Constants.Get(subclasses[i]).Name).Should().Equal("ikvm/tests/jdk25/StubFixture$Circle", "ikvm/tests/jdk25/StubFixture$Square");
+        }
+
+        [TestMethod]
+        public void GeneratedStubOfDotNetTypeIsVersion52()
+        {
+            // a .NET type (not one map.xml maps a Java class onto) has no class file: its stub has the lowest version that
+            // has what it does, which javac 8 reads
+            using var clazz = ClassFile.Read(GenerateStub((global::java.lang.Class)typeof(System.Text.StringBuilder)));
+            clazz.Version.Should().Be(new ClassFormatVersion(52, 0));
+        }
+
         [TestMethod]
         public void ModuleHasItsModuleInfo()
         {

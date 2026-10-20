@@ -24,6 +24,11 @@ namespace IKVM.Runtime
         /// </summary>
         internal const int JavaFeatureVersion = 25;
 
+        /// <summary>
+        /// The class file major version of that release: 69, for Java 25.
+        /// </summary>
+        internal const int ClassFileMajorVersion = JavaFeatureVersion + 44;
+
         static readonly object syncRoot = new object();
         static bool initialized;
 

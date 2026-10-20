@@ -392,24 +392,6 @@ namespace IKVM.Java.Externs.java.lang
 #endif
         }
 
-        /// <summary>
-        /// Makes the annotations of the given definitions, in the internal annotation format, into a map from their
-        /// types, leaving out those not retained at run time.
-        /// </summary>
-        internal static object DefinitionsToMap(RuntimeClassLoader loader, object[] definitions)
-        {
-#if FIRST_PASS
-            throw new NotImplementedException();
-#else
-            var map = new global::java.util.LinkedHashMap();
-            foreach (var definition in definitions)
-                if (JVM.NewAnnotation(loader.GetJavaClassLoader(), definition) is global::java.lang.annotation.Annotation a)
-                    map.put(a.annotationType(), a);
-
-            return map;
-#endif
-        }
-
         internal static object AnnotationsToMap(RuntimeClassLoader loader, object[] objAnn)
         {
 #if FIRST_PASS
@@ -589,8 +571,8 @@ namespace IKVM.Java.Externs.java.lang
         static readonly global::System.Reflection.FieldInfo recordComponentType = GetRecordComponentField("type");
         static readonly global::System.Reflection.FieldInfo recordComponentAccessor = GetRecordComponentField("accessor");
         static readonly global::System.Reflection.FieldInfo recordComponentSignature = GetRecordComponentField("signature");
+        static readonly global::System.Reflection.FieldInfo recordComponentAnnotations = GetRecordComponentField("annotations");
         static readonly global::System.Reflection.FieldInfo recordComponentTypeAnnotations = GetRecordComponentField("typeAnnotations");
-        static readonly global::System.Reflection.FieldInfo recordComponentDeclaredAnnotations = GetRecordComponentField("declaredAnnotations");
 
         static global::System.Reflection.FieldInfo GetRecordComponentField(string name)
         {
@@ -601,9 +583,9 @@ namespace IKVM.Java.Externs.java.lang
 
         /// <summary>
         /// Implements the native method 'getRecordComponents0': the components of a record class, from its Record
-        /// attribute, as HotSpot's Reflection::new_record_component makes them. The runtime has a component's
-        /// annotations decoded rather than as bytes against the constant pool, so they are its declared annotations; its
-        /// type annotations are the bytes, as HotSpot has them.
+        /// attribute, as HotSpot's Reflection::new_record_component makes them: with the bytes of the component's
+        /// RuntimeVisibleAnnotations and RuntimeVisibleTypeAnnotations, which RecordComponent parses against the class's
+        /// constant pool when they are asked for.
         /// </summary>
         public static global::java.lang.reflect.RecordComponent[] getRecordComponents0(global::java.lang.Class self)
         {
@@ -625,10 +607,8 @@ namespace IKVM.Java.Externs.java.lang
                 recordComponentType.SetValue(rc, tw.ClassLoader.FieldTypeWrapperFromSig(component.Descriptor, LoadMode.LoadOrThrow).EnsureLoadable(tw.ClassLoader).ClassObject);
                 recordComponentAccessor.SetValue(rc, tw.GetMethod(component.Name, "()" + component.Descriptor, false)?.ToMethodOrConstructor(true));
                 recordComponentSignature.SetValue(rc, component.Signature);
+                recordComponentAnnotations.SetValue(rc, component.Annotations);
                 recordComponentTypeAnnotations.SetValue(rc, component.TypeAnnotations);
-                if (component.Annotations != null)
-                    recordComponentDeclaredAnnotations.SetValue(rc, DefinitionsToMap(tw.ClassLoader, component.Annotations));
-
                 result[i] = rc;
             }
 

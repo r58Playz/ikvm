@@ -334,6 +334,7 @@ namespace IKVM.Runtime
         readonly string[] nestMembers;
         readonly string[] permittedSubclasses;
         readonly RecordComponentInfo[] recordComponents;
+        readonly AnnotationTable[] recordComponentAnnotations;
         readonly TypeAnnotationTable[] recordComponentTypeAnnotations;
         readonly TypeAnnotationTable runtimeVisibleTypeAnnotations = TypeAnnotationTable.Empty;
 
@@ -735,7 +736,7 @@ namespace IKVM.Runtime
                                 var component = recordAttribute.Components[j];
 
                                 string componentSignature = null;
-                                object[] componentAnnotations = null;
+                                byte[] componentAnnotations = null;
                                 byte[] componentTypeAnnotations = null;
                                 for (int k = 0; k < component.Attributes.Count; k++)
                                 {
@@ -745,7 +746,21 @@ namespace IKVM.Runtime
                                             componentSignature = GetConstantPoolUtf8String(utf8_cp, ((IKVM.ByteCode.Decoding.SignatureAttribute)component.Attributes[k]).Signature);
                                             break;
                                         case AttributeName.RuntimeVisibleAnnotations:
-                                            componentAnnotations = ReadAnnotations(((RuntimeVisibleAnnotationsAttribute)component.Attributes[k]).Annotations, this, utf8_cp);
+                                            // kept as they are, against the constant pool, as RecordComponent.getAnnotations parses them
+                                            var componentAnnotationTable = ((RuntimeVisibleAnnotationsAttribute)component.Attributes[k]).Annotations;
+                                            CreateUtf8ConstantPoolItems(utf8_cp);
+                                            if (recordComponentAnnotations == null)
+                                            {
+                                                recordComponentAnnotations = new AnnotationTable[recordComponents.Length];
+                                                for (int l = 0; l < recordComponentAnnotations.Length; l++)
+                                                    recordComponentAnnotations[l] = AnnotationTable.Empty;
+                                            }
+
+                                            recordComponentAnnotations[j] = componentAnnotationTable;
+                                            var componentAnnotationBlob = new IKVM.ByteCode.Buffers.BlobBuilder();
+                                            var componentAnnotationEncoder = new IKVM.ByteCode.Encoding.AnnotationTableEncoder(componentAnnotationBlob);
+                                            componentAnnotationTable.WriteTo(ref componentAnnotationEncoder);
+                                            componentAnnotations = componentAnnotationBlob.ToArray();
                                             break;
                                         case AttributeName.RuntimeVisibleTypeAnnotations:
                                             // kept as they are, against the constant pool, as RecordComponent.getAnnotatedType reads them
@@ -1429,6 +1444,11 @@ namespace IKVM.Runtime
         internal RecordComponentInfo[] RecordComponents => recordComponents;
 
         /// <summary>
+        /// For each record component, its RuntimeVisibleAnnotations, or null if no component has any.
+        /// </summary>
+        internal AnnotationTable[] RecordComponentAnnotations => recordComponentAnnotations;
+
+        /// <summary>
         /// For each record component, its RuntimeVisibleTypeAnnotations, or null if no component has any.
         /// </summary>
         internal TypeAnnotationTable[] RecordComponentTypeAnnotations => recordComponentTypeAnnotations;
@@ -1513,6 +1533,11 @@ namespace IKVM.Runtime
         }
 
         internal string IKVMAssemblyAttribute => ikvmAssembly;
+
+        /// <summary>
+        /// The class file as IKVM.ByteCode decoded it, which this instance holds until it is disposed.
+        /// </summary>
+        internal IKVM.ByteCode.Decoding.ClassFile Decoded => clazz;
 
         internal bool DeprecatedAttribute => (flags & FLAG_MASK_DEPRECATED) != 0;
 

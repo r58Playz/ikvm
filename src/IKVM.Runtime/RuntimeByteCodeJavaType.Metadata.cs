@@ -140,8 +140,8 @@ namespace IKVM.Runtime
                     }
                 }
 
-                // the type annotations of record components are against the constant pool too
-                var recordComponentTypeAnnotations = classFile.RecordComponentTypeAnnotations != null;
+                // the annotations and type annotations of record components are against the constant pool too
+                var recordComponentTypeAnnotations = classFile.RecordComponentAnnotations != null || classFile.RecordComponentTypeAnnotations != null;
 
                 if (genericMetaData != null ||
                     annotations != null ||

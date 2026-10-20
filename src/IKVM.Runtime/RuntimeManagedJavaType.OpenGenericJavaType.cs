@@ -48,6 +48,8 @@ namespace IKVM.Runtime
         sealed class OpenGenericJavaType : RuntimeJavaType
         {
 
+            internal override int ClassFileVersion => DotNetClassFileVersion;
+
             readonly Type type;
 
             static Modifiers GetModifiers(Type type)

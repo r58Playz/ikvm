@@ -1,5 +1,7 @@
 ﻿using System;
 
+using IKVM.Runtime;
+
 namespace IKVM.Attributes
 {
 
@@ -15,7 +17,7 @@ namespace IKVM.Attributes
 
         public PermittedSubclassesAttribute(string[] names)
         {
-            this.names = names ?? throw new ArgumentNullException(nameof(names));
+            this.names = UnicodeUtil.UnescapeInvalidSurrogates(names ?? throw new ArgumentNullException(nameof(names)));
         }
 
         /// <summary>

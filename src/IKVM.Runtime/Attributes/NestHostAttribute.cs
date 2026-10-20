@@ -1,5 +1,7 @@
 ﻿using System;
 
+using IKVM.Runtime;
+
 namespace IKVM.Attributes
 {
 
@@ -15,7 +17,7 @@ namespace IKVM.Attributes
 
         public NestHostAttribute(string name)
         {
-            this.name = name ?? throw new ArgumentNullException(nameof(name));
+            this.name = UnicodeUtil.UnescapeInvalidSurrogates(name ?? throw new ArgumentNullException(nameof(name)));
         }
 
         /// <summary>

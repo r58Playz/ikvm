@@ -30,14 +30,14 @@ namespace IKVM.Attributes
         /// <param name="names"></param>
         /// <param name="descriptors"></param>
         /// <param name="signatures"></param>
-        /// <param name="annotations">For each component, the definitions of its RuntimeVisibleAnnotations in the
-        /// internal annotation format, escaped as <see cref="AnnotationDefaultAttribute.Escape"/> does.</param>
+        /// <param name="annotations">For each component, its RuntimeVisibleAnnotations as they are in the class file
+        /// (a byte array), whose constants the type's <see cref="ConstantPoolAttribute"/> holds.</param>
         /// <param name="typeAnnotations">For each component, its RuntimeVisibleTypeAnnotations as they are in the
-        /// class file, whose constants the type's <see cref="ConstantPoolAttribute"/> holds.</param>
+        /// class file (a byte array), whose constants the type's <see cref="ConstantPoolAttribute"/> holds.</param>
         public RecordComponentsAttribute(string[] names, string[] descriptors, string[] signatures, object[] annotations, object[] typeAnnotations) :
             this(names, descriptors, signatures)
         {
-            this.annotations = (object[])AnnotationDefaultAttribute.Unescape(annotations ?? throw new ArgumentNullException(nameof(annotations)));
+            this.annotations = annotations ?? throw new ArgumentNullException(nameof(annotations));
             this.typeAnnotations = typeAnnotations ?? throw new ArgumentNullException(nameof(typeAnnotations));
         }
 
@@ -57,8 +57,8 @@ namespace IKVM.Attributes
         public string[] Signatures => signatures;
 
         /// <summary>
-        /// For each component, the definitions of its annotations (an empty array for a component that has none), or
-        /// null if no component has any.
+        /// For each component, the bytes of its RuntimeVisibleAnnotations attribute (an empty array for a component that
+        /// has none), or null if no component has any annotations.
         /// </summary>
         public object[] Annotations => annotations;
 

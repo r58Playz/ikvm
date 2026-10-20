@@ -82,6 +82,7 @@ namespace IKVM.Tools.Importer
         readonly List<RuntimeJavaType> dynamicallyImportedTypes = new List<RuntimeJavaType>();
         readonly List<string> jarList = new List<string>();
         readonly List<string> moduleInfoList = new List<string>();
+        readonly HashSet<string> stubAssemblyNames = new HashSet<string>();
         List<RuntimeJavaType> javaTypes;
         FakeTypes fakeTypes;
 
@@ -393,7 +394,7 @@ namespace IKVM.Tools.Importer
                         }
                         else
                         {
-                            itemRef.MarkAsStub(tw, WriteClassFileStub(name, itemRef.GetData()));
+                            itemRef.MarkAsStub(tw, WriteClassFileStub(f));
                         }
 
                         int pos = f.Name.LastIndexOf('.');
@@ -775,22 +776,26 @@ namespace IKVM.Tools.Importer
 
         /// <summary>
         /// Writes the stub of a class from its class file, which is the class file but for its method bodies. It is
-        /// written as the class is defined, so that the class file need not be held until the resources are. Returns
-        /// null if the class file has an attribute that cannot be copied, leaving the stub to be generated from the
-        /// compiled type.
+        /// written as the class is defined, from the class file as it was parsed to define it, so that the class file
+        /// need not be held until the resources are written. Returns null if the stub cannot be written from the class
+        /// file, leaving it to be generated from the compiled type.
         /// </summary>
-        /// <param name="name"></param>
         /// <param name="classFile"></param>
         /// <returns></returns>
-        byte[] WriteClassFileStub(string name, byte[] classFile)
+        byte[] WriteClassFileStub(IKVM.Runtime.ClassFile classFile)
         {
             try
             {
-                return ClassFileStubWriter.Write(classFile, assemblyBuilder.FullName);
+                // the assembly's name can still change, by an annotation applying AssemblyVersionAttribute or
+                // AssemblyCultureAttribute: the stubs are named anew when they are written if it does
+                var assemblyName = assemblyBuilder.FullName;
+                var stub = ClassFileStubWriter.Write(classFile, assemblyName);
+                stubAssemblyNames.Add(assemblyName);
+                return stub;
             }
-            catch (ByteCodeException e)
+            catch (Exception e)
             {
-                Diagnostics.GenericCompilerWarning($"Stub of {name} generated from its compiled type: {e.Message}");
+                Diagnostics.GenericCompilerWarning($"Stub of {classFile.Name} generated from its compiled type: {e.Message}");
                 return null;
             }
         }
@@ -801,6 +806,10 @@ namespace IKVM.Tools.Importer
 
             // BUG we need to call GetTypeWrapperFactory() to make sure that the assemblyBuilder is created (when building an empty target)
             var moduleBuilder = GetTypeWrapperFactory().ModuleBuilder;
+
+            // stubs written while the assembly had another name are named anew
+            var assemblyName = assemblyBuilder.FullName;
+            var renameStubs = stubAssemblyNames.Count > 1 || (stubAssemblyNames.Count == 1 && stubAssemblyNames.Contains(assemblyName) == false);
 
             for (int i = 0; i < state.jars.Count; i++)
             {
@@ -819,9 +828,16 @@ namespace IKVM.Tools.Importer
                             var stubZipEntry = zip.CreateEntry(item.Name, state.compressedResources ? CompressionLevel.Optimal : CompressionLevel.NoCompression);
                             using var stubStream = stubZipEntry.Open();
                             if (item.GetStub() is byte[] stub)
+                            {
+                                if (renameStubs)
+                                    stub = ClassFileStubWriter.Write(stub, assemblyName);
+
                                 stubStream.Write(stub, 0, stub.Length);
+                            }
                             else
-                                Context.StubGenerator.Write(stubStream, item.StubType, true, true, true, true, false, assemblyBuilder.FullName);
+                            {
+                                Context.StubGenerator.Write(stubStream, item.StubType, true, true, true, true, false, assemblyName);
+                            }
                             hasEntries = true;
                             continue;
                         }

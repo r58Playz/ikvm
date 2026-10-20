@@ -885,10 +885,10 @@ namespace IKVM.Runtime
 		internal void SetPermittedSubclassesAttribute(TypeBuilder tb, string[] names)
 		{
 			var con = TypeOfPermittedSubclassesAttribute.GetConstructor(new Type[] { context.Types.String.MakeArrayType() });
-			tb.SetCustomAttribute(new CustomAttributeBuilder(con, new object[] { names }));
+			tb.SetCustomAttribute(new CustomAttributeBuilder(con, new object[] { UnicodeUtil.EscapeInvalidSurrogates(names) }));
 		}
 
-		internal void SetRecordComponentsAttribute(RuntimeClassLoader loader, TypeBuilder tb, RecordComponentInfo[] components)
+		internal void SetRecordComponentsAttribute(TypeBuilder tb, RecordComponentInfo[] components)
 		{
 			var names = new string[components.Length];
 			var descriptors = new string[components.Length];
@@ -903,14 +903,9 @@ namespace IKVM.Runtime
 				signatures[i] = components[i].Signature;
 
 				// a component without annotations has empty arrays, which a custom attribute holds more simply than nulls
-				var definitions = components[i].Annotations ?? Array.Empty<object>();
-				var encoded = new object[definitions.Length];
-				for (int j = 0; j < definitions.Length; j++)
-					encoded[j] = Annotation.EncodeDefinition(loader, definitions[j]);
-
-				annotations[i] = encoded;
+				annotations[i] = components[i].Annotations ?? Array.Empty<byte>();
 				typeAnnotations[i] = components[i].TypeAnnotations ?? Array.Empty<byte>();
-				anyAnnotations |= encoded.Length > 0 || components[i].TypeAnnotations != null;
+				anyAnnotations |= components[i].Annotations != null || components[i].TypeAnnotations != null;
 			}
 
 			var stringArray = context.Types.String.MakeArrayType();
@@ -936,7 +931,7 @@ namespace IKVM.Runtime
 		internal void SetNestMembersAttribute(TypeBuilder tb, string[] names)
 		{
 			var con = TypeOfNestMembersAttribute.GetConstructor(new Type[] { context.Types.String.MakeArrayType() });
-			tb.SetCustomAttribute(new CustomAttributeBuilder(con, new object[] { names }));
+			tb.SetCustomAttribute(new CustomAttributeBuilder(con, new object[] { UnicodeUtil.EscapeInvalidSurrogates(names) }));
 		}
 
 		internal void SetClassFileVersionAttribute(TypeBuilder tb, int major, int minor)
@@ -1330,14 +1325,7 @@ namespace IKVM.Runtime
             return attr.Length == 1 ? ((IKVM.Attributes.PermittedSubclassesAttribute)attr[0]).Names : null;
 #else
             foreach (var cad in CustomAttributeData.__GetCustomAttributes(type, TypeOfPermittedSubclassesAttribute, false))
-            {
-                var args = (System.Collections.Generic.IList<CustomAttributeTypedArgument>)cad.ConstructorArguments[0].Value;
-                var names = new string[args.Count];
-                for (int i = 0; i < names.Length; i++)
-                    names[i] = (string)args[i].Value;
-
-                return names;
-            }
+                return UnicodeUtil.UnescapeInvalidSurrogates(DecodeArray<string>(cad.ConstructorArguments[0]));
 
             return null;
 #endif
@@ -1357,7 +1345,7 @@ namespace IKVM.Runtime
             var components = new RecordComponentInfo[record.Names.Length];
             for (int i = 0; i < components.Length; i++)
             {
-                var annotations = (object[])record.Annotations?[i];
+                var annotations = (byte[])record.Annotations?[i];
                 var typeAnnotations = (byte[])record.TypeAnnotations?[i];
                 components[i] = new RecordComponentInfo(
                     record.Names[i],
@@ -1411,7 +1399,7 @@ namespace IKVM.Runtime
             return attr.Length == 1 ? ((IKVM.Attributes.NestMembersAttribute)attr[0]).Names : null;
 #else
             foreach (var cad in CustomAttributeData.__GetCustomAttributes(type, TypeOfNestMembersAttribute, false))
-                return DecodeArray<string>(cad.ConstructorArguments[0]);
+                return UnicodeUtil.UnescapeInvalidSurrogates(DecodeArray<string>(cad.ConstructorArguments[0]));
 
             return null;
 #endif

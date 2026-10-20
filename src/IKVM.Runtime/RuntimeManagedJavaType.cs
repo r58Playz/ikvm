@@ -51,6 +51,15 @@ namespace IKVM.Runtime
 
         const string NamePrefix = "cli.";
 
+        /// <summary>
+        /// The class file version of a .NET type, which is what its stub has: 52.0, the lowest that can have everything
+        /// such a stub does (interface methods with bodies, MethodParameters, type annotations), so that javac 8 and
+        /// later can read the stubs ikvmstub makes of a .NET assembly.
+        /// </summary>
+        internal const int DotNetClassFileVersion = 52;
+
+        internal override int ClassFileVersion => DotNetClassFileVersion;
+
         internal const string DelegateInterfaceSuffix = "$Method";
         internal const string AttributeAnnotationSuffix = "$Annotation";
         internal const string AttributeAnnotationReturnValueSuffix = "$__ReturnValue";

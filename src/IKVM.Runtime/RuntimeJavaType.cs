@@ -1114,10 +1114,10 @@ namespace IKVM.Runtime
 
         /// <summary>
         /// The version of the class file this type is defined from, the major version in the low 16 bits and the minor
-        /// in the high, as Class.getClassFileVersion0 has it. A type that has no class file of its own reports that of
-        /// the Java SE release IKVM implements, 69.0 (ClassFile.SupportedVersions.Maximum).
+        /// in the high, as Class.getClassFileVersion0 has it, and the version of its stub. A primitive type, an array
+        /// type and a Java class compiled from a class file of the Java SE release IKVM implements have that release's.
         /// </summary>
-        internal virtual int ClassFileVersion => 69;
+        internal virtual int ClassFileVersion => JVM.ClassFileMajorVersion;
 
         /// <summary>
         /// Whether this type and <paramref name="other"/> are nestmates, which may access each other's private members

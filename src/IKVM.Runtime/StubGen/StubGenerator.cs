@@ -54,21 +54,20 @@ namespace IKVM.Runtime.StubGen
             else if (type.BaseTypeWrapper != null)
                 super = type.BaseTypeWrapper.Name.Replace('.', '/');
 
-            // the version of the class file the type is compiled from, or that of the Java SE release this runtime
-            // implements (69.0, as the class files of OpenJDK 25) if it has none
+            // the version of the class file a Java class is compiled from, 69.0 as OpenJDK 25's but for a class file of
+            // another release, and 52.0 for a .NET type
             var version = type.ClassFileVersion;
             var builder = new ClassFileBuilder(new ClassFormatVersion((ushort)(version & 0xFFFF), (ushort)(version >> 16)), (AccessFlag)type.Modifiers, name, super);
 
             AddInterfaces(builder, type, includeNonPublicInterfaces);
             AddMethods(builder, type, includeNonPublicMembers, includeParameterNames);
-            AddClassInitializer(builder, type);
             AddFields(builder, type, includeNonPublicMembers, includeSerialVersionUID);
             AddSourceFileAttribute(builder, type);
-            AddNestAttributes(builder, type);
+            AddNestAttributes(builder, type, includeNonPublicTypes);
             AddInnerClassesAttribute(builder, type, name, includeNonPublicTypes);
             AddEnclosingMethodAttribute(builder, type);
             AddRecordAttribute(builder, type);
-            AddPermittedSubclassesAttribute(builder, type);
+            AddPermittedSubclassesAttribute(builder, type, includeNonPublicTypes);
             AddSignatureAttribute(builder, type);
             AddAssemblyAttribute(builder, type, assemblyName);
             AddDeprecatedAttribute(builder, type);
@@ -268,23 +267,6 @@ namespace IKVM.Runtime.StubGen
         }
 
         /// <summary>
-        /// Adds the class's static initializer, which a compiled Java class has if its class file did: a type compiled
-        /// by ikvmc has a type initializer then. Its wrapper is not among the type's methods, but for a class being
-        /// compiled.
-        /// </summary>
-        /// <param name="builder"></param>
-        /// <param name="type"></param>
-        void AddClassInitializer(ClassFileBuilder builder, RuntimeJavaType type)
-        {
-            if (type is RuntimeManagedByteCodeJavaType && type.TypeAsTBD is { IsArray: false, TypeInitializer: { } clinit } && context.AttributeHelper.IsHideFromJava(clinit) == false)
-            {
-                var attributes = new AttributeTableBuilder(builder.Constants);
-                AddThrowingCode(builder, attributes, 0);
-                builder.AddMethod(AccessFlag.Static, "<clinit>", "()V", attributes);
-            }
-        }
-
-        /// <summary>
         /// Adds the SourceFile attribute.
         /// </summary>
         /// <param name="builder"></param>
@@ -298,19 +280,50 @@ namespace IKVM.Runtime.StubGen
         }
 
         /// <summary>
+        /// Gets the classes among the named ones that a stub may name: all of them, or if non-public types are left out,
+        /// those that are public.
+        /// </summary>
+        /// <param name="type"></param>
+        /// <param name="names"></param>
+        /// <param name="includeNonPublicTypes"></param>
+        /// <returns></returns>
+        static string[] GetExportedClassNames(RuntimeJavaType type, string[] names, bool includeNonPublicTypes)
+        {
+            if (includeNonPublicTypes)
+                return names;
+
+            var list = new List<string>();
+            foreach (var name in names)
+            {
+                try
+                {
+                    if (type.ClassLoader.TryLoadClassByName(name) is { IsPublic: true })
+                        list.Add(name);
+                }
+                catch (RetargetableJavaException)
+                {
+                    // a class that cannot be loaded is not exported either
+                }
+            }
+
+            return list.ToArray();
+        }
+
+        /// <summary>
         /// Adds the NestHost or NestMembers attribute.
         /// </summary>
         /// <param name="builder"></param>
         /// <param name="type"></param>
-        void AddNestAttributes(ClassFileBuilder builder, RuntimeJavaType type)
+        /// <param name="includeNonPublicTypes"></param>
+        void AddNestAttributes(ClassFileBuilder builder, RuntimeJavaType type, bool includeNonPublicTypes)
         {
-            if (type.NestHostName is string host)
+            if (type.NestHostName is string host && GetExportedClassNames(type, [host], includeNonPublicTypes).Length > 0)
                 builder.Attributes.NestHost(builder.Constants.GetOrAddClass(host.Replace('.', '/')));
 
             if (type.NestMemberNames is string[] members)
                 builder.Attributes.NestMembers(e =>
                 {
-                    foreach (var member in members)
+                    foreach (var member in GetExportedClassNames(type, members, includeNonPublicTypes))
                         e.Class(builder.Constants.GetOrAddClass(member.Replace('.', '/')));
                 });
         }
@@ -350,12 +363,10 @@ namespace IKVM.Runtime.StubGen
                         if (component.Signature != null)
                             e2.Signature(builder.Constants.GetOrAddUtf8(AttributeName.Signature), builder.Constants.GetOrAddUtf8(component.Signature));
 
-                        if (component.Annotations is { Length: > 0 } annotations)
-                            e2.RuntimeVisibleAnnotations(builder.Constants.GetOrAddUtf8(AttributeName.RuntimeVisibleAnnotations), e3 =>
-                            {
-                                foreach (object[] annotation in annotations)
-                                    EncodeAnnotation(builder, ref e3, annotation);
-                            });
+                        var annotationsBlob = new BlobBuilder();
+                        var annotations = new AnnotationTableEncoder(annotationsBlob);
+                        if (ImportAnnotations(builder, ref annotations, type, component.Annotations))
+                            e2.Attribute(builder.Constants.GetOrAddUtf8(AttributeName.RuntimeVisibleAnnotations), annotationsBlob);
 
                         var typeAnnotationsBlob = new BlobBuilder();
                         var typeAnnotations = new TypeAnnotationTableEncoder(typeAnnotationsBlob);
@@ -371,12 +382,13 @@ namespace IKVM.Runtime.StubGen
         /// </summary>
         /// <param name="builder"></param>
         /// <param name="type"></param>
-        void AddPermittedSubclassesAttribute(ClassFileBuilder builder, RuntimeJavaType type)
+        /// <param name="includeNonPublicTypes"></param>
+        void AddPermittedSubclassesAttribute(ClassFileBuilder builder, RuntimeJavaType type, bool includeNonPublicTypes)
         {
             if (type.PermittedSubclassNames is string[] names)
                 builder.Attributes.PermittedSubclasses(e =>
                 {
-                    foreach (var subclass in names)
+                    foreach (var subclass in GetExportedClassNames(type, names, includeNonPublicTypes))
                         e.Class(builder.Constants.GetOrAddClass(subclass.Replace('.', '/')));
                 });
         }
@@ -856,6 +868,31 @@ namespace IKVM.Runtime.StubGen
 #endif
 
             return any;
+        }
+
+        /// <summary>
+        /// Encodes a RuntimeVisibleAnnotations attribute from the bytes of one against the type's constant pool.
+        /// </summary>
+        /// <param name="builder"></param>
+        /// <param name="encoder"></param>
+        /// <param name="type"></param>
+        /// <param name="annotations"></param>
+        /// <exception cref="Exception"></exception>
+        bool ImportAnnotations(ClassFileBuilder builder, ref AnnotationTableEncoder encoder, RuntimeJavaType type, byte[] annotations)
+        {
+#if !FIRST_PASS && !EXPORTER && !IMPORTER
+            if (annotations != null)
+            {
+                var reader = new ClassFormatReader(annotations);
+                if (AnnotationTable.TryRead(ref reader, out var table) == false)
+                    throw new Exception();
+
+                table.CopyTo(new ConstantView(type.GetConstantPool()), builder.Constants, ref encoder);
+                return table.Count > 0;
+            }
+#endif
+
+            return false;
         }
 
         /// <summary>
