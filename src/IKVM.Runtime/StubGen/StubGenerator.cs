@@ -54,7 +54,8 @@ namespace IKVM.Runtime.StubGen
             else if (type.BaseTypeWrapper != null)
                 super = type.BaseTypeWrapper.Name.Replace('.', '/');
 
-            var builder = new ClassFileBuilder(new ClassFormatVersion(includeParameterNames ? (ushort)52 : (ushort)49, 0), (AccessFlag)type.Modifiers, name, super);
+            // the class file version of the Java SE release this runtime implements, as the class files of OpenJDK 25
+            var builder = new ClassFileBuilder(ClassFormatVersion.Java25, (AccessFlag)type.Modifiers, name, super);
 
             AddInterfaces(builder, type, includeNonPublicInterfaces);
             AddMethods(builder, type, includeNonPublicMembers, includeParameterNames);
@@ -101,31 +102,14 @@ namespace IKVM.Runtime.StubGen
 
                 if (method.IsHideFromReflection == false && (method.IsPublic || method.IsProtected || includeNonPublicMembers))
                 {
-                    // HACK javac has a bug in com.sun.tools.javac.code.Types.isSignaturePolymorphic() where it assumes that
-                    // MethodHandle doesn't have any native methods with an empty argument list
-                    // (or at least it throws a NPE when it examines the signature of a method without any parameters when it
-                    // accesses argtypes.tail.tail)
-                    if (method.Name == "<init>" || (type == context.JavaBase.TypeOfJavaLangInvokeMethodHandle && (method.Modifiers & Modifiers.Native) == 0))
-                    {
-                        // generate the method code which throws a UnsatisfiedLinkError.
-                        var codeBlob = new BlobBuilder();
-                        new CodeBuilder(codeBlob)
-                            .New(builder.Constants.GetOrAddClass("java/lang/UnsatisfiedLinkError"))
-                            .Dup()
-                            .LoadConstant(builder.Constants.GetOrAddString("IKVM stubs can only be used on IKVM"))
-                            .InvokeSpecial(builder.Constants.GetOrAddMethodref("java/lang/UnsatisfiedLinkError", "<init>", "(Ljava/lang/String;)V"))
-                            .Athrow();
+                    // a method with a body gets one that throws, so that its flags are its own: a stub's interface methods
+                    // may not be native (JVMS 4.6), and the native signature polymorphic methods of MethodHandle and
+                    // VarHandle, which javac finds by ACC_NATIVE and ACC_VARARGS, are told apart from the rest
+                    if ((accessFlags & (AccessFlag.Abstract | AccessFlag.Native)) == 0)
+                        AddThrowingCode(builder, attributes, method.IsStatic, method.GetParameters());
 
-                        attributes.Code(3, (ushort)(method.GetParameters().Length * 2 + 1), codeBlob, e => { }, new AttributeTableBuilder(builder.Constants));
-                    }
-                    else
-                    {
-                        if ((accessFlags & AccessFlag.Abstract) == 0)
-                            accessFlags |= AccessFlag.Native;
-
-                        if (method.IsOptionalAttributeAnnotationValue)
-                            attributes.AnnotationDefault(e => EncodeAnnotationDefault(builder, ref e, method.ReturnType));
-                    }
+                    if (method.IsOptionalAttributeAnnotationValue)
+                        attributes.AnnotationDefault(e => EncodeAnnotationDefault(builder, ref e, method.ReturnType));
 
 #if IMPORTER
                     AddExceptionsAttribute(builder, type, method, attributes, null);
@@ -157,6 +141,42 @@ namespace IKVM.Runtime.StubGen
                     builder.AddMethod(accessFlags, method.Name, method.Signature.Replace('.', '/'), attributes);
                 }
             }
+        }
+
+        /// <summary>
+        /// Adds a Code attribute to a method of a stub which throws an UnsatisfiedLinkError.
+        /// </summary>
+        /// <param name="builder"></param>
+        /// <param name="attributes"></param>
+        /// <param name="isStatic"></param>
+        /// <param name="parameters"></param>
+        static void AddThrowingCode(ClassFileBuilder builder, AttributeTableBuilder attributes, bool isStatic, RuntimeJavaType[] parameters)
+        {
+            var maxLocals = isStatic ? 0 : 1;
+            foreach (var parameter in parameters)
+                maxLocals += parameter.IsWidePrimitive ? 2 : 1;
+
+            AddThrowingCode(builder, attributes, maxLocals);
+        }
+
+        /// <summary>
+        /// Adds a Code attribute to a method of a stub which throws an UnsatisfiedLinkError. The code does not branch,
+        /// so it needs no StackMapTable.
+        /// </summary>
+        /// <param name="builder"></param>
+        /// <param name="attributes"></param>
+        /// <param name="maxLocals">The local variable slots the method's parameters take.</param>
+        internal static void AddThrowingCode(ClassFileBuilder builder, AttributeTableBuilder attributes, int maxLocals)
+        {
+            var codeBlob = new BlobBuilder();
+            new CodeBuilder(codeBlob)
+                .New(builder.Constants.GetOrAddClass("java/lang/UnsatisfiedLinkError"))
+                .Dup()
+                .LoadConstant(builder.Constants.GetOrAddString("IKVM stubs can only be used on IKVM"))
+                .InvokeSpecial(builder.Constants.GetOrAddMethodref("java/lang/UnsatisfiedLinkError", "<init>", "(Ljava/lang/String;)V"))
+                .Athrow();
+
+            attributes.Code(3, (ushort)maxLocals, codeBlob, e => { }, new AttributeTableBuilder(builder.Constants));
         }
 
         /// <summary>
