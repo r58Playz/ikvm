@@ -71,6 +71,16 @@ namespace IKVM.Runtime
         Dictionary<string, Type> createdUnloadables;
 #endif
         TypeBuilder unloadableContainer;
+#if !IMPORTER
+        // wasm fork (R514): at runtime a container holds at most UnloadablesPerContainer nested types, then a new one
+        // ("__<Unloadable>1", ...) is started. mono's RuntimeTypeBuilder.DefineNestedType grows the parent's subtypes
+        // array by ONE element per call, and every unloadable a lazily linking loader declines lands here, so a single
+        // container made that quadratic: 26.2 + Fabulously Optimized reached 8,452 entries, ~140 MB of large-object
+        // copies (R510). ikvmc output keeps the one container.
+        const int UnloadablesPerContainer = 256;
+        int unloadableContainerCount;
+        int unloadableContainerSeq;
+#endif
         Type[] delegates;
 
         /// <summary>
@@ -208,15 +218,27 @@ namespace IKVM.Runtime
                 {
                     return type;
                 }
+#if IMPORTER
                 if (unloadableContainer == null)
                 {
                     unloadableContainer = moduleBuilder.DefineType(RuntimeUnloadableJavaType.ContainerTypeName, TypeAttributes.Interface | TypeAttributes.Abstract);
+#else
+                if (unloadableContainer == null || unloadableContainerCount >= UnloadablesPerContainer)
+                {
+                    var containerName = unloadableContainerSeq == 0 ? RuntimeUnloadableJavaType.ContainerTypeName : RuntimeUnloadableJavaType.ContainerTypeName + unloadableContainerSeq;
+                    unloadableContainerSeq++;
+                    unloadableContainerCount = 0;
+                    unloadableContainer = moduleBuilder.DefineType(containerName, TypeAttributes.Interface | TypeAttributes.Abstract);
+#endif
                     context.AttributeHelper.HideFromJava(unloadableContainer);
 #if !IMPORTER
                     unloadableContainer.CreateType();
 #endif
                 }
                 type = unloadableContainer.DefineNestedType(TypeNameUtil.MangleNestedTypeName(name), TypeAttributes.NestedPrivate | TypeAttributes.Interface | TypeAttributes.Abstract);
+#if !IMPORTER
+                unloadableContainerCount++;
+#endif
 #if !IMPORTER
                 // These dummies only ever appear as optional custom modifiers, so nothing drags them through
                 // the normal finish path; the only place that creates them is FinishAll(), which is an

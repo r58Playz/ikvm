@@ -216,6 +216,9 @@ namespace IKVM.Runtime
 
 
         internal static int Seen;
+        // wasm fork (R514): relink-drain refusals (ByteCodeHelper.InRelinkDrain): a finish of an unfinished type, a Java loader call
+        internal static int DrainFinishRefused;
+        internal static int DrainLoadRefused;
         internal static int Released;             // wasm fork (R484): terminal entries that dropped their reparse source
         internal static int Accepted;
         internal static int RejShape;             // abstract/native/no instructions, or <init>/<clinit>
@@ -427,7 +430,7 @@ namespace IKVM.Runtime
                 ReportIndy();
             Console.WriteLine($"[IKVM lazybody] inplaceFail stubbed={InPlaceStubbed} stubFailed={InPlaceStubFailed} {InPlaceFailureSummary()}");
             Console.WriteLine($"[IKVM lazybody] unexpDyn {UnexpectedDynamicSummary()}");
-            Console.WriteLine($"[IKVM lazybody] noLoadBootstrapFinds={RuntimeClassLoader.NoLoadFoundInBootstrap}");
+            Console.WriteLine($"[IKVM lazybody] noLoadBootstrapFinds={RuntimeClassLoader.NoLoadFoundInBootstrap} drainRefused finish={DrainFinishRefused} load={DrainLoadRefused}");
         }
 
     }

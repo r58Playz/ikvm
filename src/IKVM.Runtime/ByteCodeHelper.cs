@@ -657,6 +657,23 @@ namespace IKVM.Runtime
         /// <summary>Dependencies loaded per drain ownership period, so one drain cannot spend a whole boot loading.</summary>
         const int LoadStuckPerDrain = 16;
         static int relinkDrainScheduled;
+
+        /// <summary>
+        /// wasm fork (R514): set while this thread runs a relink batch. The drain must not finish a type or call a Java class
+        /// loader: either can enter Knot's loadClass, which takes that class's loading lock and then Mixin's synchronized
+        /// transformer -- while the thread applying mixins holds that monitor and needs the same class finished or loaded.
+        /// That is the boot hang first seen in R500 (~1 boot in 12-16; a thread dump in R514 shows the main thread in
+        /// MixinProcessor.applyMixins blocked in a class-literal load and a ThreadPool thread inside ClassLoader.loadClass).
+        /// RuntimeByteCodeJavaType.Finish and RuntimeClassLoader.LoadClassImpl throw RelinkDrainRefusal instead, before
+        /// changing any state; the relink of that method is declined and it keeps its first-generation body.
+        /// </summary>
+        [ThreadStatic]
+        internal static bool InRelinkDrain;
+
+        internal sealed class RelinkDrainRefusal : Exception
+        {
+            internal RelinkDrainRefusal(string what) : base(what) { }
+        }
         static readonly WaitCallback relinkDrainCallback = _ => DrainRelinkQueue();
         static readonly Timer relinkDrainTimer = new Timer(_ => DrainRelinkQueue(), null, Timeout.Infinite, Timeout.Infinite);
         static int relinkDeferralStarted;
@@ -768,6 +785,7 @@ namespace IKVM.Runtime
                 // and deadline, preventing a large queue from monopolising startup after one forced drain.
                 try
                 {
+                    InRelinkDrain = true;
                     PrepareRelinkBatch(batch);
                     FlushRelinkBatch(batch);
                 }
@@ -779,7 +797,10 @@ namespace IKVM.Runtime
                 }
                 finally
                 {
+                    // Still the drain: FinishRelinkBatch's RelinkTarget finishes a default method's declaring and
+                    // parameter types, which is the same Finish the guard refuses in PrepareRelinkBatch (R514).
                     FinishRelinkBatch(batch);
+                    InRelinkDrain = false;
                 }
             }
             finally

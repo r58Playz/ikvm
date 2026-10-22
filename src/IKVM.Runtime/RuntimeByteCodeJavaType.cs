@@ -437,6 +437,14 @@ namespace IKVM.Runtime
 
         internal override void Finish()
         {
+#if !FIRST_PASS && !IMPORTER && !EXPORTER
+            // see ByteCodeHelper.InRelinkDrain: refused before anything changes, so this type is untouched
+            if (ByteCodeHelper.InRelinkDrain && impl is not FinishedTypeImpl)
+            {
+                System.Threading.Interlocked.Increment(ref LazyBodyStats.DrainFinishRefused);
+                throw new ByteCodeHelper.RelinkDrainRefusal("relink drain may not finish " + Name);
+            }
+#endif
             // we don't need locking, because Finish is Thread safe
             impl = impl.Finish();
         }

@@ -1059,7 +1059,7 @@ namespace IKVM.Runtime
                 {
                     tw = context.ManagedJavaTypeFactory.GetJavaTypeFromManagedType(type);
                 }
-                else if (type.DeclaringType != null && type.DeclaringType.FullName == RuntimeUnloadableJavaType.ContainerTypeName)
+                else if (type.DeclaringType != null && type.DeclaringType.FullName.StartsWith(RuntimeUnloadableJavaType.ContainerTypeName, StringComparison.Ordinal))
                 {
                     tw = new RuntimeUnloadableJavaType(context, TypeNameUtil.UnmangleNestedTypeName(type.Name), type);
                 }

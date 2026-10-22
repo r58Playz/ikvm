@@ -832,6 +832,13 @@ namespace IKVM.Runtime
                 if (JVM.TraceLoadClass)
                     Console.Error.WriteLine($"[IKVM loadClass] {name} via {javaClassLoader?.GetType().FullName ?? "<boot>"}");
 
+                // see ByteCodeHelper.InRelinkDrain: the relink drain never calls into a Java class loader
+                if (ByteCodeHelper.InRelinkDrain)
+                {
+                    System.Threading.Interlocked.Increment(ref LazyBodyStats.DrainLoadRefused);
+                    throw new ByteCodeHelper.RelinkDrainRefusal("relink drain may not load " + name);
+                }
+
                 // invoke 'loadClass' on the associated Java class loader instance
                 // this can cause a call to defineClass
                 var c = (java.lang.Class)ClassLoaderAccessor.InvokeLoadClassInternal(GetJavaClassLoader(), name);
