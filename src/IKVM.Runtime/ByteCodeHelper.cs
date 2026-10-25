@@ -1070,7 +1070,7 @@ namespace IKVM.Runtime
                             continue;
                         }
 
-                        built.Add(new RelinkPending { Entry = entry, Name = name, Finish = finish });
+                        built.Add(new RelinkPending { Entry = entry, Name = name, Finish = finish, LineNumbers = ilgen.GetLineNumberTable() });
                     }
                     catch (Exception e)
                     {
@@ -1165,7 +1165,18 @@ namespace IKVM.Runtime
                             continue;
                         }
 
-                        var r = LibIkvm.ReplaceMethodBody(target.MethodHandle.Value, source.MethodHandle.Value);
+                        // The line table moves with the body. Cleared across the swap, so a stack walk racing it reads no line rather
+                        // than generation 2's offsets against generation 1's table (or the reverse); restored if the swap fails.
+                        var oldLines = b.Entry.Wrapper.ExchangeLineNumberTable(b.Entry.MethodIndex, null);
+                        var r = 0;
+                        try
+                        {
+                            r = LibIkvm.ReplaceMethodBody(target.MethodHandle.Value, source.MethodHandle.Value);
+                        }
+                        finally
+                        {
+                            b.Entry.Wrapper.ExchangeLineNumberTable(b.Entry.MethodIndex, r == 1 ? b.LineNumbers : oldLines);
+                        }
                         if (LazyBodyRegistry.IsWatched(b.Entry.Wrapper?.Name, mw.Name))
                             Console.WriteLine($"[IKVM lazybody] watch {b.Entry.Wrapper?.Name}.{mw.Name}: body swap r={r} (1 installed, 0 too late, -2 unsupported)");
                         if (r == 1)
@@ -1297,6 +1308,7 @@ namespace IKVM.Runtime
             internal LazyBodyRegistry.Entry Entry;
             internal string Name;
             internal RuntimeByteCodeJavaType.FinishContext Finish;
+            internal byte[] LineNumbers;   // generation 2's IL -> line table: its offsets are not generation 1's
         }
 
 #endif

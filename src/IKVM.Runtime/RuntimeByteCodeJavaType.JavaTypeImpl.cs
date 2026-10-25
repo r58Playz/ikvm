@@ -875,7 +875,11 @@ namespace IKVM.Runtime
                                 var mw = GetMethodWrapperDuringCtor(lookup, methods, ifmethod.Name, ifmethod.Signature);
                                 if (mw == null || (mw.IsMirandaMethod && mw.DeclaringType != wrapper))
                                 {
-                                    mw = RuntimeMirandaJavaMethod.Create(wrapper, ifmethod);
+                                    // wasm fork: a base class's miranda method carries what the base resolved from ITS interfaces, so
+                                    // start from that and merge ifmethod in, rather than from ifmethod alone. 26.2's ClientLevel extends
+                                    // Level implements BlockAndTintGetter: re-implementing LevelHeightAccessor's abstract getMinY()
+                                    // discarded the LevelReader default Level inherits, and threw AbstractMethodError.
+                                    mw = mw == null ? RuntimeMirandaJavaMethod.Create(wrapper, ifmethod) : ((RuntimeMirandaJavaMethod)mw).Inherit(wrapper).Update(ifmethod);
                                     methods.Add(mw);
                                     baseMethods.Add([ifmethod]);
                                     break;

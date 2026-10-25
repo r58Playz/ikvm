@@ -90,6 +90,12 @@ namespace IKVM.Runtime
                 return this;
             }
 
+            internal override RuntimeMirandaJavaMethod Inherit(RuntimeJavaType declaringType)
+            {
+                // a conflict names the conflicting methods; any other error names the class
+                return new ErrorMirandaMethodWrapper(declaringType, BaseMethod, IsConflictError ? error : declaringType.Name + "." + Name + Signature);
+            }
+
             internal override string Error
             {
                 get { return error; }
@@ -118,6 +124,15 @@ namespace IKVM.Runtime
                 return new DefaultMirandaMethodWrapper(declaringType, dmmw.BaseMethod);
 
             return ifmethod.IsAbstract ? new AbstractMirandaMethodWrapper(declaringType, ifmethod) : new DefaultMirandaMethodWrapper(declaringType, ifmethod);
+        }
+
+        /// <summary>
+        /// wasm fork: this miranda method as inherited by <paramref name="declaringType"/>, a subclass that implements further
+        /// interfaces declaring it. The subclass merges those into the result with <see cref="Update"/>.
+        /// </summary>
+        internal virtual RuntimeMirandaJavaMethod Inherit(RuntimeJavaType declaringType)
+        {
+            return Create(declaringType, ifmethod);
         }
 
         internal RuntimeMirandaJavaMethod Update(RuntimeJavaMethod mw)

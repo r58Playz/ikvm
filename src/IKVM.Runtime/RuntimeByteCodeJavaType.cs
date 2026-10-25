@@ -915,8 +915,10 @@ namespace IKVM.Runtime
                 {
                     if (GetMethodBaseToken(methods[i].GetMethod()) == token)
                     {
-                        if (lineNumberTables[i] != null)
-                            return new LineNumberTableAttribute(lineNumberTables[i]).GetLineNumber(ilOffset);
+                        // read once: an in-place relink swaps the entry (ExchangeLineNumberTable)
+                        var table = lineNumberTables[i];
+                        if (table != null)
+                            return new LineNumberTableAttribute(table).GetLineNumber(ilOffset);
 
                         break;
                     }
@@ -924,6 +926,30 @@ namespace IKVM.Runtime
             }
 
             return -1;
+        }
+
+        /// <summary>
+        /// wasm fork: replaces method <paramref name="index"/>'s line number table for an in-place relink
+        /// (ByteCodeHelper.FlushRelinkBatch), whose generation-2 IL offsets differ from generation 1's. Returns the previous
+        /// table. A frame still running generation 1 after the swap reports no IL offset (the runtime knows its body is
+        /// superseded), so the one table always matches the offsets a frame reports.
+        /// </summary>
+        internal byte[] ExchangeLineNumberTable(int index, byte[] table)
+        {
+            var tables = lineNumberTables;
+            if (tables == null)
+            {
+                if (table == null)
+                    return null;
+
+                System.Threading.Interlocked.CompareExchange(ref lineNumberTables, new byte[GetMethods().Length][], null);
+                tables = lineNumberTables;
+            }
+
+            if ((uint)index >= (uint)tables.Length)
+                return null;
+
+            return System.Threading.Interlocked.Exchange(ref tables[index], table);
         }
 
         object[] DecodeAnnotations(object[] definitions)

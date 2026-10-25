@@ -38,9 +38,11 @@ namespace IKVM.Java.Externs.jdk.@internal.reflect
             if (realFramesToSkip <= 0)
                 return (global::java.lang.Class)ClassLiteral<global::jdk.@internal.reflect.Reflection>.Value;
 
-            for (int i = 2; ;)
+            // ONE walk: frame 0 of StackTrace(2) is what StackFrame(2) was -- past this method and the map.xml wrapper that
+            // calls it. A StackFrame per frame walked the whole stack each time.
+            foreach (var frame in new StackTrace(2, false).GetFrames())
             {
-                var method = new StackFrame(i++, false).GetMethod();
+                var method = frame.GetMethod();
                 if (method == null)
                     return null;
 
@@ -53,6 +55,8 @@ namespace IKVM.Java.Externs.jdk.@internal.reflect
                 if (--realFramesToSkip == 0)
                     return JVM.Context.ClassLoaderFactory.GetJavaTypeFromType(method.DeclaringType).ClassObject;
             }
+
+            return null;
 #endif
         }
 

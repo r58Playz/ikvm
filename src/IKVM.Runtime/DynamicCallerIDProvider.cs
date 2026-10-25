@@ -49,11 +49,12 @@ namespace IKVM.Runtime
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            for (int i = 0; ;)
+            // ONE walk (a StackFrame per frame walked the whole stack each time); frame 0 is this method, as StackFrame(0) was
+            foreach (var frame in new StackTrace(0, false).GetFrames())
             {
-                var method = new StackFrame(i++, false).GetMethod();
+                var method = frame.GetMethod();
                 if (method == null)
-                    return ikvm.@internal.CallerID.create(null, null);
+                    break;
 
                 if (StackWalkUtil.IsHideFromStackWalk(method))
                     continue;
@@ -61,6 +62,8 @@ namespace IKVM.Runtime
                 var caller = JVM.Context.ClassLoaderFactory.GetJavaTypeFromType(method.DeclaringType);
                 return CreateCallerID(caller.Host ?? caller);
             }
+
+            return ikvm.@internal.CallerID.create(null, null);
 #endif
         }
 
