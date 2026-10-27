@@ -231,7 +231,11 @@ namespace IKVM.Runtime.JNI
                         throw new java.lang.NoClassDefFoundError(n);
 
                     w.Finish();
-                    w.RunClassInit(); // spec doesn't say it, but Sun runs the static initializer
+                    // spec doesn't say it, but Sun runs the static initializer. A host that registers natives for
+                    // classes whose static initializers call those natives (AOSP's HostRuntime, as Robolectric
+                    // defers) sets ikvm.jni.findclass.noinit while it does
+                    if (java.lang.System.getProperty("ikvm.jni.findclass.noinit") != "true")
+                        w.RunClassInit();
                     return pEnv->MakeLocalRef(w.ClassObject);
                 }
                 catch (RetargetableJavaException e)
@@ -918,6 +922,15 @@ namespace IKVM.Runtime.JNI
                         mw = tw.GetMethod(methodname, methodsig, false);
                     else
                         mw = GetMethodImpl(tw, methodname, methodsig) ?? GetInterfaceMethodImpl(tw, methodname, methodsig);
+
+                    // an interface also has java.lang.Object's public methods, as HotSpot resolves them (AOSP's
+                    // libandroid_runtime looks up AssetsProvider.toString this way)
+                    if (mw == null && tw.IsInterface && !isStatic)
+                    {
+                        var om = GetMethodImpl(tw.Context.JavaBase.TypeOfJavaLangObject, methodname, methodsig);
+                        if (om != null && om.IsPublic)
+                            mw = om;
+                    }
                 }
                 if (mw != null && mw.IsStatic == isStatic)
                 {
