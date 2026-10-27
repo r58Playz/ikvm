@@ -789,6 +789,18 @@ namespace IKVM.Runtime.JNI
                 return mw.InvokeNonvirtualRemapped(obj, argarray);
 
             var del = (Delegate)Activator.CreateInstance(mw.GetDelegateType(), new object[] { obj, mw.GetMethod().MethodHandle.GetFunctionPointer() });
+
+            // the delegate takes method-handle types (boolean, byte, char and short as int); the arguments are boxed
+            // as their Java types (e.g. AOSP's TypedValue.setFields(IIIIIIZ) from AssetManager's JNI)
+            var ps = del.GetType().GetMethod("Invoke").GetParameters();
+            for (int i = 0; i < argarray.Length && i < ps.Length; i++)
+            {
+                var pt = ps[i].ParameterType;
+                var a = argarray[i];
+                if (a != null && pt.IsPrimitive && a.GetType() != pt)
+                    argarray[i] = a is bool b ? Convert.ChangeType(b ? 1 : 0, pt) : a is char c ? Convert.ChangeType((int)c, pt) : Convert.ChangeType(a, pt);
+            }
+
             try
             {
                 return del.DynamicInvoke(argarray);

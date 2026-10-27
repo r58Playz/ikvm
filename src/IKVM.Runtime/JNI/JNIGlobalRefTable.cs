@@ -22,6 +22,10 @@ namespace IKVM.Runtime.JNI
         /// <returns></returns>
         internal static object Unwrap(nint z)
         {
+            // a null ref (e.g. the thread group of a native thread attaching with JavaVMAttachArgs{.., NULL})
+            if (z == 0)
+                return null;
+
             var i = -(int)z;
             if ((i & (1 << 30)) != 0)
                 lock (weakRefLock)
