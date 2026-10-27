@@ -788,6 +788,11 @@ namespace IKVM.Runtime.JNI
             if (mw.DeclaringType.IsRemapped && !mw.DeclaringType.TypeAsBaseType.IsInstanceOfType(obj))
                 return mw.InvokeNonvirtualRemapped(obj, argarray);
 
+            // a method the object's class doesn't override: the virtual call is the same call, and needs no delegate
+            // over a raw function pointer (which Mono's wasm AOT can't construct by reflection)
+            if (mw.GetMethod() is MethodInfo method && obj != null && !IsOverridden(method, obj.GetType()))
+                return mw.Invoke(obj, argarray);
+
             var del = (Delegate)Activator.CreateInstance(mw.GetDelegateType(), new object[] { obj, mw.GetMethod().MethodHandle.GetFunctionPointer() });
 
             // the delegate takes method-handle types (boolean, byte, char and short as int); the arguments are boxed
@@ -810,6 +815,23 @@ namespace IKVM.Runtime.JNI
                 ExceptionDispatchInfo.Capture(ikvm.runtime.Util.mapException(e.InnerException)).Throw();
                 throw null;
             }
+        }
+
+        /// <summary>
+        /// Whether a class between <paramref name="type"/> and the method's declaring class overrides it.
+        /// </summary>
+        static bool IsOverridden(MethodInfo method, Type type)
+        {
+            if (!method.IsVirtual || method.IsFinal || type == method.DeclaringType)
+                return false;
+
+            var root = method.GetBaseDefinition().MethodHandle;
+            for (var t = type; t != null && t != method.DeclaringType; t = t.BaseType)
+                foreach (var m in t.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                    if (m.IsVirtual && m.Name == method.Name && m.GetBaseDefinition().MethodHandle.Equals(root))
+                        return true;
+
+            return false;
         }
 
         [MonoPInvokeCallback(typeof(JNINativeInterface.NewObjectADelegateType))]
