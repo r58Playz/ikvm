@@ -3745,8 +3745,10 @@ namespace IKVM.Runtime
                             // we're calling a java.lang.Object method through a ghost interface reference,
                             // no ghost handling is needed
                         }
-                        else if (RuntimeVerifierJavaType.IsThis(ma.GetRawStackTypeWrapper(instructionIndex, args.Length - 1 - i)))
+                        else if (clazz.IsGhost && RuntimeVerifierJavaType.IsThis(ma.GetRawStackTypeWrapper(instructionIndex, args.Length - 1 - i)))
                         {
+                            // (a class's own this passed as a ghost, e.g. a CharSequence argument, is an object reference
+                            // like any other and is wrapped below)
                             // we're an instance method in a ghost interface, so the this pointer is a managed pointer to the
                             // wrapper value and if we're not calling another instance method on ourself, we need to load
                             // the wrapper value onto the stack
