@@ -234,7 +234,7 @@ namespace IKVM.Runtime.JNI
                     // spec doesn't say it, but Sun runs the static initializer. A host that registers natives for
                     // classes whose static initializers call those natives (AOSP's HostRuntime, as Robolectric
                     // defers) sets ikvm.jni.findclass.noinit while it does
-                    if (java.lang.System.getProperty("ikvm.jni.findclass.noinit") != "true")
+                    if (!FindClassSkipsInit())
                         w.RunClassInit();
                     return pEnv->MakeLocalRef(w.ClassObject);
                 }
@@ -248,6 +248,19 @@ namespace IKVM.Runtime.JNI
             {
                 JVM.SetPendingException(e);
                 return 0;
+            }
+        }
+
+        static bool FindClassSkipsInit()
+        {
+            // the class library's own natives call FindClass before System's properties exist
+            try
+            {
+                return java.lang.System.getProperty("ikvm.jni.findclass.noinit") == "true";
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 
@@ -2937,6 +2950,11 @@ namespace IKVM.Runtime.JNI
             public void* fnPtr;
         }
 
+        /// <summary>Natives registered with RegisterNatives, by <see cref="NativeKey"/>.</summary>
+        internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, nint> RegisteredNatives = new();
+
+        internal static string NativeKey(string clazz, string name, string sig) => clazz.Replace('/', '.') + "." + name + sig.Replace('.', '/');
+
         [MonoPInvokeCallback(typeof(JNINativeInterface.RegisterNativesDelegateType))]
         internal static jint RegisterNatives(JNIEnv* pEnv, nint clazz, JNINativeMethod* methods, jint nMethods)
         {
@@ -2962,7 +2980,11 @@ namespace IKVM.Runtime.JNI
                         throw new java.lang.NoSuchMethodError(methodName);
                     }
 
-                    fi.SetValue(null, (IntPtr)methods[i].fnPtr);
+                    // into the table JNIFrame.GetFuncPtr consults when the stub first links, not into the stub's
+                    // pointer field: writing a static field runs the class's static initializer, which can call the
+                    // very natives being registered (AOSP's ImageReader, Typeface, Path, ...). A re-registration
+                    // after a native has linked therefore doesn't take effect.
+                    RegisteredNatives[NativeKey(wrapper.Name, methodName, methodSig)] = (IntPtr)methods[i].fnPtr;
                 }
                 return JNI_OK;
             }

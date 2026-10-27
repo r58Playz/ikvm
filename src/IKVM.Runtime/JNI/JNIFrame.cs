@@ -76,6 +76,9 @@ namespace IKVM.Runtime.JNI
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
+            if (JNIEnv.RegisteredNatives.TryGetValue(JNIEnv.NativeKey(clazz, name, sig), out var registered))
+                return registered;
+
             var loader = RuntimeClassLoader.FromCallerID((ikvm.@internal.CallerID)callerID);
             var argl = sizeof(nint) + sizeof(nint);
             for (int i = 1; sig[i] != ')'; i++)
