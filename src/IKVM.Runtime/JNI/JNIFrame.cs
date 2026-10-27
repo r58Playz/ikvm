@@ -71,11 +71,16 @@ namespace IKVM.Runtime.JNI
         /// <param name="sig"></param>
         /// <returns></returns>
         /// <exception cref="java.lang.UnsatisfiedLinkError"></exception>
+        static readonly bool TraceLinking = JVM.SafeGetEnvironmentVariable("IKVM_JNI_TRACE") == "1";
+
         public static nint GetFuncPtr(object callerID, string clazz, string name, string sig)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
+            if (TraceLinking)
+                Console.Error.WriteLine($"[jni] link {clazz}.{name}{sig}");
+
             if (JNIEnv.RegisteredNatives.TryGetValue(JNIEnv.NativeKey(clazz, name, sig), out var registered))
                 return registered;
 
