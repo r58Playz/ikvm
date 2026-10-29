@@ -91,6 +91,38 @@ namespace IKVM.Java.Externs.ikvm.runtime
 #endif
         }
 
+        /// <summary>
+        /// Implements ikvm.runtime.AssemblyClassLoader.loadClassOrNull: <see cref="loadClass"/> with null for a class the
+        /// loader doesn't have, instead of a thrown ClassNotFoundException (ClassLoader.loadClass's parent-first lookup).
+        /// </summary>
+        public static global::java.lang.Class loadClassOrNull(global::java.lang.ClassLoader loader, string name)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            try
+            {
+                if (ClassLoaderAccessor.InvokeCheckName(loader, name) == false)
+                    return null;
+
+                var wrapper = (RuntimeAssemblyClassLoader)JVM.Context.ClassLoaderFactory.GetClassLoaderWrapper(loader);
+                return wrapper.LoadClass(name)?.ClassObject;
+            }
+            catch (ClassNotFoundException)
+            {
+                return null;
+            }
+            catch (ClassLoadingException x)
+            {
+                throw x.InnerException;
+            }
+            catch (RetargetableJavaException x)
+            {
+                throw x.ToJava();
+            }
+#endif
+        }
+
         public static global::java.net.URL getResource(global::java.lang.ClassLoader _this, string name)
         {
 #if FIRST_PASS

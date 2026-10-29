@@ -74,6 +74,15 @@ public final class AssemblyClassLoader extends ClassLoader
     @Override
     protected native Class loadClass(String name, boolean resolve) throws ClassNotFoundException;
 
+    /**
+     * loadClass(name, false) of an assembly class loader, but null where that throws ClassNotFoundException. A child
+     * loader's parent-first lookup (ClassLoader.loadClass) asks this, as every class the child defines itself first
+     * misses in its parent: throwing walks the stack to find the handler, and in a browser that asks V8 for it, which
+     * was most of the cost of the miss.
+     */
+    @Internal
+    public static native Class loadClassOrNull(ClassLoader loader, String name);
+
     @Override
     public native URL getResource(String name);
 
