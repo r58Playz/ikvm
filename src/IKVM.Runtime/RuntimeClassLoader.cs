@@ -136,11 +136,17 @@ namespace IKVM.Runtime
             if (name.Length > 1 && name[0] == '[')
                 return FindOrLoadArrayClass(name, LoadMode.Find);
 
+            return FindRegisteredClass(name) ?? FindLoadedClassLazy(name);
+        }
+
+        /// <summary>The class registered under this name, without the lazy lookup FindLoadedClass falls back to.</summary>
+        protected RuntimeJavaType FindRegisteredClass(string name)
+        {
             RuntimeJavaType tw;
             lock (types)
                 types.TryGetValue(name, out tw);
 
-            return tw ?? FindLoadedClassLazy(name);
+            return tw;
         }
 
         internal virtual bool IsClassPublished(string name) => publishedTypes.ContainsKey(name);

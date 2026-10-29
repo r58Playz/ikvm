@@ -910,6 +910,18 @@ namespace IKVM.Runtime
         }
 #endif
 
+        /// <summary>
+        /// A class of this loader's own (its assembly's or one it exports), loaded or not, without asking the assemblies
+        /// it references: all FindResources' class stub takes, as only a class this loader defined gets one.
+        /// FindLoadedClass also asks every referenced assembly by name, and so, for a class that is nowhere, made each
+        /// failed class lookup search the assembly graph again for every assembly LoadDynamic searched (most of a miss's
+        /// time: every class an app defines itself first misses in its parent).
+        /// </summary>
+        RuntimeJavaType FindOwnClass(string name)
+        {
+            return FindRegisteredClass(name) ?? DoLoad(name);
+        }
+
         RuntimeJavaType FindReferenced(string name)
         {
             for (int i = 0; i < delegates.Length; i++)
@@ -1058,7 +1070,7 @@ namespace IKVM.Runtime
             // if asked for a '.class' resource, we can return the appropriate stub
             if (found == false && unmangledName.EndsWith(".class", StringComparison.Ordinal) && unmangledName.IndexOf('.') == unmangledName.Length - 6)
             {
-                var tw = FindLoadedClass(unmangledName.Substring(0, unmangledName.Length - 6).Replace('/', '.'));
+                var tw = FindOwnClass(unmangledName.Substring(0, unmangledName.Length - 6).Replace('/', '.'));
                 if (tw != null && tw.ClassLoader == this && !tw.IsArray && !tw.IsDynamic)
                     yield return new java.io.File(Path.Combine(VfsTable.GetAssemblyClassesPath(JVM.Vfs.Context, assemblyLoader.Assembly, JVM.Properties.HomePath), unmangledName)).toURI().toURL();
             }
