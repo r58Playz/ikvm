@@ -88,6 +88,30 @@ namespace IKVM.Runtime.JNI
 
                     JVM.Context.Diagnostics.GenericJniInfo($"Library loaded: {filename}, handle = 0x{p:X}");
 
+                    // wasm fork: a library the native bridge runs has its JNI_OnLoad run by the bridge, in a frame of
+                    // the loading class's, as below.
+                    if (JNIBridge.Enabled && JNIBridge.IsBridged(p))
+                    {
+                        var f = new JNIFrame();
+                        int v;
+                        f.Enter(ikvm.@internal.CallerID.create(fromClass.ClassObject, fromClass.ClassObject.getClassLoader()));
+                        try
+                        {
+                            v = LibJvm.Instance.JVM_BridgeOnLoad(p);
+                        }
+                        finally
+                        {
+                            f.Leave();
+                        }
+
+                        if (v != -1 && JNIVM.IsSupportedJNIVersion(v) == false)
+                        {
+                            var msg = $"Unsupported JNI version 0x{v:X} required by {filename}";
+                            JVM.Context.Diagnostics.GenericJniError($"UnsatisfiedLinkError: {msg}");
+                            throw new java.lang.UnsatisfiedLinkError(msg);
+                        }
+                    }
+                    else
                     try
                     {
                         var onload = LibJvm.Instance.JVM_FindLibraryEntry(p, NativeLibrary.MangleExportName("JNI_OnLoad", sizeof(nint) + sizeof(nint)));

@@ -63,6 +63,28 @@ namespace IKVM.Runtime.JNI
         }
 
         /// <summary>
+        /// wasm fork: whether a JNI method pointer is the native bridge's (<see cref="JNIBridge"/>). Called by JNI stubs.
+        /// </summary>
+        public static bool IsBridged(nint p)
+        {
+            return JNIBridge.IsBridged(p);
+        }
+
+        /// <summary>
+        /// wasm fork: call a bridged JNI method, the receiver or class and the arguments in 8-byte
+        /// <paramref name="slots"/> (references as local references, floats in the low 32 bits, doubles' bits). The
+        /// result as a long: a float's or double's bits for those. Called by JNI stubs.
+        /// </summary>
+        public static long InvokeBridged(nint method, nint env, nint slots)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            return LibJvm.Instance.JVM_BridgeInvoke(method, env, slots);
+#endif
+        }
+
+        /// <summary>
         /// Invoked by managed code to acquire a function pointer to a native JNI method.
         /// </summary>
         /// <param name="callerID"></param>
@@ -129,6 +151,17 @@ namespace IKVM.Runtime.JNI
             {
                 foreach (var p in loader.GetNativeLibraries())
                 {
+                    // wasm fork: a library the native bridge runs answers with a bridged method.
+                    if (JNIBridge.Enabled && JNIBridge.IsBridged(p))
+                    {
+                        var shorty = JNIBridge.Shorty(sig);
+                        if (LibJvm.Instance.JVM_BridgeTrampoline(p, methodName, shorty) is nint b1 and not 0)
+                            return b1;
+                        if (LibJvm.Instance.JVM_BridgeTrampoline(p, longMethodName, shorty) is nint b2 and not 0)
+                            return b2;
+                        continue;
+                    }
+
                     if (LibJvm.Instance.JVM_FindLibraryEntry(p, NativeLibrary.MangleExportName(methodName, argl)) is nint h1 and not 0)
                     {
                         JVM.Context.Diagnostics.GenericJniInfo($"Native method {clazz}.{name}{sig} found in library 0x{p:X} (short)");

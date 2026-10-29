@@ -1380,6 +1380,11 @@ inline void os_dll_unload(void* lib)
 
 void JNICALL JVM_UnloadLibrary(void* handle)
 {
+#ifdef __EMSCRIPTEN__
+    // A native-bridge library (jvm_native_bridge.h) stays loaded, and a static-registry one was never dlopened.
+    if ((uintptr_t)handle & 0x80000000u)
+        return;
+#endif
     os_dll_unload(handle);
 }
 

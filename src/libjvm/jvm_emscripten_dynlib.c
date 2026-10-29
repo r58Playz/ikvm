@@ -58,6 +58,9 @@
 
 #include "ikvm.h"
 #include "jvm_emscripten_dynlib.h"
+#include "jvm_native_bridge.h"
+
+const JVMNativeBridge *jvm_native_bridge(void);
 
 /* ── JVM_LoadLibrary ─────────────────────────────────────────────────────── */
 
@@ -73,6 +76,22 @@ void* JNICALL (JVM_LoadLibrary)(IKVM_LOADLIBRARY_PARAMS)
              */
             return (void*)&jvm_static_libs[i];
         }
+    }
+
+    /* Not one of ours: maybe the native bridge's (jvm_native_bridge.h). Its handles carry JVM_BRIDGE_TAG. */
+    const JVMNativeBridge *nb = jvm_native_bridge();
+    if (nb != NULL && nb->is_supported(name)) {
+        char err[512] = "";
+        void *lib = nb->load(name, err, sizeof err);
+        if (lib != NULL)
+            return (void *)((uintptr_t)lib | JVM_BRIDGE_TAG);
+        if (IKVM_LOADLIBRARY_THROWS) {
+            char msg[1024];
+            snprintf(msg, sizeof msg, "%s: %s", name, err);
+            printf("%s\n", msg);
+            JVM_ThrowException("java/lang/UnsatisfiedLinkError", msg);
+        }
+        return NULL;
     }
 
     if (IKVM_LOADLIBRARY_THROWS) {
@@ -93,6 +112,10 @@ void* JNICALL JVM_FindLibraryEntry(void* handle, const char* name)
 {
     const jvm_static_lib_entry_t *entry = (const jvm_static_lib_entry_t*)handle;
     int i;
+
+    /* A bridged library's methods are JVM_BridgeTrampoline's. */
+    if ((uintptr_t)handle & JVM_BRIDGE_TAG)
+        return NULL;
 
     if (entry == NULL || entry->symbols == NULL)
         return NULL;

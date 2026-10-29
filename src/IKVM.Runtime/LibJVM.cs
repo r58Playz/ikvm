@@ -107,6 +107,10 @@ namespace IKVM.Runtime
 
         delegate nint JVM_FindLibraryEntryDelegate(nint handle, [MarshalAs(UnmanagedType.LPStr)] string name);
 
+        // wasm fork: libjvm's native bridge (jvm_native_bridge.h), when it has one.
+        delegate nint JVM_BridgeTrampolineDelegate(nint lib, [MarshalAs(UnmanagedType.LPUTF8Str)] string sym, [MarshalAs(UnmanagedType.LPUTF8Str)] string shorty);
+        delegate int JVM_BridgeOnLoadDelegate(nint lib);
+
         /// <summary>
         /// Gets the default instance.
         /// </summary>
@@ -120,6 +124,9 @@ namespace IKVM.Runtime
         readonly JVM_LoadLibraryWasmDelegate _JVM_LoadLibraryWasm;
         readonly JVM_UnloadLibraryDelegate _JVM_UnloadLibrary;
         readonly JVM_FindLibraryEntryDelegate _JVM_FindLibraryEntry;
+        readonly JVM_BridgeTrampolineDelegate _JVM_BridgeTrampoline;
+        readonly JVM_BridgeOnLoadDelegate _JVM_BridgeOnLoad;
+        readonly nint _JVM_BridgeInvoke;
 
         readonly JNI_GetDefaultJavaVMInitArgsDelegate _JNI_GetDefaultJavaVMInitArgs;
         readonly JNI_GetCreatedJavaVMsDelegate _JNI_GetCreatedJavaVMs;
@@ -153,6 +160,12 @@ namespace IKVM.Runtime
             _JVM_LoadLibrary = Marshal.GetDelegateForFunctionPointer<JVM_LoadLibraryDelegate>(Handle.GetExport("JVM_LoadLibrary", sizeof(nint)).Handle);
             _JVM_UnloadLibrary = Marshal.GetDelegateForFunctionPointer<JVM_UnloadLibraryDelegate>(Handle.GetExport("JVM_UnloadLibrary", sizeof(nint)).Handle);
             _JVM_FindLibraryEntry = Marshal.GetDelegateForFunctionPointer<JVM_FindLibraryEntryDelegate>(Handle.GetExport("JVM_FindLibraryEntry", sizeof(nint) + sizeof(nint)).Handle);
+            if (OperatingSystem.IsBrowser() && Handle.GetExport("JVM_BridgeInvoke", 3 * sizeof(nint)) is { } invoke)
+            {
+                _JVM_BridgeTrampoline = Marshal.GetDelegateForFunctionPointer<JVM_BridgeTrampolineDelegate>(Handle.GetExport("JVM_BridgeTrampoline", 3 * sizeof(nint)).Handle);
+                _JVM_BridgeOnLoad = Marshal.GetDelegateForFunctionPointer<JVM_BridgeOnLoadDelegate>(Handle.GetExport("JVM_BridgeOnLoad", sizeof(nint)).Handle);
+                _JVM_BridgeInvoke = invoke.Handle;
+            }
 
             // initialize invoke interface for calls from libjvm to IKVM
             jvmii = (JVMInvokeInterface*)Marshal.AllocHGlobal(sizeof(JVMInvokeInterface));
@@ -612,6 +625,44 @@ namespace IKVM.Runtime
         /// <param name="handle"></param>
         /// <param name="name"></param>
         /// <returns></returns>
+        /// <summary>
+        /// wasm fork: whether libjvm has a native bridge (jvm_native_bridge.h): libraries something else runs, whose
+        /// handles and methods carry <see cref="JNI.JNIBridge.Tag"/>.
+        /// </summary>
+        public bool HasNativeBridge => _JVM_BridgeInvoke != 0;
+
+        /// <summary>
+        /// wasm fork: bridged library <paramref name="lib"/>'s method <paramref name="sym"/> (a JNI shorty's), or 0.
+        /// </summary>
+        public nint JVM_BridgeTrampoline(nint lib, string sym, string shorty)
+        {
+            try
+            {
+                return _JVM_BridgeTrampoline != null ? _JVM_BridgeTrampoline(lib, sym, shorty) : 0;
+            }
+            finally
+            {
+                JVM.ThrowPendingException();
+            }
+        }
+
+        /// <summary>
+        /// wasm fork: bridged library <paramref name="lib"/>'s JNI_OnLoad's result, or -1 when it has none.
+        /// </summary>
+        public int JVM_BridgeOnLoad(nint lib)
+        {
+            return _JVM_BridgeOnLoad != null ? _JVM_BridgeOnLoad(lib) : -1;
+        }
+
+        /// <summary>
+        /// wasm fork: call bridged method <paramref name="method"/> with its receiver or class and arguments in 8-byte
+        /// <paramref name="slots"/>; its result as a long (a float's or double's bits).
+        /// </summary>
+        public long JVM_BridgeInvoke(nint method, nint env, nint slots)
+        {
+            return ((delegate* unmanaged[Cdecl]<nint, nint, nint, long>)_JVM_BridgeInvoke)(method, env, slots);
+        }
+
         public nint JVM_FindLibraryEntry(nint handle, string name)
         {
             try

@@ -2412,6 +2412,12 @@ namespace IKVM.Runtime
 
                 MethodInfo GetEnvLightMethod => LocalRefStructType.GetMethod("GetEnvLight");
 
+                MethodInfo IsBridgedMethod => LocalRefStructType.GetMethod("IsBridged");
+
+                MethodInfo InvokeBridgedMethod => LocalRefStructType.GetMethod("InvokeBridged");
+
+                Type BitConverterType => context.Resolver.ResolveCoreType(typeof(BitConverter).FullName).AsReflection();
+
                 /// <summary>wasm fork (IKVM_JNI_LIGHT): see JNIFrame.LightCalls for what makes a native eligible.</summary>
                 static bool IsLightEligible(ClassFile classFile, ClassFile.Method m, RuntimeJavaMethod mw, RuntimeJavaType[] args)
                 {
@@ -2501,8 +2507,174 @@ namespace IKVM.Runtime
                     var jnienv = ilGenerator.DeclareLocal(context.context.Types.IntPtr);
                     ilGenerator.Emit(OpCodes.Stloc, jnienv);
 
-                    ilGenerator.BeginExceptionBlock();
                     var retTypeWrapper = mw.ReturnType;
+                    var retLabel = ilGenerator.DefineLabel();
+                    CodeEmitterLocal retValue = retTypeWrapper != context.Context.PrimitiveJavaTypeFactory.VOID ? ilGenerator.DeclareLocal(retTypeWrapper.TypeAsSignatureType) : null;
+
+                    // The native's result, as it comes back (a reference as a local reference, under the frame's
+                    // address), as the method's return type.
+                    void EmitReturnConversion()
+                    {
+                        if (retTypeWrapper.IsUnloadable)
+                        {
+                            ilGenerator.Emit(OpCodes.Call, UnwrapLocalRefMethod);
+                        }
+                        else if (!retTypeWrapper.IsPrimitive)
+                        {
+                            ilGenerator.Emit(OpCodes.Call, UnwrapLocalRefMethod);
+                            if (retTypeWrapper.IsNonPrimitiveValueType)
+                            {
+                                retTypeWrapper.EmitUnbox(ilGenerator);
+                            }
+                            else if (retTypeWrapper.IsGhost)
+                            {
+                                var ghost = ilGenerator.DeclareLocal(retTypeWrapper.TypeAsSignatureType);
+                                var obj = ilGenerator.DeclareLocal(context.Context.Types.Object);
+                                ilGenerator.Emit(OpCodes.Stloc, obj);
+                                ilGenerator.Emit(OpCodes.Ldloca, ghost);
+                                ilGenerator.Emit(OpCodes.Ldloc, obj);
+                                ilGenerator.Emit(OpCodes.Stfld, retTypeWrapper.GhostRefField);
+                                ilGenerator.Emit(OpCodes.Ldloc, ghost);
+                            }
+                            else
+                            {
+                                ilGenerator.Emit(OpCodes.Castclass, retTypeWrapper.TypeAsTBD);
+                            }
+                        }
+                    }
+
+                    // An argument the native gets as a local reference: on the stack, after the frame's address.
+                    void EmitRefArg(int j, int add)
+                    {
+                        if (!args[j].IsUnloadable && args[j].IsNonPrimitiveValueType)
+                        {
+                            ilGenerator.EmitLdarg(j + add);
+                            args[j].EmitBox(ilGenerator);
+                        }
+                        else if (!args[j].IsUnloadable && args[j].IsGhost)
+                        {
+                            ilGenerator.EmitLdarga(j + add);
+                            ilGenerator.Emit(OpCodes.Ldfld, args[j].GhostRefField);
+                        }
+                        else
+                        {
+                            ilGenerator.EmitLdarg(j + add);
+                        }
+                    }
+
+#if !IMPORTER && !EXPORTER && !FIRST_PASS
+                    // wasm fork: a native the native bridge runs (JNIBridge) is called with its arguments in 8-byte
+                    // slots, through JNIFrame.InvokeBridged, rather than by calli. The slots are allocated before the
+                    // try (no localloc in a protected region), whether this call is bridged or not.
+                    CodeEmitterLocal slots = null;
+                    if (IKVM.Runtime.JNI.JNIBridge.Enabled)
+                    {
+                        slots = ilGenerator.DeclareLocal(context.context.Types.IntPtr);
+                        ilGenerator.EmitLdc_I4((args.Length + 1) * 8);
+                        ilGenerator.Emit(OpCodes.Conv_U);
+                        ilGenerator.Emit(OpCodes.Localloc);
+                        ilGenerator.Emit(OpCodes.Stloc, slots);
+                    }
+#endif
+
+                    ilGenerator.BeginExceptionBlock();
+
+#if !IMPORTER && !EXPORTER && !FIRST_PASS
+                    if (slots != null)
+                    {
+                        var native = ilGenerator.DefineLabel();
+                        ilGenerator.Emit(OpCodes.Ldsfld, methodPtr);
+                        ilGenerator.Emit(OpCodes.Call, IsBridgedMethod);
+                        ilGenerator.EmitBrfalse(native);
+
+                        // slot 0: the receiver, or the class
+                        ilGenerator.Emit(OpCodes.Ldloc, slots);
+                        ilGenerator.Emit(OpCodes.Ldloca, localRefStruct);
+                        if (m.IsStatic)
+                            wrapper.EmitClassLiteral(ilGenerator);
+                        else
+                            ilGenerator.Emit(OpCodes.Ldarg_0);
+                        ilGenerator.Emit(OpCodes.Call, MakeLocalRefMethod);
+                        ilGenerator.Emit(OpCodes.Conv_U8);
+                        ilGenerator.Emit(OpCodes.Stind_I8);
+
+                        int bridgedAdd = m.IsStatic ? 0 : 1;
+                        for (int j = 0; j < args.Length; j++)
+                        {
+                            ilGenerator.Emit(OpCodes.Ldloc, slots);
+                            ilGenerator.EmitLdc_I4((j + 1) * 8);
+                            ilGenerator.Emit(OpCodes.Add);
+                            if (args[j].IsUnloadable || !args[j].IsPrimitive)
+                            {
+                                ilGenerator.Emit(OpCodes.Ldloca, localRefStruct);
+                                EmitRefArg(j, bridgedAdd);
+                                ilGenerator.Emit(OpCodes.Call, MakeLocalRefMethod);
+                                ilGenerator.Emit(OpCodes.Conv_U8);
+                                ilGenerator.Emit(OpCodes.Stind_I8);
+                                continue;
+                            }
+                            ilGenerator.EmitLdarg(j + bridgedAdd);
+                            switch (args[j].SigName[0])
+                            {
+                                case 'F':
+                                    ilGenerator.Emit(OpCodes.Stind_R4);
+                                    break;
+                                case 'D':
+                                    ilGenerator.Emit(OpCodes.Stind_R8);
+                                    break;
+                                case 'J':
+                                    ilGenerator.Emit(OpCodes.Stind_I8);
+                                    break;
+                                default:
+                                    ilGenerator.Emit(OpCodes.Conv_I8);
+                                    ilGenerator.Emit(OpCodes.Stind_I8);
+                                    break;
+                            }
+                        }
+
+                        if (retTypeWrapper.IsUnloadable || !retTypeWrapper.IsPrimitive)
+                            ilGenerator.Emit(OpCodes.Ldloca, localRefStruct);
+                        ilGenerator.Emit(OpCodes.Ldsfld, methodPtr);
+                        ilGenerator.Emit(OpCodes.Ldloc, jnienv);
+                        ilGenerator.Emit(OpCodes.Ldloc, slots);
+                        ilGenerator.Emit(OpCodes.Call, InvokeBridgedMethod);
+                        if (retTypeWrapper == context.Context.PrimitiveJavaTypeFactory.VOID)
+                        {
+                            ilGenerator.Emit(OpCodes.Pop);
+                        }
+                        else
+                        {
+                            if (retTypeWrapper.IsUnloadable || !retTypeWrapper.IsPrimitive)
+                            {
+                                ilGenerator.Emit(OpCodes.Conv_I);
+                                EmitReturnConversion();
+                            }
+                            else
+                            {
+                                switch (retTypeWrapper.SigName[0])
+                                {
+                                    case 'Z': ilGenerator.Emit(OpCodes.Conv_U1); break;
+                                    case 'B': ilGenerator.Emit(OpCodes.Conv_I1); break;
+                                    case 'C': ilGenerator.Emit(OpCodes.Conv_U2); break;
+                                    case 'S': ilGenerator.Emit(OpCodes.Conv_I2); break;
+                                    case 'I': ilGenerator.Emit(OpCodes.Conv_I4); break;
+                                    case 'J': break;
+                                    case 'F':
+                                        ilGenerator.Emit(OpCodes.Conv_I4);
+                                        ilGenerator.Emit(OpCodes.Call, BitConverterType.GetMethod("Int32BitsToSingle", [context.Context.Types.Int32]));
+                                        break;
+                                    case 'D':
+                                        ilGenerator.Emit(OpCodes.Call, BitConverterType.GetMethod("Int64BitsToDouble", [context.Context.Types.Int64]));
+                                        break;
+                                }
+                            }
+                            ilGenerator.Emit(OpCodes.Stloc, retValue);
+                        }
+                        ilGenerator.EmitLeave(retLabel);
+                        ilGenerator.MarkLabel(native);
+                    }
+#endif
+
                     if (retTypeWrapper.IsUnloadable || !retTypeWrapper.IsPrimitive)
                     {
                         // this one is for use after we return from "calli"
@@ -2536,20 +2708,7 @@ namespace IKVM.Runtime
                         if (args[j].IsUnloadable || !args[j].IsPrimitive)
                         {
                             ilGenerator.Emit(OpCodes.Ldloca, localRefStruct);
-                            if (!args[j].IsUnloadable && args[j].IsNonPrimitiveValueType)
-                            {
-                                ilGenerator.EmitLdarg(j + add);
-                                args[j].EmitBox(ilGenerator);
-                            }
-                            else if (!args[j].IsUnloadable && args[j].IsGhost)
-                            {
-                                ilGenerator.EmitLdarga(j + add);
-                                ilGenerator.Emit(OpCodes.Ldfld, args[j].GhostRefField);
-                            }
-                            else
-                            {
-                                ilGenerator.EmitLdarg(j + add);
-                            }
+                            EmitRefArg(j, add);
                             ilGenerator.Emit(OpCodes.Call, MakeLocalRefMethod);
                             modargs[j + 2] = context.context.Types.IntPtr;
                         }
@@ -2570,41 +2729,12 @@ namespace IKVM.Runtime
                         realRetType = context.Context.Types.IntPtr;
                     ilGenerator.EmitCalli(OpCodes.Calli, System.Runtime.InteropServices.CallingConvention.Cdecl, realRetType, modargs);
 
-                    CodeEmitterLocal retValue = null;
                     if (retTypeWrapper != context.Context.PrimitiveJavaTypeFactory.VOID)
                     {
-                        if (retTypeWrapper.IsUnloadable)
-                        {
-                            ilGenerator.Emit(OpCodes.Call, UnwrapLocalRefMethod);
-                        }
-                        else if (!retTypeWrapper.IsPrimitive)
-                        {
-                            ilGenerator.Emit(OpCodes.Call, UnwrapLocalRefMethod);
-                            if (retTypeWrapper.IsNonPrimitiveValueType)
-                            {
-                                retTypeWrapper.EmitUnbox(ilGenerator);
-                            }
-                            else if (retTypeWrapper.IsGhost)
-                            {
-                                var ghost = ilGenerator.DeclareLocal(retTypeWrapper.TypeAsSignatureType);
-                                var obj = ilGenerator.DeclareLocal(context.Context.Types.Object);
-                                ilGenerator.Emit(OpCodes.Stloc, obj);
-                                ilGenerator.Emit(OpCodes.Ldloca, ghost);
-                                ilGenerator.Emit(OpCodes.Ldloc, obj);
-                                ilGenerator.Emit(OpCodes.Stfld, retTypeWrapper.GhostRefField);
-                                ilGenerator.Emit(OpCodes.Ldloc, ghost);
-                            }
-                            else
-                            {
-                                ilGenerator.Emit(OpCodes.Castclass, retTypeWrapper.TypeAsTBD);
-                            }
-                        }
-
-                        retValue = ilGenerator.DeclareLocal(retTypeWrapper.TypeAsSignatureType);
+                        EmitReturnConversion();
                         ilGenerator.Emit(OpCodes.Stloc, retValue);
                     }
 
-                    var retLabel = ilGenerator.DefineLabel();
                     ilGenerator.EmitLeave(retLabel);
                     ilGenerator.BeginCatchBlock(context.context.Types.Object);
                     ilGenerator.Emit(OpCodes.Ldstr, "*** exception in native code ***");
