@@ -237,7 +237,77 @@ namespace IKVM.Runtime
 #endif
         }
 
+        /// <summary>
+        /// Resolves a class reference of the caller at first execution. A failure is remembered for the caller and
+        /// rethrown on every later attempt (JVMS §5.4.3), instead of asking the class loader (and, under Fabric, Mixin)
+        /// again; every dynamic class reference funnels through here.
+        /// </summary>
         static RuntimeJavaType LoadTypeWrapper(string clazz, ikvm.@internal.CallerID callerId)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            if (JVM.ResolutionErrors == false)
+                return LoadTypeWrapperCore(clazz, callerId);
+
+            var caller = ThrowResolutionError(callerId, "C:", clazz);
+            try
+            {
+                return LoadTypeWrapperCore(clazz, callerId);
+            }
+            catch (global::java.lang.LinkageError e)
+            {
+                SaveResolutionError(caller, "C:", clazz, e);
+                throw;
+            }
+#endif
+        }
+
+#if !FIRST_PASS
+
+        // wasm fork: resolution errors per referencing class, keyed by kind and symbolic reference (JVMS §5.4.3: once
+        // resolving a reference has failed with a LinkageError, every later attempt fails with the same error)
+        static readonly ConditionalWeakTable<RuntimeJavaType, System.Collections.Concurrent.ConcurrentDictionary<string, global::java.lang.LinkageError>> resolutionErrors = new();
+
+        /// <summary>
+        /// Rethrows the error an earlier resolution of <paramref name="name"/> by the caller failed with, if any, and
+        /// otherwise returns the caller's type.
+        /// </summary>
+        static RuntimeJavaType ThrowResolutionError(ikvm.@internal.CallerID callerId, string kind, string name)
+        {
+            var caller = RuntimeJavaType.FromClass(callerId.getCallerClass());
+            if (caller != null && resolutionErrors.TryGetValue(caller, out var errors) && errors.TryGetValue(kind + name, out var error))
+            {
+                Interlocked.Increment(ref LazyBodyStats.ResErrHit);
+                throw error;
+            }
+
+            return caller;
+        }
+
+        /// <summary>
+        /// Remembers that resolving <paramref name="name"/> failed for the caller. Only LinkageErrors are remembered, as
+        /// HotSpot does: a RuntimeException out of a class loader (Knot's "Mixin transformation of ... failed") or an
+        /// Error that is not a linkage error (Mixin's own) is thrown again by a later attempt. A ClassCircularityError
+        /// can be IKVM's own re-entrance and is not remembered; nor is anything the relink drain runs into.
+        /// </summary>
+        static void SaveResolutionError(RuntimeJavaType caller, string kind, string name, global::java.lang.LinkageError error)
+        {
+            if (caller == null || error is global::java.lang.ClassCircularityError || InRelinkDrain)
+                return;
+
+            var errors = resolutionErrors.GetValue(caller, static _ => new System.Collections.Concurrent.ConcurrentDictionary<string, global::java.lang.LinkageError>());
+            if (errors.TryAdd(kind + name, error))
+            {
+                Interlocked.Increment(ref LazyBodyStats.ResErrSaved);
+                if (JVM.TraceResolutionErrors)
+                    Console.Error.WriteLine($"[IKVM resolution-error] {caller.Name} {kind}{name}: {error.GetType().FullName}: {error.Message}");
+            }
+        }
+
+#endif
+
+        static RuntimeJavaType LoadTypeWrapperCore(string clazz, ikvm.@internal.CallerID callerId)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
@@ -420,7 +490,23 @@ namespace IKVM.Runtime
         public static global::java.lang.invoke.MethodType DynamicLoadMethodType(ref global::java.lang.invoke.MethodType cache, string sig, ikvm.@internal.CallerID callerID)
         {
             if (cache == null)
+            {
+#if FIRST_PASS
                 DynamicLoadMethodTypeImpl(ref cache, sig, callerID);
+#else
+                // a MethodType constant (ldc, invokedynamic) whose resolution failed keeps failing (JVMS §5.4.3)
+                var caller = JVM.ResolutionErrors ? ThrowResolutionError(callerID, "MT:", sig) : null;
+                try
+                {
+                    DynamicLoadMethodTypeImpl(ref cache, sig, callerID);
+                }
+                catch (global::java.lang.LinkageError e) when (caller != null)
+                {
+                    SaveResolutionError(caller, "MT:", sig, e);
+                    throw;
+                }
+#endif
+            }
 
             return cache;
         }
@@ -451,7 +537,24 @@ namespace IKVM.Runtime
         public static global::java.lang.invoke.MethodHandle DynamicLoadMethodHandle(ref global::java.lang.invoke.MethodHandle cache, int kind, string clazz, string name, string sig, ikvm.@internal.CallerID callerID)
         {
             if (cache == null)
+            {
+#if FIRST_PASS
                 Interlocked.CompareExchange(ref cache, DynamicLoadMethodHandleImpl(kind, clazz, name, sig, callerID), null);
+#else
+                // a MethodHandle constant whose resolution failed keeps failing (JVMS §5.4.3)
+                var key = JVM.ResolutionErrors ? kind + ":" + clazz + "." + name + sig : null;
+                var caller = key != null ? ThrowResolutionError(callerID, "MH:", key) : null;
+                try
+                {
+                    Interlocked.CompareExchange(ref cache, DynamicLoadMethodHandleImpl(kind, clazz, name, sig, callerID), null);
+                }
+                catch (global::java.lang.LinkageError e) when (caller != null)
+                {
+                    SaveResolutionError(caller, "MH:", key, e);
+                    throw;
+                }
+#endif
+            }
 
             return cache;
         }
@@ -475,7 +578,9 @@ namespace IKVM.Runtime
                         return global::java.lang.invoke.MethodHandleNatives.linkMethodHandleConstant(callerID.getCallerClass(), kind, refc, name, type);
                     default:
                         global::java.lang.invoke.MethodType mt = null;
-                        DynamicLoadMethodType(ref mt, sig, callerID);
+                        // not the remembering entry point: the binder's fallback comes here too, and its descriptor
+                        // loads are not a resolution HotSpot would do (let alone remember)
+                        DynamicLoadMethodTypeImpl(ref mt, sig, callerID);
                         // HACK linkMethodHandleConstant is broken for MethodHandle.invoke[Exact]
                         if (kind == (int)MethodHandleKind.InvokeVirtual && refc == JVM.Context.JavaBase.TypeOfJavaLangInvokeMethodHandle.ClassObject)
                         {
@@ -517,6 +622,22 @@ namespace IKVM.Runtime
         }
 
 #endif
+
+        /// <summary>
+        /// wasm fork: called first thing by the static constructor of a lazily linked class. Runs the class loads
+        /// HotSpot's verifier would have done when it linked the class (see VerifierLoads) unless an earlier link point
+        /// has; this one covers initializations that reach the class through directly bound code rather than
+        /// RuntimeJavaType.RunClassInit. Never throws. Declared unconditionally with only the body compiled out, like
+        /// RelinkBody: ikvmc binds it by name against the FIRST_PASS reference assembly.
+        /// </summary>
+        public static void LinkVerifierLoads(int id)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            VerifierLoads.GetRegistered(id)?.LinkForVerification(VerifierLoads.ReasonCctor);
+#endif
+        }
 
         /// <summary>
         /// Called from the hook at the top of an in-place first-generation body. Returns false while any
@@ -1677,7 +1798,7 @@ namespace IKVM.Runtime
                     mw = tw.GetMethod(name, sig, kind != MethodHandleKind.NewInvokeSpecial);
                     if (mw == null || mw.HasCallerID || mw.IsFinalizeOrClone)
                         return null;
-                    mw.Link();
+                    mw.Link(mw.DeclaringType.ClassLoader.CurrentLinkMode);
                     if (!mw.IsAccessibleFrom(tw, caller, tw))
                         return null;
                     if (kind == MethodHandleKind.InvokeStatic ? !mw.IsStatic : mw.IsStatic)
@@ -1697,7 +1818,7 @@ namespace IKVM.Runtime
                     fw = tw.GetFieldWrapper(name, sig);
                     if (fw == null)
                         return null;
-                    fw.Link();
+                    fw.Link(fw.DeclaringType.ClassLoader.CurrentLinkMode);
                     if (!fw.IsAccessibleFrom(tw, caller, tw))
                         return null;
                     var isStaticKind = kind == MethodHandleKind.GetStatic || kind == MethodHandleKind.PutStatic;
@@ -1754,15 +1875,21 @@ namespace IKVM.Runtime
 
             Profiler.Count("DynamicBinderDirect");
 
-            // owning the DynamicMethod with the target type can run the target's class initializer
-            // at delegate creation; that matches JVMS timing for the kinds that must initialize on
-            // first execution (we are inside the referencing instruction's first execution), but
-            // getfield/invokevirtual/invokeinterface must never trigger initialization (JVMS §5.5)
+            // JVMS §5.5: invokestatic, getstatic and putstatic initialize the class that DECLARES the member, `new` the
+            // class itself, and getfield/invokevirtual/invokeinterface nothing. We are inside the referencing
+            // instruction's first execution, so initialize here. The DynamicMethod used to be owned by the referenced
+            // type for this, which ran ITS class initializer when the delegate was created -- the subclass a static
+            // member was named through, which HotSpot leaves uninitialized -- and skipped interfaces, which cannot own
+            // one. A neutral owner (skipVisibility) initializes nothing, as for the instance kinds.
             var initializes = kind == MethodHandleKind.InvokeStatic || kind == MethodHandleKind.NewInvokeSpecial
                 || kind == MethodHandleKind.GetStatic || kind == MethodHandleKind.PutStatic;
-            var owner = initializes ? tw.TypeAsBaseType : typeof(ByteCodeHelper);
-            if (!ReflectUtil.CanOwnDynamicMethod(owner))
-                owner = typeof(ByteCodeHelper);
+            if (initializes)
+            {
+                var declaring = kind == MethodHandleKind.NewInvokeSpecial ? tw : mw != null ? mw.DeclaringType : fw.DeclaringType;
+                declaring.RunClassInit();
+            }
+
+            var owner = typeof(ByteCodeHelper);
 
             var dpTypes = new Type[dp.Length];
             for (int i = 0; i < dp.Length; i++)

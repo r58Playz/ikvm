@@ -44,6 +44,32 @@ namespace IKVM.Runtime
         // logs every invocation of a Java class loader's loadClass with the loader's type, for
         // diffing load order/set against a real JVM run with -verbose:class
         internal static readonly bool TraceLoadClass = SafeGetEnvironmentVariable("IKVM_TRACE_LOADCLASS") != null;
+        // logs every class a Java class loader defines, with the loader and the type whose verifier loads were being
+        // run at the time, for diffing definition order against a real JVM run with -Xlog:class+load
+        internal static readonly bool TraceDefine = SafeGetEnvironmentVariable("IKVM_TRACE_DEFINE") != null;
+
+        // wasm fork: HotSpot's verifier loads classes while it links a class (assignability checks of call arguments,
+        // receivers, field values, returns, athrow and catch types); lazy linking defers every one of them to the first
+        // execution of the instruction, which Fabric mods can observe (a mixin plugin that references a nested class of
+        // its own mixin package is only allowed to load it while its config is still pending). "1" records them while a
+        // lazily linked class finishes and loads them at the class's HotSpot link points (VerifierLoads), "shadow"
+        // records and logs them without loading, "0" turns it off.
+        internal static readonly string VerifyLoadsMode = SafeGetEnvironmentVariable("IKVM_VERIFY_LOADS") ?? "1";
+        internal static readonly bool VerifyLoads = VerifyLoadsMode != "0";
+        internal static readonly bool VerifyLoadsShadow = VerifyLoadsMode == "shadow";
+        // whether a lazily linked class's static constructor runs its pending verifier loads first, which covers the
+        // initializations that reach it through directly bound code rather than through RunClassInit
+        internal static readonly bool VerifyLoadsCctor = SafeGetEnvironmentVariable("IKVM_VERIFY_LOADS_CCTOR") != "0";
+        internal static readonly bool TraceVerifyLoads = SafeGetEnvironmentVariable("IKVM_TRACE_VERIFYLOADS") != null;
+
+        // wasm fork: a failed resolution of a class, MethodType or MethodHandle reference is remembered per referencing
+        // class and rethrown on every later attempt, as JVMS §5.4.3 requires, instead of calling the loader again.
+        internal static readonly bool ResolutionErrors = SafeGetEnvironmentVariable("IKVM_RESOLUTION_ERRORS") != "0";
+        internal static readonly bool TraceResolutionErrors = SafeGetEnvironmentVariable("IKVM_TRACE_RESOLUTION_ERRORS") != null;
+
+        // wasm fork: initializing a class first initializes its superinterfaces that declare default methods (JLS 12.4.2
+        // step 7). "0" restores initializing them only at their first default method call.
+        internal static readonly bool InitSuperInterfaces = SafeGetEnvironmentVariable("IKVM_INIT_SUPERINTERFACES") != "0";
 
         // GENERATIONAL METHOD BODIES ("lazy bodies").
         //

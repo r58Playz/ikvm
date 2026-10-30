@@ -444,6 +444,8 @@ namespace IKVM.Java.Externs.java.lang
             {
                 var type = RuntimeJavaType.FromClass(self);
                 type.Finish();
+                // HotSpot links the class whose members it reflects on (JVM_GetClassDeclared*)
+                type.LinkForVerification(VerifierLoads.ReasonReflect);
 
                 var fields = type.GetFields();
                 var list = new List<global::java.lang.reflect.Field>(fields.Length);
@@ -469,6 +471,8 @@ namespace IKVM.Java.Externs.java.lang
             {
                 var type = RuntimeJavaType.FromClass(self);
                 type.Finish();
+                // HotSpot links the class whose members it reflects on (JVM_GetClassDeclared*)
+                type.LinkForVerification(VerifierLoads.ReasonReflect);
 
                 if (type.HasVerifyError)
                     throw new VerifyError();
@@ -503,6 +507,8 @@ namespace IKVM.Java.Externs.java.lang
             {
                 var type = RuntimeJavaType.FromClass(self);
                 type.Finish();
+                // HotSpot links the class whose members it reflects on (JVM_GetClassDeclared*)
+                type.LinkForVerification(VerifierLoads.ReasonReflect);
 
                 if (type.HasVerifyError)
                     throw new VerifyError();

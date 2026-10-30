@@ -412,30 +412,40 @@ namespace IKVM.Runtime
 
             try
             {
+                // link, don't load: this runs while the caller compiles, and HotSpot loads these classes only when the
+                // declaring class's <clinit> runs its `ldc Foo.class`; a class lazy linking leaves unloaded declines the
+                // intrinsic. A relink recompile may not load at all.
                 var loader = declaring.ClassLoader;
+                var mode = eic.Context.IsLazyRecompile ? LoadMode.LinkNoLoad : loader.CurrentLinkMode;
                 if (spec.Kind == Kind.ArrayElement)
                 {
-                    var arrayType = loader.LoadClassByName(spec.Class);
+                    var arrayType = loader.LoadClass(spec.Class, mode);
                     return arrayType.IsArray && arrayType.IsUnloadable == false ? new ConstantVarHandle() { Kind = Kind.ArrayElement, ArrayType = arrayType } : null;
                 }
 
                 if (spec.Kind == Kind.ByteArrayView)
                 {
-                    var viewType = loader.LoadClassByName(spec.Class);
+                    var viewType = loader.LoadClass(spec.Class, mode);
                     return viewType.IsArray && viewType.IsUnloadable == false && viewType.ArrayRank == 1 ? new ConstantVarHandle() { Kind = Kind.ByteArrayView, ArrayType = viewType, BigEndian = spec.BigEndian } : null;
                 }
 
-                var recv = spec.Class == null ? declaring : loader.LoadClassByName(spec.Class);
-                var type = spec.Type.Length == 1 ? PrimitiveType(eic, spec.Type[0]) : loader.LoadClassByName(spec.Type);
+                var recv = spec.Class == null ? declaring : loader.LoadClass(spec.Class, mode);
+                var type = spec.Type.Length == 1 ? PrimitiveType(eic, spec.Type[0]) : loader.LoadClass(spec.Type, mode);
                 if (recv == null || type == null || recv.IsUnloadable || type.IsUnloadable)
+                {
+#if !IMPORTER
+                    if (loader.LinksLazily)
+                        System.Threading.Interlocked.Increment(ref LazyBodyStats.VhLazyBail);
+#endif
                     return null;
+                }
 
                 var field = recv.GetFieldWrapper(spec.Name, type.SigName);
                 if (field == null || field.IsStatic != (spec.Kind == Kind.StaticField))
                     return null;
 
                 // a field of a class being compiled is linked as its methods compile
-                field.Link();
+                field.Link(mode);
                 if (field.FieldTypeWrapper != type)
                     return null;
 

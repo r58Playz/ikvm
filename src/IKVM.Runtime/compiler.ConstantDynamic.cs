@@ -117,7 +117,12 @@ namespace IKVM.Runtime
             if (field == null || field.IsStatic == false || field.IsFinal == false || field.IsAccessibleFrom(declaringType, clazz, clazz) == false)
                 return false;
 
-            field.Link();
+            // with the declaring class's own mode: an eager link invoked user loadClass for the field's type while this
+            // class compiled; an unloaded type leaves the constant to the runtime bootstrap
+            field.Link(field.DeclaringType.ClassLoader.CurrentLinkMode);
+            if (field.FieldTypeWrapper.IsUnloadable && field.DeclaringType.ClassLoader.LinksLazily)
+                return false;
+
             field.EmitGet(ilgen);
             return true;
         }

@@ -77,6 +77,8 @@ namespace IKVM.Runtime
 
         /// <summary>Target of the IN-PLACE relink hook; see ByteCodeHelper.RelinkBody.</summary>
         internal readonly MethodInfo RelinkBody;
+        /// <summary>Called first by a lazily linked class's static constructor; see ByteCodeHelper.LinkVerifierLoads.</summary>
+        internal readonly MethodInfo LinkVerifierLoads;
         internal readonly MethodInfo DynamicMapException;
         internal readonly MethodInfo DynamicCallerID;
         internal readonly MethodInfo DynamicLinkIndyCallSite;
@@ -173,6 +175,7 @@ namespace IKVM.Runtime
             DynamicBinderMemberLookup = GetHelper(typeofByteCodeHelper, "DynamicBinderMemberLookup");
             BuildLazyBody = GetHelper(typeofByteCodeHelper, "BuildLazyBody");
             RelinkBody = GetHelper(typeofByteCodeHelper, "RelinkBody");
+            LinkVerifierLoads = GetHelper(typeofByteCodeHelper, "LinkVerifierLoads");
             DynamicMapException = GetHelper(typeofByteCodeHelper, "DynamicMapException");
             DynamicCallerID = GetHelper(typeofByteCodeHelper, "DynamicCallerID");
             DynamicLinkIndyCallSite = GetHelper(typeofByteCodeHelper, "DynamicLinkIndyCallSite");

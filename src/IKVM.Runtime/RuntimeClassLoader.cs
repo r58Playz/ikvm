@@ -306,6 +306,44 @@ namespace IKVM.Runtime
             }
         }
 
+        /// <summary>
+        /// Returns true if classes defined by this loader link lazily (<see cref="LoadMode.LinkLazy"/>): their constant
+        /// pool and member signatures resolve without invoking user loadClass, and anything not yet loaded is resolved at
+        /// first execution, as HotSpot does.
+        /// </summary>
+        internal bool LinksLazily
+        {
+            get
+            {
+#if !IMPORTER && !FIRST_PASS && !EXPORTER
+                return JVM.LazyClassLoading && InvokesUserLoadClass;
+#else
+                return false;
+#endif
+            }
+        }
+
+        /// <summary>
+        /// The mode a member of a class defined by this loader links its signature with when it is linked on behalf of
+        /// another class (a base method an override is checked against, a functional interface's methods, ...): what
+        /// the class's own finish would use, so linking it early cannot invoke user loadClass where HotSpot would not.
+        /// Inside the relink drain nothing may load at all (<see cref="LoadMode.LinkNoLoad"/>).
+        /// </summary>
+        internal LoadMode CurrentLinkMode
+        {
+            get
+            {
+#if !IMPORTER && !FIRST_PASS && !EXPORTER
+                if (ByteCodeHelper.InRelinkDrain)
+                    return LoadMode.LinkNoLoad;
+
+                return LinksLazily ? LoadMode.LinkLazy : LoadMode.Link;
+#else
+                return LoadMode.Link;
+#endif
+            }
+        }
+
 #if !EXPORTER
         internal RuntimeJavaType DefineClass(ClassFile f, ProtectionDomain protectionDomain)
         {
@@ -372,7 +410,15 @@ namespace IKVM.Runtime
                 }
                 try
                 {
-                    return GetTypeWrapperFactory().DefineClassImpl(types, null, classFile, this, protectionDomain);
+                    var def = GetTypeWrapperFactory().DefineClassImpl(types, null, classFile, this, protectionDomain);
+#if !IMPORTER && !FIRST_PASS
+                    var drain = VerifierLoads.CurrentDrain;
+                    if (drain != null)
+                        Interlocked.Increment(ref LazyBodyStats.VerifyLoadNew);
+                    if (JVM.TraceDefine)
+                        Console.Error.WriteLine($"[IKVM define] {classFile.Name} loader={javaClassLoader?.GetType().FullName ?? "<boot>"} tid={Environment.CurrentManagedThreadId} drain={drain?.Name ?? "-"}");
+#endif
+                    return def;
                 }
                 finally
                 {
@@ -434,9 +480,18 @@ namespace IKVM.Runtime
 
             try
             {
-                var javaType = LoadRegisteredOrPendingClass(name);
+                var javaType = LoadRegisteredOrPendingClass(name, mode, out var pending);
                 if (javaType != null)
                     return javaType;
+
+                // a link that may not load met a class still being defined: it is not loaded yet, so link it as such
+                if (pending)
+                {
+#if !EXPORTER
+                    Interlocked.Increment(ref LazyBodyStats.PendingNoLoad);
+#endif
+                    return GetUnloadableJavaType(name);
+                }
 
                 if (name.Length > 1 && name[0] == '[')
                     javaType = FindOrLoadArrayClass(name, mode);
@@ -522,9 +577,10 @@ namespace IKVM.Runtime
             return cache.GetOrAdd(name, tw);
         }
 
-        RuntimeJavaType LoadRegisteredOrPendingClass(string name)
+        RuntimeJavaType LoadRegisteredOrPendingClass(string name, LoadMode mode, out bool pending)
         {
             RuntimeJavaType javaType;
+            pending = false;
 
             lock (types)
             {
@@ -532,6 +588,17 @@ namespace IKVM.Runtime
                 {
                     if (defineClassInProgress.TryGetValue(name, out var defineThread))
                     {
+                        // A link that may not load (LinkLazy, LinkNoLoad) does not wait for the definition or call it a
+                        // circularity: HotSpot does not touch the class at link time at all. On the defining thread
+                        // (Mixin running a plugin's Class.forName while a superclass loads) the ClassCircularityError
+                        // failed an unrelated class's finish; on another thread the wait could deadlock against the
+                        // definer. A load (any mode with the Load bit) keeps both, as HotSpot does.
+                        if ((mode & LoadMode.Load) == 0 && (mode & LoadMode.MaskReturn) == LoadMode.ReturnUnloadable)
+                        {
+                            pending = true;
+                            return null;
+                        }
+
                         if (Thread.CurrentThread == defineThread)
                             throw new ClassCircularityError(name);
 

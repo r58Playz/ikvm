@@ -659,6 +659,8 @@ namespace IKVM.Runtime
 
         internal static RuntimeJavaType PopObjectTypeImpl(RuntimeJavaType baseType, RuntimeJavaType type)
         {
+            VerifierLoads.NoteAssignable(baseType, type);
+
             // HACK because of the way interfaces references works, if baseType
             // is an interface or array of interfaces, any reference will be accepted
             if (!baseType.IsUnloadable && !baseType.IsInterfaceOrInterfaceArray && !(type.IsUnloadable || type.IsAssignableTo(baseType)))
@@ -748,6 +750,10 @@ namespace IKVM.Runtime
 
             if (type.IsPrimitive == false && baseType.IsPrimitive == false)
             {
+                // HotSpot's verifier loads what this check needs at link time; lazy linking accepts unloadable types
+                // below, so remember the loads for the class's link point
+                VerifierLoads.NoteAssignable(baseType, type);
+
                 if (baseType == baseType.Context.JavaBase.TypeOfJavaLangObject)
                     return type;
 

@@ -140,6 +140,14 @@ namespace IKVM.Runtime
 #endif
             this.permittedSubclassNames = f.PermittedSubclasses;
             this.recordComponents = f.RecordComponents;
+
+#if !IMPORTER
+            // HotSpot resolves the superinterfaces while it parses the class and the superclass afterwards
+            // (ClassFileParser::parse_interfaces, then post_process_parsed_stream), which a loader observes as the order
+            // of its loadClass calls; checked on JDK 17 and 25. ikvmc keeps its order.
+            this.interfaces = LoadInterfaces(f, classLoader, pd);
+#endif
+
             if (f.IsInterface)
             {
                 // interfaces can't "override" final methods in object
@@ -186,8 +194,21 @@ namespace IKVM.Runtime
                 }
             }
 
+#if IMPORTER
+            this.interfaces = LoadInterfaces(f, classLoader, pd);
+#endif
+
+            impl = new JavaTypeImpl(host, f, this);
+        }
+
+#if IMPORTER
+        RuntimeJavaType[] LoadInterfaces(ClassFile f, ImportClassLoader classLoader, ProtectionDomain pd)
+#else
+        RuntimeJavaType[] LoadInterfaces(ClassFile f, RuntimeClassLoader classLoader, ProtectionDomain pd)
+#endif
+        {
             ClassFile.ConstantPoolItemClass[] interfaces = f.Interfaces;
-            this.interfaces = new RuntimeJavaType[interfaces.Length];
+            var result = new RuntimeJavaType[interfaces.Length];
             for (int i = 0; i < interfaces.Length; i++)
             {
                 RuntimeJavaType iface = LoadTypeWrapper(classLoader, pd, interfaces[i]);
@@ -200,10 +221,10 @@ namespace IKVM.Runtime
                     throw new IncompatibleClassChangeError("Implementing class");
                 }
                 CheckPermittedSubclass(iface);
-                this.interfaces[i] = iface;
+                result[i] = iface;
             }
 
-            impl = new JavaTypeImpl(host, f, this);
+            return result;
         }
 
         private void VerifyDelegate(ClassFile f)
@@ -448,6 +469,128 @@ namespace IKVM.Runtime
             // we don't need locking, because Finish is Thread safe
             impl = impl.Finish();
         }
+
+#if !IMPORTER
+
+        /// <summary>
+        /// The superinterfaces initializing <paramref name="type"/> must initialize first (JLS 12.4.2 step 7, HotSpot's
+        /// initialize_super_interfaces): depth first over its direct interfaces in declaration order, those that declare a
+        /// non-static, non-abstract method -- and have a class initializer, since initializing one without is not
+        /// observable. Null for an interface (only a class initializes its superinterfaces) or when there are none. Only
+        /// interfaces of the shared dynamic module, whose class initializer trigger a class can always call.
+        /// </summary>
+        internal static List<RuntimeJavaType> GetSuperInterfacesToInitialize(RuntimeJavaType type)
+        {
+            if (JVM.InitSuperInterfaces == false || type.IsInterface || type.ClassLoader is RuntimeAssemblyClassLoader)
+                return null;
+
+            List<RuntimeJavaType> list = null;
+            CollectSuperInterfacesToInitialize(type, ref list);
+            return list;
+        }
+
+        static void CollectSuperInterfacesToInitialize(RuntimeJavaType type, ref List<RuntimeJavaType> list)
+        {
+            foreach (var iface in type.Interfaces)
+            {
+                if (iface is not RuntimeByteCodeJavaType || iface.ClassLoader is RuntimeAssemblyClassLoader)
+                    continue;
+
+                if (HasNonStaticConcreteMethods(iface))
+                    CollectSuperInterfacesToInitialize(iface, ref list);
+
+                if (iface.HasStaticInitializer && DeclaresNonStaticConcreteMethods(iface) && (list == null || list.Contains(iface) == false))
+                    (list ??= new List<RuntimeJavaType>()).Add(iface);
+            }
+        }
+
+        static bool DeclaresNonStaticConcreteMethods(RuntimeJavaType iface)
+        {
+            foreach (var mw in iface.GetMethods())
+                if (mw.DeclaringType == iface && mw.IsStatic == false && mw.IsAbstract == false && mw.IsConstructor == false && mw.IsClassInitializer == false && mw is not RuntimeMirandaJavaMethod)
+                    return true;
+
+            return false;
+        }
+
+        static bool HasNonStaticConcreteMethods(RuntimeJavaType iface)
+        {
+            if (DeclaresNonStaticConcreteMethods(iface))
+                return true;
+
+            foreach (var superInterface in iface.Interfaces)
+                if (superInterface is RuntimeByteCodeJavaType && HasNonStaticConcreteMethods(superInterface))
+                    return true;
+
+            return false;
+        }
+
+#endif
+
+#if !FIRST_PASS && !IMPORTER && !EXPORTER
+
+        // wasm fork: HotSpot verifier loads (VerifierLoads). Collected while the first generation of each method
+        // compiles, published when the class finishes, pending until the first link point.
+        VerifierLoads.Builder verifierLoadBuilder;
+        VerifierLoads.Pair[] pendingVerifierLoads;
+        int verifierLinkState;
+
+        /// <summary>
+        /// Adds the verifier loads of a method compiled while this class finishes. Only the finishing thread calls it.
+        /// </summary>
+        internal void AddVerifierLoads(VerifierLoads.Builder pairs)
+        {
+            (verifierLoadBuilder ??= new VerifierLoads.Builder()).AddRange(pairs);
+        }
+
+        /// <summary>
+        /// Makes the collected verifier loads pending. Called by the finish before the finished type is published, so a
+        /// link point that sees the class finished also sees its loads.
+        /// </summary>
+        internal void PublishVerifierLoads()
+        {
+            var builder = verifierLoadBuilder;
+            verifierLoadBuilder = null;
+            if (builder == null || builder.Count == 0)
+                return;
+
+            System.Threading.Interlocked.Add(ref LazyBodyStats.VerifyPairs, builder.Count);
+            System.Threading.Interlocked.Increment(ref LazyBodyStats.VerifyTypes);
+            System.Threading.Volatile.Write(ref pendingVerifierLoads, builder.ToArray());
+        }
+
+        internal override void LinkForVerification(int reason)
+        {
+            if (JVM.VerifyLoads == false || System.Threading.Volatile.Read(ref verifierLinkState) != 0 || classLoader.LinksLazily == false)
+                return;
+
+            // not finished yet: nothing published, and the link point that finishes it comes back here
+            if (impl is not FinishedTypeImpl)
+                return;
+
+            // the relink drain may not call a Java class loader (ByteCodeHelper.InRelinkDrain); keep them pending
+            if (ByteCodeHelper.InRelinkDrain)
+            {
+                if (System.Threading.Volatile.Read(ref pendingVerifierLoads) != null)
+                    System.Threading.Interlocked.Increment(ref LazyBodyStats.VerifyDrainRefused);
+
+                return;
+            }
+
+            if (System.Threading.Interlocked.CompareExchange(ref verifierLinkState, 1, 0) != 0)
+                return;
+
+            // HotSpot links the superclass and the superinterfaces before the class itself
+            BaseTypeWrapper?.LinkForVerification(reason);
+            foreach (var iface in interfaces)
+                iface.LinkForVerification(reason);
+
+            var pairs = System.Threading.Interlocked.Exchange(ref pendingVerifierLoads, null);
+            if (pairs != null)
+                VerifierLoads.Drain(this, pairs, reason);
+        }
+
+#endif
 
         internal void CreateStep1()
         {

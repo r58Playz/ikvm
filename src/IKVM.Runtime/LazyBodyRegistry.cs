@@ -219,6 +219,28 @@ namespace IKVM.Runtime
         // wasm fork (R514): relink-drain refusals (ByteCodeHelper.InRelinkDrain): a finish of an unfinished type, a Java loader call
         internal static int DrainFinishRefused;
         internal static int DrainLoadRefused;
+        // wasm fork: HotSpot verifier loads (VerifierLoads): pairs recorded, types with pending loads, drains per link
+        // point, classes defined while a drain ran, loads that failed (swallowed), drains the relink drain refused
+        internal static int VerifyPairs;
+        internal static int VerifyTypes;
+        internal static int VerifyDrainInit;
+        internal static int VerifyDrainCctor;
+        internal static int VerifyDrainReflect;
+        internal static int VerifyLoadNew;
+        internal static int VerifyLoadFail;
+        internal static int VerifyDrainRefused;
+        // wasm fork: resolution errors remembered / rethrown from the per-class cache (JVMS §5.4.3)
+        internal static int ResErrSaved;
+        internal static int ResErrHit;
+        // wasm fork: no-load links that met a class still being defined and took the unloadable placeholder
+        internal static int PendingNoLoad;
+        // wasm fork: compile-time intrinsics declined because lazy linking left a type they need unloaded
+        internal static int LmfLazyBail;
+        internal static int VhLazyBail;
+        // wasm fork: superinterface initializations emitted into class initializers (JLS 12.4.2 step 7), and
+        // Unsafe.allocateInstance calls that initialized their class
+        internal static int SuperIfaceTriggers;
+        internal static int AllocInit;
         internal static int Released;             // wasm fork (R484): terminal entries that dropped their reparse source
         internal static int Accepted;
         internal static int RejShape;             // abstract/native/no instructions, or <init>/<clinit>
@@ -431,6 +453,7 @@ namespace IKVM.Runtime
             Console.WriteLine($"[IKVM lazybody] inplaceFail stubbed={InPlaceStubbed} stubFailed={InPlaceStubFailed} {InPlaceFailureSummary()}");
             Console.WriteLine($"[IKVM lazybody] unexpDyn {UnexpectedDynamicSummary()}");
             Console.WriteLine($"[IKVM lazybody] noLoadBootstrapFinds={RuntimeClassLoader.NoLoadFoundInBootstrap} drainRefused finish={DrainFinishRefused} load={DrainLoadRefused}");
+            Console.WriteLine($"[IKVM verifyloads] pairs={VerifyPairs} types={VerifyTypes} drains init={VerifyDrainInit} cctor={VerifyDrainCctor} reflect={VerifyDrainReflect} defined={VerifyLoadNew} failed={VerifyLoadFail} refused={VerifyDrainRefused} | resErr saved={ResErrSaved} hit={ResErrHit} | pendingNoLoad={PendingNoLoad} lmfBail={LmfLazyBail} vhBail={VhLazyBail} superIface={SuperIfaceTriggers} allocInit={AllocInit}");
         }
 
     }

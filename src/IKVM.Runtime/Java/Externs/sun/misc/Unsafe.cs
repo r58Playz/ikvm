@@ -2782,6 +2782,16 @@ namespace IKVM.Java.Externs.sun.misc
                 throw x.ToJava();
             }
 
+            // HotSpot links and initializes the class it allocates an instance of (InstanceKlass::allocate_instance), and
+            // an uninitialized-object allocation does not run a static constructor
+            if (wrapper.IsArray == false && wrapper.IsPrimitive == false)
+            {
+                if (wrapper.HasStaticInitializer)
+                    Interlocked.Increment(ref LazyBodyStats.AllocInit);
+
+                wrapper.RunClassInit();
+            }
+
 #if NETFRAMEWORK
             return FormatterServices.GetUninitializedObject(wrapper.TypeAsBaseType);
 #else

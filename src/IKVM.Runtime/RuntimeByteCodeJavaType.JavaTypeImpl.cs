@@ -165,6 +165,13 @@ namespace IKVM.Runtime
                         methods[i].SetDeprecated();
                 }
 
+#if !IMPORTER
+                // JLS 12.4.2 step 7: initializing a class initializes its superinterfaces that declare default methods
+                // first, which takes a class initializer to do it from (FinishContext emits the calls)
+                if (hasclinit == false && RuntimeByteCodeJavaType.GetSuperInterfacesToInitialize(wrapper) != null)
+                    hasclinit = true;
+#endif
+
                 if (hasclinit)
                     wrapper.SetHasStaticInitializer();
 
@@ -1226,7 +1233,7 @@ namespace IKVM.Runtime
                 // OpenJDK-aligned lazy linking applies only to classes defined by loaders that run
                 // user loadClass code (Fabric Knot, LaunchWrapper, app loader, ...); boot and
                 // assembly-backed classes keep the eager direct binding.
-                var lazy = (JVM.LazyClassLoading && wrapper.ClassLoader.InvokesUserLoadClass)
+                var lazy = wrapper.ClassLoader.LinksLazily
                     || (JVM.DisableEagerClassLoading && wrapper.Name != "sun.reflect.misc.Trampoline");
                 var mode = (t_rc + 1) > 2 ? LoadMode.ReturnUnloadable
                     : lazy ? LoadMode.LinkLazy
@@ -1363,6 +1370,9 @@ namespace IKVM.Runtime
                     }
 #endif
 
+#if !IMPORTER && !FIRST_PASS
+                    wrapper.PublishVerifierLoads();
+#endif
                     finishedType = new FinishedTypeImpl(type, innerClassesTypeWrappers, declaringTypeWrapper, wrapper.ReflectiveModifiers, Metadata.Create(classFile), finishedClinitMethod, finalizeMethod, host);
                     return finishedType;
                 }
@@ -2430,7 +2440,10 @@ namespace IKVM.Runtime
                 {
                     foreach (var baseMethod in baseMethods[index])
                     {
-                        baseMethod.Link();
+                        // with the base type's own mode: this can run before the base type finishes (a constant pool
+                        // entry of another class linking one of our methods), and an eager link would invoke user
+                        // loadClass for the base method's descriptor types, which HotSpot never loads at link time
+                        baseMethod.Link(baseMethod.DeclaringType.ClassLoader.CurrentLinkMode);
                         CheckLoaderConstraints(mw, baseMethod);
                     }
                 }
@@ -2463,7 +2476,7 @@ namespace IKVM.Runtime
                             }
                             else
                             {
-                                baseMiranda.Link();
+                                baseMiranda.Link(baseMiranda.DeclaringType.ClassLoader.CurrentLinkMode);
                                 if (CheckRequireOverrideStub(methods[index], baseMiranda))
                                 {
                                     baseMirandaOverrideStub = true;

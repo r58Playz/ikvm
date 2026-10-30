@@ -1089,10 +1089,25 @@ namespace IKVM.Runtime
                         }
                     }
 
-                    mw.Link();
+                    // link with the interface's own mode: an eager link here invoked user loadClass for the descriptor
+                    // types of every method of the interface while the lambda's class linked, which HotSpot never does
+                    // (it loads the SAM's types when the invokedynamic first runs)
+                    mw.Link(mw.DeclaringType.ClassLoader.CurrentLinkMode);
                     if (mw.GetMethod() == null)
                     {
                         Trace($"    bail: GetMethod() null for '{mw.Name}{mw.Signature}' after Link");
+                        return false;
+                    }
+
+                    // the lambda class has to implement this one, which needs its types: when lazy linking left one
+                    // unloaded, leave the call site to the runtime path (an eager loader's unloadable types are missing
+                    // classes, which this compiler has always handled)
+                    if (mw.IsAbstract && !IsObjectMethod(mw) && mw.DeclaringType.ClassLoader.LinksLazily && HasUnloadableSignature(mw))
+                    {
+#if !IMPORTER
+                        System.Threading.Interlocked.Increment(ref LazyBodyStats.LmfLazyBail);
+#endif
+                        Trace($"    bail: '{mw.Name}{mw.Signature}' (from {tw.Name}) has an unloadable type in its signature");
                         return false;
                     }
 
@@ -1133,9 +1148,21 @@ namespace IKVM.Runtime
 
         static bool MatchSignatures(RuntimeJavaMethod mw1, RuntimeJavaMethod mw2)
         {
-            mw1.Link();
-            mw2.Link();
+            mw1.Link(mw1.DeclaringType.ClassLoader.CurrentLinkMode);
+            mw2.Link(mw2.DeclaringType.ClassLoader.CurrentLinkMode);
             return mw1.ReturnType == mw2.ReturnType && MatchTypes(mw1.GetParameters(), mw2.GetParameters());
+        }
+
+        static bool HasUnloadableSignature(RuntimeJavaMethod mw)
+        {
+            if (mw.ReturnType.IsUnloadable)
+                return true;
+
+            foreach (var p in mw.GetParameters())
+                if (p.IsUnloadable)
+                    return true;
+
+            return false;
         }
 
         static bool MatchTypes(RuntimeJavaType[] ar1, RuntimeJavaType[] ar2)

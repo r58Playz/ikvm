@@ -149,6 +149,15 @@ namespace IKVM.Runtime
                     firstNonArgLocalIndex++;
             }
 
+            // HotSpot verifies the exception handler table before the code, loading each catch type to check that it is
+            // a Throwable (see VerifierLoads)
+            for (int i = 0; i < classFileMethod.ExceptionTable.Length; i++)
+            {
+                var catchType = classFileMethod.ExceptionTable[i].catchType;
+                if (catchType.IsNil == false)
+                    VerifierLoads.NoteAssignable(context.JavaBase.TypeOfjavaLangThrowable, GetConstantPoolClassType(catchType));
+            }
+
             AnalyzeTypeFlow();
             VerifyPassTwo();
             PatchLoadConstants();
@@ -1350,6 +1359,22 @@ namespace IKVM.Runtime
                         var refType = stack.PopObjectType();
                         var targetType = cpi.GetClassType();
 
+                        // HotSpot checks an invokespecial receiver against the current class, and the referenced class
+                        // against the current class when it is not the class itself, its superclass or a direct interface
+                        if (VerifierLoads.Recording)
+                        {
+                            if (invoke == NormalizedByteCode.__invokespecial)
+                            {
+                                VerifierLoads.NoteAssignable(_type, refType);
+                                if (IsSelfSuperOrDirectInterface(targetType) == false)
+                                    VerifierLoads.NoteAssignable(targetType, _type);
+                            }
+                            else
+                            {
+                                VerifierLoads.NoteAssignable(targetType, refType);
+                            }
+                        }
+
                         if (!RuntimeVerifierJavaType.IsNullOrUnloadable(refType) && !targetType.IsUnloadable && !refType.IsAssignableTo(targetType))
                             throw new VerifyError("Incompatible object argument for function call");
 
@@ -1397,11 +1422,28 @@ namespace IKVM.Runtime
                         // we want an IncompatibleClassChangeError at runtime
                         var refType = stack.PopObjectType();
                         var targetType = cpi.GetClassType();
+                        VerifierLoads.NoteAssignable(targetType, refType);
                         if (!RuntimeVerifierJavaType.IsNullOrUnloadable(refType) && !targetType.IsUnloadable && !refType.IsAssignableTo(targetType) && !targetType.IsInterface)
                             throw new VerifyError("Incompatible object argument for function call");
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// HotSpot's is_same_or_direct_interface plus its superclass test, by name: an invokespecial naming one of these
+        /// does not check the current class's assignability to it.
+        /// </summary>
+        bool IsSelfSuperOrDirectInterface(RuntimeJavaType type)
+        {
+            if (type.Name == _type.Name || (_type.BaseTypeWrapper != null && type.Name == _type.BaseTypeWrapper.Name))
+                return true;
+
+            foreach (var iface in _type.Interfaces)
+                if (iface.Name == type.Name)
+                    return true;
+
+            return false;
         }
 
         void VerifyInvokeDynamic(int index)

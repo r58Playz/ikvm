@@ -1150,11 +1150,7 @@ namespace IKVM.Runtime
                 host = other;
             else
             {
-#if EXPORTER
-                var lazy = false;
-#else
-                var lazy = JVM.LazyClassLoading && ClassLoader.InvokesUserLoadClass;
-#endif
+                var lazy = ClassLoader.LinksLazily;
                 host = ClassLoader.LoadClass(hostName, lazy ? LoadMode.LinkNoLoad : LoadMode.Link);
                 if (host == null || host.IsUnloadable)
                     return lazy;
@@ -1656,11 +1652,24 @@ namespace IKVM.Runtime
 
         internal void RunClassInit()
         {
+#if !FIRST_PASS
+            // initialization is the point HotSpot has linked the class by, at the latest
+            LinkForVerification(VerifierLoads.ReasonInit);
+#endif
             Type t = IsRemapped ? TypeAsBaseType : TypeAsTBD;
             if (t != null)
             {
                 System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(t.TypeHandle);
             }
+        }
+
+        /// <summary>
+        /// Runs the class loads HotSpot's verifier would have done when this class linked (see <see cref="VerifierLoads"/>),
+        /// once, after those of its superclass and interfaces. Only called at points where HotSpot links a class.
+        /// </summary>
+        internal virtual void LinkForVerification(int reason)
+        {
+
         }
 
 #endif

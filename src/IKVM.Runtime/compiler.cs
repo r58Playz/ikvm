@@ -136,6 +136,13 @@ namespace IKVM.Runtime
             }
 
             Profiler.Enter("MethodAnalyzer");
+#if !IMPORTER && !FIRST_PASS
+            // the first generation of a lazily linked class's method records the class loads HotSpot's verifier would
+            // do for it (VerifierLoads); a verify error drops them
+            var recordVerifierLoads = VerifierLoads.ShouldRecord(finish, clazz);
+            var displacedRecorder = recordVerifierLoads ? VerifierLoads.Begin() : null;
+            var verified = false;
+#endif
             try
             {
                 if (classFile.MajorVersion < 51 && m.HasJsr)
@@ -145,10 +152,17 @@ namespace IKVM.Runtime
                 MethodAnalyzer verifier = finish.Context.MethodAnalyzerFactory.Create(host, clazz, mw, classFile, m, classLoader);
                 exceptions = MethodAnalyzer.UntangleExceptionBlocks(finish.Context, classFile, m);
                 ma = verifier.GetCodeInfoAndErrors(exceptions, out harderrors);
+#if !IMPORTER && !FIRST_PASS
+                verified = true;
+#endif
                 localVars = new LocalVarInfo(ma, classFile, m, exceptions, mw, classLoader);
             }
             finally
             {
+#if !IMPORTER && !FIRST_PASS
+                if (recordVerifierLoads)
+                    VerifierLoads.End(displacedRecorder, verified ? clazz : null);
+#endif
                 Profiler.Leave("MethodAnalyzer");
             }
 

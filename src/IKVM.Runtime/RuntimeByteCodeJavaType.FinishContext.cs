@@ -1152,7 +1152,12 @@ namespace IKVM.Runtime
 
                 AddInheritedDefaultInterfaceMethods(methods);
 
+#if !IMPORTER
+                var superInterfacesToInitialize = RuntimeByteCodeJavaType.GetSuperInterfacesToInitialize(wrapper);
+                if (clinitIndex != -1 || (basehasclinit && !classFile.IsInterface) || classFile.HasInitializedFields || superInterfacesToInitialize != null)
+#else
                 if (clinitIndex != -1 || (basehasclinit && !classFile.IsInterface) || classFile.HasInitializedFields)
+#endif
                 {
                     MethodBuilder cb;
                     if (clinitIndex != -1)
@@ -1166,10 +1171,32 @@ namespace IKVM.Runtime
                     }
                     var ilGenerator = context.CodeEmitterFactory.Create(cb);
 
+#if !IMPORTER && !FIRST_PASS
+                    // HotSpot has linked a class by the time it initializes it: run the verifier loads (VerifierLoads)
+                    // first, for initializations that arrive through directly bound code instead of RunClassInit. The
+                    // list is not known yet (<clinit> compiles below), so the call is emitted for every such class.
+                    if (JVM.VerifyLoads && JVM.VerifyLoadsCctor && wrapper.classLoader.LinksLazily)
+                    {
+                        ilGenerator.EmitLdc_I4(VerifierLoads.Register(wrapper));
+                        ilGenerator.Emit(OpCodes.Call, context.ByteCodeHelperMethods.LinkVerifierLoads);
+                    }
+#endif
+
                     // before we call the base class initializer, we need to set the non-final static ConstantValue fields
                     EmitConstantValueInitialization(fields, ilGenerator);
                     if (basehasclinit)
                         wrapper.BaseTypeWrapper.EmitRunClassConstructor(ilGenerator);
+
+#if !IMPORTER
+                    // JLS 12.4.2 step 7: after the superclass, the superinterfaces that declare default methods
+                    if (superInterfacesToInitialize != null)
+                    {
+                        foreach (var iface in superInterfacesToInitialize)
+                            iface.EmitRunClassConstructor(ilGenerator);
+
+                        System.Threading.Interlocked.Add(ref LazyBodyStats.SuperIfaceTriggers, superInterfacesToInitialize.Count);
+                    }
+#endif
 
                     if (clinitIndex != -1)
                     {
