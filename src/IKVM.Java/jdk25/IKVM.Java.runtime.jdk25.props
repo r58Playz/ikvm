@@ -40,6 +40,7 @@
         <OpenJdkModule Include="java.naming" />
         <OpenJdkModule Include="java.net.http" />
         <OpenJdkModule Include="java.prefs" />
+        <OpenJdkModule Include="java.rmi" />
         <OpenJdkModule Include="java.scripting" />
         <OpenJdkModule Include="java.security.sasl" />
         <OpenJdkModule Include="java.sql" />

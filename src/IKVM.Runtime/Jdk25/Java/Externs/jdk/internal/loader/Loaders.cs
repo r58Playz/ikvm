@@ -83,10 +83,36 @@ namespace IKVM.Java.Externs.jdk.@internal.loader
 
     /// <summary>
     /// Implements the native methods of 'jdk.internal.loader.NativeLibraries', loading JNI libraries through the
-    /// runtime's JNI loader. No libraries are built into the runtime.
+    /// runtime's JNI loader. The libraries built into the runtime are those whose natives it implements itself.
     /// </summary>
     static class NativeLibraries
     {
+
+        /// <summary>
+        /// The libraries whose natives the runtime implements (IKVM.Java.Externs) and that have nothing else to load (the
+        /// JDK's own call into HotSpot's JVM interface): the JDK loads them as built in (statically linked), so no file
+        /// has to exist and nothing is opened. librmi: sun.rmi.transport.GC.
+        /// </summary>
+        static readonly string[] runtimeLibraries = ["rmi"];
+
+        /// <summary>
+        /// Returns the library a file name (System.mapLibraryName's form) stands for, or null.
+        /// </summary>
+        static string GetLibraryName(string fileName)
+        {
+            if (fileName.EndsWith(".dll", StringComparison.Ordinal))
+                return fileName.Substring(0, fileName.Length - 4);
+
+            string name;
+            if (fileName.EndsWith(".so", StringComparison.Ordinal))
+                name = fileName.Substring(0, fileName.Length - 3);
+            else if (fileName.EndsWith(".dylib", StringComparison.Ordinal))
+                name = fileName.Substring(0, fileName.Length - 6);
+            else
+                return null;
+
+            return name.StartsWith("lib", StringComparison.Ordinal) ? name.Substring(3) : null;
+        }
 
         public static bool load(object impl, string name, bool isBuiltin, bool throwExceptionIfFail)
         {
@@ -94,6 +120,14 @@ namespace IKVM.Java.Externs.jdk.@internal.loader
             throw new NotImplementedException();
 #else
             var lib = (global::jdk.@internal.loader.NativeLibraries.NativeLibraryImpl)impl;
+
+            // nothing to open, and no symbol to find (findEntry0 answers 0 for the handle)
+            if (isBuiltin && Array.IndexOf(runtimeLibraries, name) >= 0)
+            {
+                lib.handle = 0;
+                return true;
+            }
+
             var handle = JNINativeLoader.LoadLibrary(name, RuntimeJavaType.FromClass(lib.fromClass));
             if (handle == 0)
             {
@@ -121,7 +155,8 @@ namespace IKVM.Java.Externs.jdk.@internal.loader
 
         public static string findBuiltinLib(string name)
         {
-            return null;
+            var library = GetLibraryName(name);
+            return library != null && Array.IndexOf(runtimeLibraries, library) >= 0 ? library : null;
         }
 
     }
@@ -137,6 +172,10 @@ namespace IKVM.Java.Externs.jdk.@internal.loader
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
+            // a library built into the runtime (NativeLibraries.runtimeLibraries) has no symbols
+            if (handle == 0)
+                return 0;
+
             return LibJvm.Instance.JVM_FindLibraryEntry((nint)handle, name);
 #endif
         }
