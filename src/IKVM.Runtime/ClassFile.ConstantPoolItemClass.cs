@@ -161,7 +161,13 @@ namespace IKVM.Runtime
             {
                 if (_javaType == Context.VerifierJavaTypeFactory.Null)
                 {
-                    var tw = thisType.ClassLoader.LoadClass(_name, mode | LoadMode.WarnClassNotFound);
+                    // Linking without loading (LinkLazy) resolves only what this loader has initiated, which a
+                    // supertype beyond the direct superclass usually isn't (a parent loader defined it). But the
+                    // name of one of this class's own supertypes can only resolve to that supertype, already
+                    // loaded -- and an invokespecial of a superclass's method must see it as one: R8 names the
+                    // declaring class in super calls, so app code calls super.m() on its grandparent by name.
+                    var tw = (mode & LoadMode.Load) == 0 ? FindSupertype(thisType, _name) : null;
+                    tw ??= thisType.ClassLoader.LoadClass(_name, mode | LoadMode.WarnClassNotFound);
 
 #if IMPORTER == false && FIRST_PASS == false
                     if (!tw.IsUnloadable)
@@ -179,6 +185,35 @@ namespace IKVM.Runtime
 
                     _javaType = tw;
                 }
+            }
+
+            /// <summary>
+            /// The superclass or superinterface of <paramref name="type"/> named <paramref name="name"/>, or null.
+            /// </summary>
+            static RuntimeJavaType FindSupertype(RuntimeJavaType type, string name)
+            {
+                for (var t = type.BaseTypeWrapper; t != null; t = t.BaseTypeWrapper)
+                    if (t.Name == name)
+                        return t;
+
+                for (var t = type; t != null; t = t.BaseTypeWrapper)
+                    if (FindInterface(t.Interfaces, name) is { } iface)
+                        return iface;
+
+                return null;
+            }
+
+            static RuntimeJavaType FindInterface(RuntimeJavaType[] interfaces, string name)
+            {
+                foreach (var i in interfaces)
+                {
+                    if (i.Name == name)
+                        return i;
+                    if (FindInterface(i.Interfaces, name) is { } found)
+                        return found;
+                }
+
+                return null;
             }
 
             /// <summary>
