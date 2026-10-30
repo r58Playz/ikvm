@@ -73,13 +73,20 @@ namespace IKVM.Java.Externs.sun.misc
             .Where(i => i.Name == nameof(CompareAndSwapArray) && i.IsGenericMethodDefinition && i.GetGenericArguments().Length == 1)
             .FirstOrDefault();
 
+        // wasm fork: an instance field's offset is ObjectFieldOffsetTag | its place in one space of offsets below 2^20,
+        // where each type whose field offsets are taken gets a block, from a page boundary, for its declared instance
+        // fields (so a page names the type). Like a JVM's offsets they are small and name the field on their own, which
+        // protobuf-lite relies on: MessageSchema keeps only an offset's low 20 bits, with the field's type packed above
+        // them, so the same value without its tag, against an ordinary object (where no other offset is valid: arrays
+        // take array offsets and static bases are RuntimeJavaTypes), decodes the same way. They used to be the tag, a
+        // type id and the offset within the type, and the masked value then read as a field cookie.
         const int ObjectFieldOffsetTag = 0x40000000;
         const int ObjectFieldOffsetTagMask = 0x40000000;
-        const int ObjectFieldOffsetTypeIdShift = 16;
-        const int ObjectFieldOffsetTypeIdMask = 0x3FFF;
-        const int ObjectFieldOffsetValueMask = 0xFFFF;
-        const int ObjectFieldOffsetMaxValue = ObjectFieldOffsetValueMask;
-        const int ObjectFieldOffsetMaxTypeId = ObjectFieldOffsetTypeIdMask;
+        const int ObjectFieldOffsetSpaceMask = 0xFFFFF;
+        const int ObjectFieldOffsetPageShift = 5;
+        // the space ends a page early: protobuf takes 0xFFFFF to mean no has-bit
+        const int ObjectFieldOffsetSpaceEnd = ObjectFieldOffsetSpaceMask + 1 - (1 << ObjectFieldOffsetPageShift);
+        const int ObjectFieldOffsetMaxValue = 0xFFFF;
 
         sealed class ObjectFieldOffsetInfo
         {
@@ -97,9 +104,8 @@ namespace IKVM.Java.Externs.sun.misc
             /// </summary>
             /// <param name="typeId"></param>
             /// <param name="fields"></param>
-            public ObjectFieldOffsetInfo(int typeId, RuntimeJavaField[] fields)
+            public ObjectFieldOffsetInfo(RuntimeJavaField[] fields)
             {
-                TypeId = typeId;
                 Fields = fields;
 
                 fieldOffsets = new Dictionary<RuntimeJavaField, int>(fields.Length);
@@ -126,12 +132,19 @@ namespace IKVM.Java.Externs.sun.misc
                     rawOffsets[i] = RawOffsetUnresolved;
                     offset = checked(offset + size);
                 }
+
+                Size = offset;
             }
 
             /// <summary>
-            /// Gets the identifier for the declaring type.
+            /// Gets the size of the type's block of the offset space: its instance fields' storage.
             /// </summary>
-            public int TypeId { get; }
+            public int Size { get; }
+
+            /// <summary>
+            /// Gets where the type's block starts in the offset space.
+            /// </summary>
+            public int Base { get; set; }
 
             /// <summary>
             /// Gets the instance fields in offset order.
@@ -315,25 +328,43 @@ namespace IKVM.Java.Externs.sun.misc
 
         }
 
-        static int nextObjectFieldTypeId;
+        static int nextObjectFieldOffsetBase = 1 << ObjectFieldOffsetPageShift; // offset 0 stays unused
         static readonly object objectFieldOffsetSync = new object();
         static readonly ConditionalWeakTable<RuntimeJavaType, ObjectFieldOffsetInfo> objectFieldOffsetsByType = new ConditionalWeakTable<RuntimeJavaType, ObjectFieldOffsetInfo>();
-        // typeId -> info, indexed directly. typeIds are dense and monotonic (Interlocked.Increment) and
-        // capped at ObjectFieldOffsetMaxTypeId (0x3FFF), so one fixed array (<=16K refs, ~128KB) covers
-        // every possible id. A plain array load replaces the per-field-access ConcurrentDictionary<int,_>
-        // probe, which the trace showed was ~10% of CPU under the wasm interpreter (the probe machinery
-        // dominated, not the stored value). Written once per type under objectFieldOffsetSync (whose
-        // release, plus the safe publication of the encoded offset through Java fields, makes the slot
-        // visible to lock-free readers); read as a bare bounds-checked index on the hot path.
-        static readonly ObjectFieldOffsetInfo[] objectFieldOffsetsByTypeId = new ObjectFieldOffsetInfo[ObjectFieldOffsetMaxTypeId + 1];
 
+        // The block each page of the offset space belongs to, indexed directly (a plain array load: the per-access
+        // ConcurrentDictionary probe it once replaced was ~10% of CPU under the wasm interpreter). Written once per
+        // type under objectFieldOffsetSync, after the block is built (whose release, plus the safe publication of the
+        // encoded offset through Java fields, makes the slots visible to lock-free readers); read as a bare
+        // bounds-checked index on the hot path.
+        static readonly ObjectFieldOffsetInfo[] objectFieldOffsetsByPage = new ObjectFieldOffsetInfo[(ObjectFieldOffsetSpaceMask + 1) >> ObjectFieldOffsetPageShift];
+
+        /// <summary>
+        /// The block <paramref name="offset"/> falls in, and where in it, or null.
+        /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static bool IsEncodedObjectFieldOffset(long offset)
+        static ObjectFieldOffsetInfo DecodeObjectFieldOffset(long offset, out int fieldOffset)
+        {
+            var space = (int)offset & ObjectFieldOffsetSpaceMask;
+            var info = objectFieldOffsetsByPage[space >> ObjectFieldOffsetPageShift];
+            fieldOffset = info != null ? space - info.Base : 0;
+            return info;
+        }
+
+        /// <summary>
+        /// Whether <paramref name="offset"/>, against <paramref name="target"/>, is an instance field's offset: tagged, or
+        /// protobuf's low 20 bits of one against an ordinary object.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static bool IsEncodedObjectFieldOffset(object target, long offset)
         {
             if (offset < 0 || offset > int.MaxValue)
                 return false;
 
-            return (((int)offset) & ObjectFieldOffsetTagMask) == ObjectFieldOffsetTag;
+            if ((((int)offset) & ObjectFieldOffsetTagMask) == ObjectFieldOffsetTag)
+                return true;
+
+            return offset != 0 && offset < ObjectFieldOffsetSpaceEnd && target != null && target is not Array && target is not RuntimeJavaType;
         }
 
         // wasm fork: typed fast path for the object form of get/put<T>(Object, long). Before it, every access to an
@@ -425,9 +456,8 @@ namespace IKVM.Java.Externs.sun.misc
         /// </summary>
         static int EncodedRefRawOffset(object o, long offset, bool store)
         {
-            var value = (int)offset;
-            var info = objectFieldOffsetsByTypeId[(value >> ObjectFieldOffsetTypeIdShift) & ObjectFieldOffsetTypeIdMask];
-            var raw = info != null ? info.GetRawRefOffset(o, value & ObjectFieldOffsetValueMask, store) : -1;
+            var info = DecodeObjectFieldOffset(offset, out var fieldOffset);
+            var raw = info != null ? info.GetRawRefOffset(o, fieldOffset, store) : -1;
             if (raw < 0)
                 refRefused++;
             return raw;
@@ -474,9 +504,8 @@ namespace IKVM.Java.Externs.sun.misc
         /// </summary>
         static int EncodedFieldRawOffset(object o, long offset, byte kind)
         {
-            var value = (int)offset;
-            var info = objectFieldOffsetsByTypeId[(value >> ObjectFieldOffsetTypeIdShift) & ObjectFieldOffsetTypeIdMask];
-            return info != null ? info.GetRawOffset(o, value & ObjectFieldOffsetValueMask, kind) : -1;
+            var info = DecodeObjectFieldOffset(offset, out var fieldOffset);
+            return info != null ? info.GetRawOffset(o, fieldOffset, kind) : -1;
         }
 
         /// <summary>
@@ -551,24 +580,29 @@ namespace IKVM.Java.Externs.sun.misc
                 if (objectFieldOffsetsByType.TryGetValue(type, out info))
                     return info;
 
-                var typeId = checked(Interlocked.Increment(ref nextObjectFieldTypeId));
-                if (typeId > ObjectFieldOffsetMaxTypeId)
-                    throw new InvalidOperationException("Object field offset type id space exhausted.");
-
                 var fields = type.GetFields().Where(i => i.IsStatic == false).ToArray();
-                info = new ObjectFieldOffsetInfo(typeId, fields);
+                info = new ObjectFieldOffsetInfo(fields);
+
+                var pageSize = 1 << ObjectFieldOffsetPageShift;
+                var size = (info.Size + pageSize - 1) & ~(pageSize - 1);
+                if (size > ObjectFieldOffsetSpaceEnd - nextObjectFieldOffsetBase)
+                    throw new InvalidOperationException("Object field offset space exhausted.");
+
+                info.Base = nextObjectFieldOffsetBase;
+                nextObjectFieldOffsetBase += size;
+                for (var page = info.Base >> ObjectFieldOffsetPageShift; page < nextObjectFieldOffsetBase >> ObjectFieldOffsetPageShift; page++)
+                    objectFieldOffsetsByPage[page] = info;
 
                 objectFieldOffsetsByType.Add(type, info);
-                objectFieldOffsetsByTypeId[typeId] = info;
 
                 return info;
             }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static long EncodeObjectFieldOffset(int typeId, int offset)
+        static long EncodeObjectFieldOffset(ObjectFieldOffsetInfo info, int offset)
         {
-            return ObjectFieldOffsetTag | (typeId << ObjectFieldOffsetTypeIdShift) | offset;
+            return ObjectFieldOffsetTag | (info.Base + offset);
         }
 
         static int GetObjectFieldStorageSize(RuntimeJavaField field)
@@ -595,16 +629,12 @@ namespace IKVM.Java.Externs.sun.misc
 
         static RuntimeJavaField GetFieldByOffset(object target, long offset)
         {
-            if (IsEncodedObjectFieldOffset(offset))
+            if (IsEncodedObjectFieldOffset(target, offset))
             {
                 if (target == null)
                     return RuntimeJavaField.FromCookie((IntPtr)offset);
 
-                var value = (int)offset;
-                var typeId = (value >> ObjectFieldOffsetTypeIdShift) & ObjectFieldOffsetTypeIdMask;
-                var fieldOffset = value & ObjectFieldOffsetValueMask;
-
-                var info = objectFieldOffsetsByTypeId[typeId];
+                var info = DecodeObjectFieldOffset(offset, out var fieldOffset);
                 if (info != null && info.TryGetField(fieldOffset, out var field))
                     return field;
 
@@ -620,14 +650,10 @@ namespace IKVM.Java.Externs.sun.misc
             info = null;
             fieldOffset = 0;
 
-            if (target == null || IsEncodedObjectFieldOffset(offset) == false)
+            if (target == null || IsEncodedObjectFieldOffset(target, offset) == false)
                 return false;
 
-            var value = (int)offset;
-            var typeId = (value >> ObjectFieldOffsetTypeIdShift) & ObjectFieldOffsetTypeIdMask;
-            fieldOffset = value & ObjectFieldOffsetValueMask;
-
-            info = objectFieldOffsetsByTypeId[typeId];
+            info = DecodeObjectFieldOffset(offset, out fieldOffset);
             if (info != null)
                 return true;
 
@@ -816,7 +842,7 @@ namespace IKVM.Java.Externs.sun.misc
         {
             var info = GetObjectFieldOffsetInfo(field.DeclaringType);
             if (info.TryGetOffset(field, out var offset))
-                return EncodeObjectFieldOffset(info.TypeId, offset);
+                return EncodeObjectFieldOffset(info, offset);
 
             throw new global::java.lang.IllegalArgumentException();
         }
@@ -967,7 +993,7 @@ namespace IKVM.Java.Externs.sun.misc
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (o != null && JVM.UnsafeRefFast && IsEncodedObjectFieldOffset(offset))
+            if (o != null && JVM.UnsafeRefFast && IsEncodedObjectFieldOffset(o, offset))
             {
                 var raw = EncodedRefRawOffset(o, offset, false);
                 if (raw >= 0)
@@ -1006,7 +1032,7 @@ namespace IKVM.Java.Externs.sun.misc
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (o != null && JVM.UnsafeRefFast && IsEncodedObjectFieldOffset(offset))
+            if (o != null && JVM.UnsafeRefFast && IsEncodedObjectFieldOffset(o, offset))
             {
                 var raw = EncodedRefRawOffset(o, offset, true);
                 if (raw >= 0)
@@ -1188,7 +1214,7 @@ namespace IKVM.Java.Externs.sun.misc
             if (o == null)
                 return SysUnsafe.ReadUnaligned<short>((void*)JLongAddressToIntPtr(offset));
 
-            if (IsEncodedObjectFieldOffset(offset))
+            if (IsEncodedObjectFieldOffset(o, offset))
             {
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindShort);
                 if (raw >= 0)
@@ -1252,7 +1278,7 @@ namespace IKVM.Java.Externs.sun.misc
                 return;
             }
 
-            if (IsEncodedObjectFieldOffset(offset))
+            if (IsEncodedObjectFieldOffset(o, offset))
             {
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindShort);
                 if (raw >= 0)
@@ -1330,7 +1356,7 @@ namespace IKVM.Java.Externs.sun.misc
             if (o == null)
                 return SysUnsafe.ReadUnaligned<char>((void*)JLongAddressToIntPtr(offset));
 
-            if (IsEncodedObjectFieldOffset(offset))
+            if (IsEncodedObjectFieldOffset(o, offset))
             {
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindChar);
                 if (raw >= 0)
@@ -1397,7 +1423,7 @@ namespace IKVM.Java.Externs.sun.misc
                 return;
             }
 
-            if (IsEncodedObjectFieldOffset(offset))
+            if (IsEncodedObjectFieldOffset(o, offset))
             {
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindChar);
                 if (raw >= 0)
@@ -1475,7 +1501,7 @@ namespace IKVM.Java.Externs.sun.misc
             if (o == null)
                 return SysUnsafe.ReadUnaligned<int>((void*)JLongAddressToIntPtr(offset));
 
-            if (IsEncodedObjectFieldOffset(offset))
+            if (IsEncodedObjectFieldOffset(o, offset))
             {
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindInt);
                 if (raw >= 0)
@@ -1539,7 +1565,7 @@ namespace IKVM.Java.Externs.sun.misc
                 return;
             }
 
-            if (IsEncodedObjectFieldOffset(offset))
+            if (IsEncodedObjectFieldOffset(o, offset))
             {
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindInt);
                 if (raw >= 0)
@@ -1617,7 +1643,7 @@ namespace IKVM.Java.Externs.sun.misc
             if (o == null)
                 return SysUnsafe.ReadUnaligned<long>((void*)JLongAddressToIntPtr(offset));
 
-            if (IsEncodedObjectFieldOffset(offset))
+            if (IsEncodedObjectFieldOffset(o, offset))
             {
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindLong);
                 if (raw >= 0)
@@ -1681,7 +1707,7 @@ namespace IKVM.Java.Externs.sun.misc
                 return;
             }
 
-            if (IsEncodedObjectFieldOffset(offset))
+            if (IsEncodedObjectFieldOffset(o, offset))
             {
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindLong);
                 if (raw >= 0)
@@ -1759,7 +1785,7 @@ namespace IKVM.Java.Externs.sun.misc
             if (o == null)
                 return SysUnsafe.ReadUnaligned<float>((void*)JLongAddressToIntPtr(offset));
 
-            if (IsEncodedObjectFieldOffset(offset))
+            if (IsEncodedObjectFieldOffset(o, offset))
             {
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindFloat);
                 if (raw >= 0)
@@ -1826,7 +1852,7 @@ namespace IKVM.Java.Externs.sun.misc
                 return;
             }
 
-            if (IsEncodedObjectFieldOffset(offset))
+            if (IsEncodedObjectFieldOffset(o, offset))
             {
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindFloat);
                 if (raw >= 0)
@@ -1905,7 +1931,7 @@ namespace IKVM.Java.Externs.sun.misc
             if (o == null)
                 return SysUnsafe.ReadUnaligned<double>((void*)JLongAddressToIntPtr(offset));
 
-            if (IsEncodedObjectFieldOffset(offset))
+            if (IsEncodedObjectFieldOffset(o, offset))
             {
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindDouble);
                 if (raw >= 0)
@@ -1972,7 +1998,7 @@ namespace IKVM.Java.Externs.sun.misc
                 return;
             }
 
-            if (IsEncodedObjectFieldOffset(offset))
+            if (IsEncodedObjectFieldOffset(o, offset))
             {
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindDouble);
                 if (raw >= 0)
