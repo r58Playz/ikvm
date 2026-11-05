@@ -166,6 +166,14 @@ namespace IKVM.Runtime
 
         internal static bool HasActiveClassDefinitions => Volatile.Read(ref activeClassDefinitions) != 0;
 
+        /// <summary>
+        /// wasm fork (IKVM_LAZY_SIGLOAD): how many Java loadClass calls and class definitions THIS thread is inside. A
+        /// Mixin transform runs inside Knot's loadClass, so non-zero means "do not start a speculative load here"
+        /// (ByteCodeHelper.LoadSignatureClasses defers to a later probe).
+        /// </summary>
+        [ThreadStatic]
+        internal static int ThreadLoadDepth;
+
         internal static long ClassDefinitionVersion => Interlocked.Read(ref classDefinitionVersion);
 
         protected virtual RuntimeJavaType FindLoadedClassLazy(string name)
@@ -408,6 +416,7 @@ namespace IKVM.Runtime
                     types.Add(classFile.Name, null);
                     defineClassInProgress.Add(classFile.Name, Thread.CurrentThread);
                 }
+                ThreadLoadDepth++;
                 try
                 {
                     var def = GetTypeWrapperFactory().DefineClassImpl(types, null, classFile, this, protectionDomain);
@@ -422,6 +431,7 @@ namespace IKVM.Runtime
                 }
                 finally
                 {
+                    ThreadLoadDepth--;
                     lock (types)
                     {
                         if (types[classFile.Name] == null)
@@ -908,7 +918,16 @@ namespace IKVM.Runtime
 
                 // invoke 'loadClass' on the associated Java class loader instance
                 // this can cause a call to defineClass
-                var c = (java.lang.Class)ClassLoaderAccessor.InvokeLoadClassInternal(GetJavaClassLoader(), name);
+                java.lang.Class c;
+                ThreadLoadDepth++;
+                try
+                {
+                    c = (java.lang.Class)ClassLoaderAccessor.InvokeLoadClassInternal(GetJavaClassLoader(), name);
+                }
+                finally
+                {
+                    ThreadLoadDepth--;
+                }
                 if (c == null)
                     return null;
 

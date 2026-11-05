@@ -132,9 +132,9 @@ namespace IKVM.Runtime
             /// references all name dependencies that are still unpublished.</summary>
             internal int Partial;
 
-            /// <summary>wasm fork (IKVM_LAZY_LOAD_STUCK): 1 once RelinkBody asked the drain to load this entry's unpublished
-            /// dependencies. Only ever set, so an entry asks once.</summary>
-            internal int LoadRequested;
+            /// <summary>wasm fork (IKVM_LAZY_SIGLOAD): 0 = signature classes not loaded, 1 = a thread is loading them, 2 = done.
+            /// Only moves forward, so an entry loads once.</summary>
+            internal int SigLoaded;
 
             /// <summary>The first dependency the loader does not report as published, or null.</summary>
             internal string FirstUnpublished()
@@ -185,6 +185,22 @@ namespace IKVM.Runtime
             {
                 return id >= 0 && id < entries.Count ? entries[id] : null;
             }
+        }
+
+        /// <summary>
+        /// wasm fork (IKVM_LAZY_PARTIAL): partial relinks whose left-over dependencies have ALL been published since -- the
+        /// methods a generation 3 would convert. A measurement for deciding whether one is worth building, nothing more.
+        /// </summary>
+        internal static int PartialLeftoverPublished()
+        {
+            var n = 0;
+            lock (entries)
+            {
+                foreach (var e in entries)
+                    if (e != null && e.Wrapper != null && System.Threading.Volatile.Read(ref e.Partial) == 1 && e.DependenciesLoaded())
+                        n++;
+            }
+            return n;
         }
 
     }
@@ -267,12 +283,14 @@ namespace IKVM.Runtime
         internal static int PartialAccepted;      // generation 2 installed with __dynamic_* left only on unpublished dependencies
         internal static int PartialRefused;       // generation 2 still dynamic on something else: declined, as without the knob
 
-        // wasm fork (IKVM_LAZY_LOAD_STUCK): requested counts entries RelinkBody handed to the drain; loaded / failed /
-        // already count DEPENDENCIES the drain then loaded, could not load (null or a throw), or found published by then.
-        internal static int LoadStuckRequested;
-        internal static int LoadStuckLoaded;
-        internal static int LoadStuckFailed;
-        internal static int LoadStuckAlready;
+        // wasm fork (IKVM_LAZY_SIGLOAD): entries counts methods whose signature classes RelinkBody loaded; loaded / failed /
+        // already count the CLASSES (loaded, not found or threw, published by then); deferred counts probes that found the
+        // thread inside a class load or definition and waited for the next one.
+        internal static int SigLoadEntries;
+        internal static int SigLoadLoaded;
+        internal static int SigLoadFailed;
+        internal static int SigLoadAlready;
+        internal static int SigLoadDeferred;
 
         // wasm fork (IKVM_INDY_DIRECT): LambdaMetafactory call sites linked to a direct target (ByteCodeHelper.
         // TryCreateDirectLambdaCallSite). Emitted is counted at compile time; the built/kept counters at link time, once
@@ -444,10 +462,10 @@ namespace IKVM.Runtime
             Console.WriteLine($"[IKVM lazybody] gen2 clean={Gen2Clean} unexpectedDynamic={Gen2UnexpectedDynamic} callerID={Gen2CallerID} depWaits={DependencyWaits} missingSite={MissingBakedSite} bakedLambda={Gen2BakedLambdaSite} cidReal={Gen2CallerIDReal} cidReused={Gen2CallerIDReused} cidForeign={Gen2CallerIDForeign} scratchShared={Gen2ScratchShared} slim={(JVM.LazySlim ? 1 : 0)} released={Released}");
             if (JVM.LazyInPlace)
                 Console.WriteLine($"[IKVM lazybody] inplace ok={InPlaceOk} late={InPlaceLate} declined={InPlaceDeclined} failed={InPlaceFailed} unsupported={InPlaceUnsupported} queued={InPlaceQueued} batches={InPlaceBatches} deferrals={InPlaceDeferrals} forced={InPlaceForced}");
+            if (JVM.LazySigLoadProbes > 0)
+                Console.WriteLine($"[IKVM lazybody] sigload entries={SigLoadEntries} loaded={SigLoadLoaded} failed={SigLoadFailed} already={SigLoadAlready} deferred={SigLoadDeferred} (IKVM_LAZY_SIGLOAD={JVM.LazySigLoadProbes})");
             if (JVM.LazyPartialProbes > 0)
-                Console.WriteLine($"[IKVM lazybody] partial queued={PartialQueued} accepted={PartialAccepted} refused={PartialRefused} (IKVM_LAZY_PARTIAL={JVM.LazyPartialProbes})");
-            if (JVM.LazyLoadStuckProbes > 0)
-                Console.WriteLine($"[IKVM lazybody] loadStuck requested={LoadStuckRequested} loaded={LoadStuckLoaded} failed={LoadStuckFailed} already={LoadStuckAlready} (IKVM_LAZY_LOAD_STUCK={JVM.LazyLoadStuckProbes})");
+                Console.WriteLine($"[IKVM lazybody] partial queued={PartialQueued} accepted={PartialAccepted} refused={PartialRefused} leftoverPublished={LazyBodyRegistry.PartialLeftoverPublished()} (IKVM_LAZY_PARTIAL={JVM.LazyPartialProbes})");
             if (JVM.IndyDirect)
                 ReportIndy();
             Console.WriteLine($"[IKVM lazybody] inplaceFail stubbed={InPlaceStubbed} stubFailed={InPlaceStubFailed} {InPlaceFailureSummary()}");

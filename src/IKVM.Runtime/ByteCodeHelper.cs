@@ -695,9 +695,11 @@ namespace IKVM.Runtime
             // able to replace every __dynamic_* member instruction with a direct access.
             var newlyQueued = false;
 
-            // This path must be lock-free with respect to class loading: it runs at arbitrary Java method
-            // entry and can therefore inherit any loader, type-initializer, or application monitor. The
-            // readiness test consults RuntimeClassLoader's concurrently published name set, never `types`.
+            // The readiness test is lock-free with respect to class loading: it runs at arbitrary Java method entry and
+            // can therefore inherit any loader, type-initializer, or application monitor, so it consults
+            // RuntimeClassLoader's concurrently published name set, never `types`. The one load this path makes is
+            // HotSpot's own (IKVM_LAZY_SIGLOAD below): the signature classes of a hot method, on its own thread, which is
+            // where a JVM makes it too -- and never inside a class load or definition.
             if (Volatile.Read(ref entry.RelinkState) == 2)
                 return -1;
 
@@ -710,25 +712,26 @@ namespace IKVM.Runtime
                 var waits = Interlocked.Increment(ref entry.Waits);
                 if ((waits & (waits - 1)) == 0 && LazyBodyRegistry.IsWatched(entry.Wrapper?.Name, entry.Method?.Name))
                     Console.WriteLine($"[IKVM lazybody] watch {entry.Wrapper?.Name}.{entry.Method?.Name}{entry.Method?.Signature}: wait #{waits} on {entry.FirstUnpublished() ?? "(none now)"} ({entry.Dependencies.Length} deps)");
-                if (waits == 64 && Interlocked.Increment(ref LazyBodyStats.StuckNamed) <= 48)
-                    Console.WriteLine($"[IKVM lazybody] stuck #{LazyBodyStats.StuckNamed}: {entry.Wrapper?.Name}.{entry.Method?.Name}{entry.Method?.Signature} waits on {entry.FirstUnpublished() ?? "(none now)"} ({entry.Dependencies.Length} deps, loader {entry.Wrapper?.ClassLoader?.GetType().Name})");
 
-                // wasm fork (JVM.LazyLoadStuckProbes): hand the entry to the drain to load what it waits on. Still
-                // lock-free and non-loading here; the next probe after the load finds the gate open.
-                if (JVM.LazyLoadStuckProbes > 0 && waits >= JVM.LazyLoadStuckProbes && Interlocked.CompareExchange(ref entry.LoadRequested, 1, 0) == 0)
+                // wasm fork (JVM.LazySigLoadProbes): HotSpot's C2 request -- load the signature classes, then re-test.
+                var sigLoadPending = JVM.LazySigLoadProbes > 0 && Volatile.Read(ref entry.SigLoaded) != 2;
+                if (sigLoadPending && waits >= JVM.LazySigLoadProbes)
+                    sigLoadPending = !LoadSignatureClasses(entry);
+
+                if (entry.DependenciesLoaded() == false)
                 {
-                    lock (relinkPendingLock)
-                        loadStuckPending.Add(id);
-                    Interlocked.Increment(ref LazyBodyStats.LoadStuckRequested);
-                    ScheduleRelinkDrain();
+                    // wasm fork (JVM.LazyPartialProbes): stop waiting and queue the relink without the unpublished
+                    // dependencies, once the signature loads have run. FlushRelinkBatch admits the result only if what
+                    // stays dynamic is exactly those.
+                    if (JVM.LazyPartialProbes <= 0 || waits < JVM.LazyPartialProbes || sigLoadPending)
+                    {
+                        if (waits == 64 && Interlocked.Increment(ref LazyBodyStats.StuckNamed) <= 48)
+                            Console.WriteLine($"[IKVM lazybody] stuck #{LazyBodyStats.StuckNamed}: {entry.Wrapper?.Name}.{entry.Method?.Name}{entry.Method?.Signature} waits on {entry.FirstUnpublished() ?? "(none now)"} ({entry.Dependencies.Length} deps, loader {entry.Wrapper?.ClassLoader?.GetType().Name})");
+                        return IncreaseRelinkRetryDelay(entry);
+                    }
+
+                    Volatile.Write(ref entry.Partial, 1);
                 }
-
-                // wasm fork (JVM.LazyPartialProbes): stop waiting and queue the relink without the unpublished
-                // dependencies. FlushRelinkBatch admits the result only if what stays dynamic is exactly those.
-                if (JVM.LazyPartialProbes <= 0 || waits < JVM.LazyPartialProbes || HasUnpublishedParameterType(entry))
-                    return IncreaseRelinkRetryDelay(entry);
-
-                Volatile.Write(ref entry.Partial, 1);
             }
 
             if (Interlocked.CompareExchange(ref entry.RelinkState, 1, 0) == 0)
@@ -773,10 +776,6 @@ namespace IKVM.Runtime
 
         static readonly object relinkPendingLock = new object();
         static List<int> relinkPending = new List<int>();
-        static List<int> loadStuckPending = new List<int>();   // wasm fork (JVM.LazyLoadStuckProbes), under relinkPendingLock
-
-        /// <summary>Dependencies loaded per drain ownership period, so one drain cannot spend a whole boot loading.</summary>
-        const int LoadStuckPerDrain = 16;
         static int relinkDrainScheduled;
 
         /// <summary>
@@ -801,32 +800,84 @@ namespace IKVM.Runtime
         static long relinkObservedDefinitionVersion = -1;
 
         /// <summary>
-        /// wasm fork (JVM.LazyPartialProbes): true if a parameter of the entry's method is a class that is still not
-        /// published, which keeps a partial relink from being queued.
+        /// wasm fork (JVM.LazySigLoadProbes): the element class names of the entry's method's unloadable signature types --
+        /// parameters and return type, arrays by their element class, since the loader publishes element classes.
         /// </summary>
-        /// <remarks>
-        /// Generation 2's prologue resolves an unloadable parameter's entry check through Compiler.TryResolveForEntryCheck,
-        /// i.e. TryLoadClassByName, which LOADS. For a full relink the class is published by then and nothing loads; for a
-        /// partial one it would load, through the user loader, from the relink drain, a class generation 1 never loaded.
-        /// </remarks>
-        static bool HasUnpublishedParameterType(LazyBodyRegistry.Entry entry)
+        static IEnumerable<string> SignatureClassNames(LazyBodyRegistry.Entry entry)
         {
-            foreach (var tw in entry.Method.GetParameters())
+            static string ElementName(RuntimeJavaType tw)
             {
-                if (!tw.IsUnloadable)
-                    continue;
-
+                if (tw == null || !tw.IsUnloadable)
+                    return null;
                 var name = tw.Name;
                 var start = 0;
                 while (start < name.Length && name[start] == '[')
                     start++;
                 if (start > 0)
                     name = start < name.Length && name[start] == 'L' && name[name.Length - 1] == ';' ? name.Substring(start + 1, name.Length - start - 2) : null;
-                if (!string.IsNullOrEmpty(name) && !entry.Wrapper.ClassLoader.IsClassPublished(name))
-                    return true;
+                return string.IsNullOrEmpty(name) ? null : name;
             }
 
-            return false;
+            foreach (var tw in entry.Method.GetParameters())
+                if (ElementName(tw) is { } n)
+                    yield return n;
+            if (ElementName(entry.Method.ReturnType) is { } r)
+                yield return r;
+        }
+
+        /// <summary>
+        /// wasm fork (JVM.LazySigLoadProbes): Method::load_signature_classes for a lazy-body entry. Loads, through the
+        /// declaring class's loader and without initializing anything, every signature class not yet published; a class
+        /// that cannot be loaded is counted and skipped, as HotSpot swallows ClassNotFoundException / LinkageError. Returns
+        /// false, having done nothing, when this thread is the relink drain or is inside a class load or definition (a
+        /// Mixin transform runs inside Knot's loadClass), or while another thread is loading them: the caller retries at its
+        /// next probe. True once the loads are done, by anyone.
+        /// </summary>
+        static bool LoadSignatureClasses(LazyBodyRegistry.Entry entry)
+        {
+            if (Volatile.Read(ref entry.SigLoaded) == 2)
+                return true;
+
+            if (InRelinkDrain || RuntimeClassLoader.ThreadLoadDepth != 0)
+            {
+                Interlocked.Increment(ref LazyBodyStats.SigLoadDeferred);
+                return false;
+            }
+
+            if (Interlocked.CompareExchange(ref entry.SigLoaded, 1, 0) != 0)
+                return Volatile.Read(ref entry.SigLoaded) == 2;
+
+            var loader = entry.Wrapper.ClassLoader;
+            foreach (var name in SignatureClassNames(entry))
+            {
+                if (loader.IsClassPublished(name))
+                {
+                    Interlocked.Increment(ref LazyBodyStats.SigLoadAlready);
+                    continue;
+                }
+
+                string outcome;
+                try
+                {
+                    var tw = loader.TryLoadClassByName(name);
+                    outcome = tw != null && !tw.IsUnloadable ? "loaded" : "not found";
+                }
+                catch (Exception e)
+                {
+                    outcome = e.GetType().Name;
+                }
+
+                if (outcome == "loaded")
+                    Interlocked.Increment(ref LazyBodyStats.SigLoadLoaded);
+                else
+                    Interlocked.Increment(ref LazyBodyStats.SigLoadFailed);
+                if (JVM.TraceLazyBodies || LazyBodyRegistry.IsWatched(entry.Wrapper.Name, entry.Method?.Name))
+                    Console.WriteLine($"[IKVM lazybody] sigload {name} for {entry.Wrapper.Name}.{entry.Method?.Name}: {outcome}");
+            }
+
+            Interlocked.Increment(ref LazyBodyStats.SigLoadEntries);
+            Volatile.Write(ref entry.SigLoaded, 2);
+            return true;
         }
 
         static int IncreaseRelinkRetryDelay(LazyBodyRegistry.Entry entry)
@@ -889,8 +940,6 @@ namespace IKVM.Runtime
                         Console.WriteLine($"[IKVM lazybody] forcing one relink batch after {elapsed} ms of continuous class-definition activity");
                 }
 
-                LoadStuckDependencies();
-
                 List<int> batch;
                 lock (relinkPendingLock)
                 {
@@ -937,72 +986,11 @@ namespace IKVM.Runtime
             lock (relinkPendingLock)
             {
                 Volatile.Write(ref relinkDrainScheduled, 0);
-                reschedule = relinkPending.Count != 0 || loadStuckPending.Count != 0;
+                reschedule = relinkPending.Count != 0;
             }
 
             if (reschedule)
                 ScheduleRelinkDrain();
-        }
-
-        /// <summary>
-        /// wasm fork (JVM.LazyLoadStuckProbes): load the unpublished dependencies of the entries RelinkBody named stuck,
-        /// through each entry's own loader and without initializing them. Runs on the drain, outside every lock, which is
-        /// what the hook cannot do: it runs at arbitrary Java method entry. Loading publishes the name in that loader
-        /// (RegisterInitiatingLoader), so the entry's next probe queues an ordinary full relink.
-        /// </summary>
-        static void LoadStuckDependencies()
-        {
-            List<int> ids;
-            lock (relinkPendingLock)
-            {
-                if (loadStuckPending.Count == 0)
-                    return;
-
-                ids = loadStuckPending;
-                loadStuckPending = new List<int>();
-            }
-
-            var loads = 0;
-            for (int k = 0; k < ids.Count; k++)
-            {
-                if (loads >= LoadStuckPerDrain)
-                {
-                    // the rest waits for the next ownership period; ReleaseRelinkDrain reschedules for it
-                    lock (relinkPendingLock)
-                        loadStuckPending.AddRange(ids.GetRange(k, ids.Count - k));
-                    return;
-                }
-
-                var entry = LazyBodyRegistry.Get(ids[k]);
-                if (entry == null || entry.Wrapper?.ClassLoader == null)
-                    continue;
-
-                var loader = entry.Wrapper.ClassLoader;
-                foreach (var dep in entry.Dependencies)
-                {
-                    if (loader.IsClassPublished(dep))
-                    {
-                        Interlocked.Increment(ref LazyBodyStats.LoadStuckAlready);
-                        continue;
-                    }
-
-                    loads++;
-                    string outcome;
-                    try
-                    {
-                        var tw = loader.TryLoadClassByName(dep);
-                        outcome = tw != null && !tw.IsUnloadable ? "loaded" : "not found";
-                    }
-                    catch (Exception e)
-                    {
-                        outcome = e.GetType().Name;
-                    }
-
-                    var n = outcome == "loaded" ? Interlocked.Increment(ref LazyBodyStats.LoadStuckLoaded) : Interlocked.Increment(ref LazyBodyStats.LoadStuckFailed);
-                    if (n <= 16 || LazyBodyRegistry.IsWatched(entry.Wrapper.Name, entry.Method?.Name))
-                        Console.WriteLine($"[IKVM lazybody] loadStuck {dep} for {entry.Wrapper.Name}.{entry.Method?.Name}: {outcome}");
-                }
-            }
         }
 
         static void PrepareRelinkBatch(List<int> ids)

@@ -40,7 +40,8 @@ namespace IKVM.Runtime
         // OpenJDK-aligned lazy linking for classes defined by user Java class loaders: constant pool
         // and member signatures link without invoking user loadClass; unresolved references fall back
         // to the __dynamic_* stubs which resolve at first execution (JVMS §5.4.3 timing).
-        internal static readonly bool LazyClassLoading = SafeGetEnvironmentVariable("IKVM_LAZY_CLASS_LOADING") != null;
+        // Any value but "0" enables it ("0" is off, so a harness can take it away with ?wj.IKVM_LAZY_CLASS_LOADING=0).
+        internal static readonly bool LazyClassLoading = SafeGetEnvironmentVariable("IKVM_LAZY_CLASS_LOADING") is { } lazyClassLoading && lazyClassLoading != "0";
         // logs every invocation of a Java class loader's loadClass with the loader's type, for
         // diffing load order/set against a real JVM run with -verbose:class
         internal static readonly bool TraceLoadClass = SafeGetEnvironmentVariable("IKVM_TRACE_LOADCLASS") != null;
@@ -267,29 +268,30 @@ namespace IKVM.Runtime
         // measured as nothing (R478, j2d/w4, u s s u s u). "1" enables.
         internal static readonly bool UnsafeRefFast = SafeGetEnvironmentVariable("IKVM_UNSAFE_REF") == "1";
 
-        // wasm fork (IKVM_LAZY_PARTIAL): after this many unanswered dependency probes, relink an in-place candidate anyway
-        // and let generation 2 keep the dynamic form for references to the dependencies that are STILL unpublished
-        // (ByteCodeHelper.RelinkBody, FlushRelinkBatch). R357's stuck entries wait on classes referenced only on error
-        // paths -- JsonSyntaxException, CrashException (net.minecraft.class_148), CancellationException -- which never load,
-        // so the all-dependencies gate never opens and every other dynamic reference in the method stays dynamic for the
-        // life of the process. A generation 2 is admitted only if each __dynamic_* reference it still holds names one of
-        // the entry's own unpublished dependencies (Compiler.DynamicReferencesOnlyTo); anything else declines as before. Not
-        // for an entry with an unpublished PARAMETER type, whose generation 2 would load it (HasUnpublishedParameterType).
-        // 0 is off. The count is in RelinkBody's probes, not calls: 64 is the `stuck` line's threshold and, on the capped
-        // retry schedule (1, 4, 16, then 64 calls per probe), ~3,900 generation-1 calls. A small value relinks before a
-        // hot dependency has had time to load, and that dependency then stays dynamic for good.
-        internal static readonly int LazyPartialProbes = ParseInt(SafeGetEnvironmentVariable("IKVM_LAZY_PARTIAL"), 0);
+        // wasm fork (IKVM_LAZY_SIGLOAD): HotSpot's C2 request. After this many unanswered dependency probes RelinkBody loads
+        // the method's SIGNATURE classes -- parameters, return type, array element types -- through the declaring class's
+        // loader, without initializing them, failures swallowed: what CompileBroker::compile_method does before every C2
+        // compile (Method::load_signature_classes, jdk-25 compileBroker.cpp ~1426, method.cpp ~1764), on the requesting
+        // Java thread. Here that is the thread running generation 1, never the relink drain (R514), and never while that
+        // thread is inside a class load or definition (a Mixin transform): those defer to the next probe. jbox2d's
+        // Contact.update(ContactListener) is the case (R523): the bench passes only null, so generation 1 never loads the
+        // parameter's class and the relink waited forever. The count is in probes: 1, 4, 16, then 64 generation-1 calls
+        // apart, so 64 is ~3,900 calls (HotSpot's Tier4InvocationThreshold is 5,000). 0 is off.
+        internal static readonly int LazySigLoadProbes = ParseInt(SafeGetEnvironmentVariable("IKVM_LAZY_SIGLOAD"), 64);
 
-        // wasm fork (IKVM_LAZY_LOAD_STUCK, plan swirling-moore S4): after this many unanswered dependency probes, ask the
-        // relink drain to LOAD the entry's unpublished dependencies -- through the entry's own loader, without initializing
-        // them -- so the all-dependencies gate opens and the relink is a full one. The alternative to IKVM_LAZY_PARTIAL for
-        // the same stuck entries: Entity.move (class_1297.method_5784) waits on CrashException (class_148), which only its
-        // catch handler names, and stays generation 1 with its __<>MHC stubs (R478). Java allows a class to be loaded
-        // before its first active use; a failed load is swallowed and the entry keeps waiting as before. One request per
-        // entry. 0 is off; the count is in probes, as for IKVM_LAZY_PARTIAL. Measured (R479, j2d/w6): at 64, +1,190
-        // generation-2 bodies (+23%) and both Entity.move and MinecraftClient.render relink, but the server tick and the
-        // client frame do not move -- the stubs it removes are ~1% of tick calls.
-        internal static readonly int LazyLoadStuckProbes = ParseInt(SafeGetEnvironmentVariable("IKVM_LAZY_LOAD_STUCK"), 0);
+        // wasm fork (IKVM_LAZY_PARTIAL): after this many unanswered dependency probes -- and after the signature loads
+        // above, so a parameter never stays dynamic only because this came first -- relink an in-place candidate anyway
+        // and let generation 2 keep the dynamic form for references to the dependencies that are STILL unpublished
+        // (ByteCodeHelper.RelinkBody, FlushRelinkBatch): C2's uncommon trap for a class the method's execution has not
+        // needed. R357's stuck entries wait on classes referenced only on error paths -- JsonSyntaxException,
+        // CrashException (net.minecraft.class_148) -- and jbox2d's on ChainShape (R523), which never load, so the
+        // all-dependencies gate never opens. A generation 2 is admitted only if each __dynamic_* reference it still holds
+        // names one of the entry's own unpublished dependencies (Compiler.DynamicReferencesOnlyTo); anything else declines.
+        // An unpublished PARAMETER's entry check falls back to the dynamic cast (Compiler.TryResolveForEntryCheck returns
+        // null under InRelinkDrain), which is not a __dynamic_* opcode. The count is in probes, as above; a small value
+        // relinks before a hot dependency has had time to load, and that dependency then stays dynamic for good. 0 is off.
+        // R472's two faults with it on predate the heap-corruption fixes (R489, R500).
+        internal static readonly int LazyPartialProbes = ParseInt(SafeGetEnvironmentVariable("IKVM_LAZY_PARTIAL"), 64);
 
         // Make every eligible method a candidate, not just those with dynamic references. Diagnostic: it turns
         // the trampoline cost on for bodies that have nothing to gain, which is how the indirection's own cost
