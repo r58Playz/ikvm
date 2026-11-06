@@ -265,8 +265,19 @@ namespace IKVM.Runtime
         // (Unsafe.cs, FieldKindRefObject / FieldKindRefTyped) instead of through the reflective field accessor; putObject
         // only into a field whose CLR type is object, and both only after a receiver-type check. Aimed at LockSupport.park's
         // setBlocker (1.3 M instructions per server tick in R461, before park went native); on the Minecraft server tick it
-        // measured as nothing (R478, j2d/w4, u s s u s u). "1" enables.
+        // measured as nothing (R478, j2d/w4, u s s u s u). "1" enables. That was the JDK 8 class library, whose setBlocker
+        // called putObject; JDK 25's goes through putReferenceOpaque -> putObjectVolatile, which this does not cover (see
+        // ParkFast).
         internal static readonly bool UnsafeRefFast = SafeGetEnvironmentVariable("IKVM_UNSAFE_REF") == "1";
+
+        // wasm fork (IKVM_PARK_FAST, 2026-11-05): the server's idle wait between ticks parks ~211 times a tick
+        // (LockSupport.parkNanos(100 us)), and each park paid (a) two setBlocker stores through the reflective
+        // Unsafe.putReferenceVolatile path -- a catch-when filter, a Dictionary lookup by offset, a delegate into a
+        // DynamicMethod; ~1.86 M instructions a tick -- and (b) a virtual Thread.getId() and two non-blocking P/Invokes with
+        // full GC transitions in FutexPark/unpark. "1": LockSupport.setBlocker stores Thread.parkBlocker directly (an
+        // IKVM.Java map.xml prologue reading ByteCodeHelper.ParkFast), and FutexPark/unpark key on Thread.tid and use the
+        // SuppressGCTransition imports of IKVM_park_seq / IKVM_park_post (LibIkvm). Idle-loop CPU only, not tick work.
+        internal static readonly bool ParkFast = SafeGetEnvironmentVariable("IKVM_PARK_FAST") == "1";
 
         // wasm fork (IKVM_LAZY_SIGLOAD): HotSpot's C2 request. After this many unanswered dependency probes RelinkBody loads
         // the method's SIGNATURE classes -- parameters, return type, array element types -- through the declaring class's

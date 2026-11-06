@@ -61,6 +61,17 @@ namespace IKVM.Runtime
     public static class ByteCodeHelper
     {
 
+        /// <summary>
+        /// IKVM_PARK_FAST (JVM.ParkFast; default off): read by IKVM.Java's map.xml prologue on LockSupport.setBlocker, so it
+        /// is declared outside the FIRST_PASS guard -- ikvmc compiles IKVM.Java against IKVM.Runtime-ref (FIRST_PASS), and
+        /// the map.xml ldsfld must find the field there. Readonly, so mono folds it at JIT time.
+        /// </summary>
+#if FIRST_PASS || EXPORTER
+        public static readonly bool ParkFast;
+#else
+        public static readonly bool ParkFast = JVM.ParkFast;
+#endif
+
 #if FIRST_PASS == false && EXPORTER == FALSE
 
         static ObjectAccessor objectAccessor;

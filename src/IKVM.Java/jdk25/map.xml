@@ -1447,6 +1447,24 @@
                 <attribute type="IKVM.Attributes.HideFromJavaAttribute" sig="()V" />
             </field>
         </class>
+        <!-- IKVM_PARK_FAST (2026-11-05, default off; JVM.ParkFast): setBlocker stores Thread.parkBlocker directly instead of
+             U.putReferenceOpaque(t, PARKBLOCKER, arg), which IKVM's Unsafe intrinsic cannot fold (PARKBLOCKER is another
+             class's private field) and which therefore runs the reflective putObjectVolatile path: a catch-when filter, a
+             Dictionary lookup by offset and a delegate into a DynamicMethod, twice per LockSupport.parkNanos. A plain store,
+             as the intrinsic emits for an opaque put. The original body follows the prologue when the flag is off. -->
+        <class name="java.util.concurrent.locks.LockSupport">
+            <method name="setBlocker" sig="(Ljava.lang.Thread;Ljava.lang.Object;)V">
+                <prologue>
+                    <ldsfld type="IKVM.Runtime.ByteCodeHelper" name="ParkFast" sig="Z" />
+                    <brfalse name="unsafe" />
+                    <ldarg_0 />
+                    <ldarg_1 />
+                    <stfld class="java.lang.Thread" name="parkBlocker" sig="Ljava.lang.Object;" />
+                    <ret />
+                    <label name="unsafe" />
+                </prologue>
+            </method>
+        </class>
         <class name="java.lang.reflect.Constructor">
             <method name="_slot" sig="()I">
                 <body>

@@ -3829,7 +3829,7 @@ namespace IKVM.Java.Externs.sun.misc
                 // wakes is guaranteed to see it. Unconditional because a post with no waiter is an atomic
                 // add plus a notify that finds nothing -- cheaper than tracking whether to send it.
                 if (LibIkvm.CanParkNanos)
-                    LibIkvm.ParkPost((int)currentThread.getId());
+                    LibIkvm.ParkPost(ParkKey(currentThread));
 
                 if (parkStateWas == PARK_STATE_PARKED)
                 {
@@ -3855,12 +3855,21 @@ namespace IKVM.Java.Externs.sun.misc
         /* Guarded like every other body in this file that touches java.lang.Thread's package-private
          * fields: FIRST_PASS compiles against a stub IKVM.Java in which `parkState` does not exist. */
 #if !FIRST_PASS
+        /// <summary>
+        /// The futex key of <paramref name="thread"/>: its Java thread id. Under IKVM_PARK_FAST it is read from the field
+        /// (Thread.tid, internal to IKVM.Java and visible here) instead of the virtual getId() -- IKVM.Java is not AOT'd,
+        /// so getId() was a call from AOT code into JIT code on every park and unpark. ParkFast is a process-wide constant,
+        /// so park and unpark always agree on the key; getId() returns tid unless a subclass overrides it, and either way
+        /// both sides use the same one.
+        /// </summary>
+        static int ParkKey(global::java.lang.Thread thread) => ByteCodeHelper.ParkFast ? (int)thread.tid : (int)thread.getId();
+
         static void FutexPark(global::java.lang.Thread thread, long nanos)
         {
             // Keyed by the Java thread id rather than the OS thread, because park and unpark address a
             // Thread OBJECT. Truncating to int is safe against the native table, which masks into range;
             // a collision there can only cause a spurious early return, which park is allowed to do.
-            var key = (int)thread.getId();
+            var key = ParkKey(thread);
 
             // Read the wakeup sequence BEFORE testing the permit. That order is the entire race argument:
             // if an unpark lands between this load and the wait, it has already bumped the word, so the

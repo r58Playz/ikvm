@@ -132,6 +132,22 @@ namespace IKVM.Runtime
             [DllImport("ikvm", SetLastError = false)]
             internal static extern void IKVM_park_post(int key);
 
+#if NET
+            /// <summary>
+            /// <see cref="IKVM_park_seq"/> without the GC transition (IKVM_PARK_FAST): one atomic load (libikvm park.c);
+            /// it neither blocks nor calls back into managed code.
+            /// </summary>
+            [DllImport("ikvm", EntryPoint = "IKVM_park_seq", SetLastError = false), SuppressGCTransition]
+            internal static extern int IKVM_park_seq_nogc(int key);
+
+            /// <summary>
+            /// <see cref="IKVM_park_post"/> without the GC transition (IKVM_PARK_FAST): an atomic add and a futex wake; it
+            /// neither blocks nor calls back into managed code. IKVM_park_wait blocks, so it keeps its transition.
+            /// </summary>
+            [DllImport("ikvm", EntryPoint = "IKVM_park_post", SetLastError = false), SuppressGCTransition]
+            internal static extern void IKVM_park_post_nogc(int key);
+#endif
+
         }
 
         /// <summary>
@@ -216,7 +232,11 @@ namespace IKVM.Runtime
         /// <summary>
         /// Reads the current wakeup sequence for <paramref name="key"/>.
         /// </summary>
+#if NET
+        internal static int ParkSeq(int key) => ByteCodeHelper.ParkFast ? Externs.IKVM_park_seq_nogc(key) : Externs.IKVM_park_seq(key);
+#else
         internal static int ParkSeq(int key) => Externs.IKVM_park_seq(key);
+#endif
 
         /// <summary>
         /// Waits up to <paramref name="nanos"/> for <paramref name="key"/>'s wakeup word to leave
@@ -227,7 +247,17 @@ namespace IKVM.Runtime
         /// <summary>
         /// Wakes anything waiting on <paramref name="key"/>. Call only after the permit is stored.
         /// </summary>
+#if NET
+        internal static void ParkPost(int key)
+        {
+            if (ByteCodeHelper.ParkFast)
+                Externs.IKVM_park_post_nogc(key);
+            else
+                Externs.IKVM_park_post(key);
+        }
+#else
         internal static void ParkPost(int key) => Externs.IKVM_park_post(key);
+#endif
 
         internal static bool CanReplaceMethodBody
         {
