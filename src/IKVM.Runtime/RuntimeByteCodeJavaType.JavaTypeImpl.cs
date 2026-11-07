@@ -880,6 +880,25 @@ namespace IKVM.Runtime
                             while (lookup != null)
                             {
                                 var mw = GetMethodWrapperDuringCtor(lookup, methods, ifmethod.Name, ifmethod.Signature);
+                                if (mw != null && mw.DeclaringType != wrapper && RuntimeMirandaJavaMethod.IsPrecompiledForwarder(mw))
+                                {
+                                    // wasm fork: a precompiled base's miranda forwarder is the base's miranda method, not a class
+                                    // declaration: merge ifmethod into what the base resolved, as for a runtime-loaded base below.
+                                    // Only when that changes the result -- otherwise the base's forwarder already is the answer.
+                                    var inherited = RuntimeMirandaJavaMethod.ResolveFromInterfaces(wrapper, mw.DeclaringType, ifmethod.Name, ifmethod.Signature);
+                                    if (inherited != null)
+                                    {
+                                        var merged = inherited.Update(ifmethod);
+                                        if (merged != inherited)
+                                        {
+                                            methods.Add(merged);
+                                            baseMethods.Add([ifmethod]);
+                                        }
+
+                                        break;
+                                    }
+                                }
+
                                 if (mw == null || (mw.IsMirandaMethod && mw.DeclaringType != wrapper))
                                 {
                                     // wasm fork: a base class's miranda method carries what the base resolved from ITS interfaces, so
@@ -2469,7 +2488,11 @@ namespace IKVM.Runtime
                             RuntimeJavaMethod baseMiranda = null;
                             bool baseMirandaOverrideStub = false;
 
-                            if (wrapper.BaseTypeWrapper == null || (baseMiranda = wrapper.BaseTypeWrapper.GetMethod(mw.Name, mw.Signature, true)) == null || !baseMiranda.IsMirandaMethod)
+                            // wasm fork: a precompiled base's miranda forwarder counts as a base miranda here too, so ours overrides its
+                            // slot -- with a new slot, a call through the base class (callvirt AbstractMap::computeIfAbsent) would
+                            // still reach the base's forwarder (see RuntimeMirandaJavaMethod.IsPrecompiledForwarder)
+                            if (wrapper.BaseTypeWrapper == null || (baseMiranda = wrapper.BaseTypeWrapper.GetMethod(mw.Name, mw.Signature, true)) == null ||
+                                !(baseMiranda.IsMirandaMethod || RuntimeMirandaJavaMethod.IsPrecompiledForwarder(baseMiranda)))
                             {
                                 // we're not overriding a miranda method in a base class, so can we set the newslot flag
                                 attr |= MethodAttributes.NewSlot;

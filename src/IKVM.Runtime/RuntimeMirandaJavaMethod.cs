@@ -127,6 +127,52 @@ namespace IKVM.Runtime
         }
 
         /// <summary>
+        /// wasm fork: whether <paramref name="mw"/> is the miranda method ikvmc emitted on a PRECOMPILED class (a forwarder to an
+        /// inherited interface method, or an abstract/error stub for one). Loaded back from the assembly it is an ordinary method
+        /// hidden from reflection, not a <see cref="RuntimeMirandaJavaMethod"/>, so a class loaded at runtime that extends it took
+        /// it for a real superclass declaration -- and a superclass declaration beats every interface default. A more specific
+        /// default from an interface the subclass adds was then never considered: `class P extends AbstractMap implements
+        /// ConcurrentMap` ran Map's computeIfAbsent (get, apply, put: a losing racer overwrites the winner) instead of
+        /// ConcurrentMap's (putIfAbsent), and 26.2's ResourceKey interning through Guava's MapMakerInternalMap handed out two
+        /// keys for one name ("Unbound values in registry"). Access stubs are hidden from reflection too, and are excluded.
+        /// </summary>
+        internal static bool IsPrecompiledForwarder(RuntimeJavaMethod mw)
+        {
+            return mw != null && !mw.IsMirandaMethod && mw.IsHideFromReflection && !mw.IsAccessStub && mw.IsVirtual &&
+                mw.DeclaringType is RuntimeManagedByteCodeJavaType && !mw.DeclaringType.IsInterface;
+        }
+
+        /// <summary>
+        /// wasm fork: what the precompiled class <paramref name="baseType"/> resolved <paramref name="name"/><paramref name="sig"/>
+        /// to from its interfaces, as a miranda method of <paramref name="declaringType"/> -- the fold AddMirandaMethods performs
+        /// (superinterfaces first, each candidate merged with <see cref="Update"/>). Null when no interface of the base declares it.
+        /// </summary>
+        internal static RuntimeMirandaJavaMethod ResolveFromInterfaces(RuntimeJavaType declaringType, RuntimeJavaType baseType, string name, string sig)
+        {
+            RuntimeMirandaJavaMethod result = null;
+            var seen = new System.Collections.Generic.HashSet<RuntimeJavaType>();
+
+            void Fold(RuntimeJavaType iface)
+            {
+                if (!seen.Add(iface))
+                    return;
+
+                foreach (var sup in iface.Interfaces)
+                    Fold(sup);
+
+                foreach (var m in iface.GetMethods())
+                    if (m.IsVirtual && m.Name == name && m.Signature == sig)
+                        result = result == null ? Create(declaringType, m) : result.Update(m);
+            }
+
+            for (var t = baseType; t != null; t = t.BaseTypeWrapper)
+                foreach (var iface in t.Interfaces)
+                    Fold(iface);
+
+            return result;
+        }
+
+        /// <summary>
         /// wasm fork: this miranda method as inherited by <paramref name="declaringType"/>, a subclass that implements further
         /// interfaces declaring it. The subclass merges those into the result with <see cref="Update"/>.
         /// </summary>
