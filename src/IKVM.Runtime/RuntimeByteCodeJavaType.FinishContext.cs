@@ -120,6 +120,15 @@ namespace IKVM.Runtime
             /// </remarks>
             internal bool IsLazyRecompile { get; set; }
 
+            /// <summary>
+            /// wasm fork: generation 2 of an instance <c>synchronized</c> method locks its receiver in its own IL. Such a
+            /// method takes its monitor through MethodImplAttributes.Synchronized (JavaTypeImpl), i.e. in generation 1's
+            /// prolog. Mono's swap keeps that method, so the swapped body is locked; a RelinkBackend jumps from
+            /// generation 1's first instruction to a static scratch method, so without this the body ran unlocked
+            /// (IllegalMonitorStateException out of Netty's DefaultPromise.notifyAll, runs/2026-11-08-ikvmrelink r2).
+            /// </summary>
+            internal bool LocksReceiver { get; set; }
+
             /// <summary>True only while generation 1 is emitting an in-place candidate. Ordinary methods keep
             /// their original direct indy/MethodHandle emission and pay no bridge call.</summary>
             internal bool EmitLazySiteBridges { get; set; }

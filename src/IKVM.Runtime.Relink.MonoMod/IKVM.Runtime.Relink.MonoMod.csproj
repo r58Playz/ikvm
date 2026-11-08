@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+        wasm fork: IKVM's in-place relink on CoreCLR, through MonoMod.Core's managed detours. Not referenced by
+        IKVM.Runtime, which loads it from IKVM_RELINK_BACKEND (IKVM.Runtime/RelinkBackend.cs); its dependencies are copied
+        beside it so Assembly.LoadFrom resolves them.
+    -->
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <Nullable>disable</Nullable>
+        <ImplicitUsings>disable</ImplicitUsings>
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+        <IsPackable>false</IsPackable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="MonoMod.Core" Version="1.3.6" />
+    </ItemGroup>
+
+</Project>

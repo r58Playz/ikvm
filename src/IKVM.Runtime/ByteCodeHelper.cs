@@ -677,8 +677,9 @@ namespace IKVM.Runtime
             if (entry == null)
                 return -1;
 
-            // Ask the runtime once, not once per method: on CoreCLR there is no body swap at all.
-            if (LibIkvm.CanReplaceMethodBody == false)
+            // Ask the runtime once, not once per method: on CoreCLR there is no body swap at all, unless an
+            // IKVM_RELINK_BACKEND installs relinks for it (RelinkBackend).
+            if (LibIkvm.CanReplaceMethodBody == false && RelinkBackend.Active == false)
             {
                 Interlocked.Increment(ref LazyBodyStats.InPlaceUnsupported);
                 Volatile.Write(ref entry.RelinkState, 2);
@@ -1138,6 +1139,7 @@ namespace IKVM.Runtime
                         var ilgen = context.CodeEmitterFactory.Create(mb);
                         var finish = new RuntimeByteCodeJavaType.FinishContext(context, entry.Host, classFile, entry.Wrapper, scratch);
                         finish.IsLazyRecompile = true;
+                        finish.LocksReceiver = RelinkBackend.Active && m.IsStatic == false && m.IsSynchronized;
                         // Distinct name range per context: they all share this scratch type, and each one
                         // otherwise starts its helper numbering at 0. The stride is deliberately huge -- a
                         // single method defining 4096 helpers is not a thing -- and the counter is global so
@@ -1291,7 +1293,11 @@ namespace IKVM.Runtime
                         var r = 0;
                         try
                         {
-                            r = LibIkvm.ReplaceMethodBody(target.MethodHandle.Value, source.MethodHandle.Value);
+                            // RelinkBackend (CoreCLR): generation 2 is reached from generation 1's entry rather than
+                            // swapped in, so stack frames name the scratch method (not CallerID-bearing: declined above).
+                            r = RelinkBackend.Active
+                                ? RelinkBackend.Replace(target, source)
+                                : LibIkvm.ReplaceMethodBody(target.MethodHandle.Value, source.MethodHandle.Value);
                         }
                         finally
                         {

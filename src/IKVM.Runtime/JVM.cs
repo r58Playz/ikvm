@@ -149,8 +149,14 @@ namespace IKVM.Runtime
         //
         // Requires a runtime that can swap a method's IL (mono_interp_replace_method_body, reached via
         // LibIkvm.ReplaceMethodBody). On CoreCLR the swap reports unsupported and every candidate keeps
-        // generation 1, i.e. exactly the behaviour it has with this off.
+        // generation 1 (with this off it would have taken the delegate path instead), unless
+        // IKVM_RELINK_BACKEND supplies an installer (below).
         internal static readonly bool LazyInPlace = SafeGetEnvironmentVariable("IKVM_LAZY_INPLACE") == "1";
+
+        // wasm fork: the path of an assembly that installs in-place relinks where the runtime cannot swap an IL body
+        // (RelinkBackend; src/IKVM.Runtime.Relink.MonoMod detours generation 1's native code to generation 2's entry
+        // point on CoreCLR). Unset by default; ignored where mono's swap works.
+        internal static readonly string LazyRelinkBackend = SafeGetEnvironmentVariable("IKVM_RELINK_BACKEND");
 
         // Allow <init> to be relinked IN PLACE. DEFAULT OFF until measured.
         //

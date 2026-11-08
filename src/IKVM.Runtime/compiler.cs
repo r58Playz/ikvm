@@ -915,9 +915,14 @@ namespace IKVM.Runtime
 
             try
             {
-                if (m.IsSynchronized && m.IsStatic)
+                // wasm fork: an instance method normally locks through MethodImplAttributes.Synchronized; see
+                // FinishContext.LocksReceiver for the generation 2 that must lock its receiver (argument 0) itself.
+                if (m.IsSynchronized && (m.IsStatic || finish.LocksReceiver))
                 {
-                    clazz.EmitClassLiteral(ilGenerator);
+                    if (m.IsStatic)
+                        clazz.EmitClassLiteral(ilGenerator);
+                    else
+                        ilGenerator.Emit(OpCodes.Ldarg_0);
                     ilGenerator.Emit(OpCodes.Dup);
                     CodeEmitterLocal monitor = ilGenerator.DeclareLocal(finish.Context.Types.Object);
                     ilGenerator.Emit(OpCodes.Stloc, monitor);

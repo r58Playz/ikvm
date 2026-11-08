@@ -452,6 +452,12 @@ namespace IKVM.Runtime
                 Report();
         }
 
+#if FIRST_PASS == false && IMPORTER == false && EXPORTER == false
+        static string RelinkBackendSuffix() => RelinkBackend.Name == "none" ? "" : " backend=" + RelinkBackend.Name;
+#else
+        static string RelinkBackendSuffix() => "";
+#endif
+
         internal static void Report()
         {
             if (Enabled == false)
@@ -461,7 +467,7 @@ namespace IKVM.Runtime
             Console.WriteLine($"[IKVM privileged] direct={PrivilegedDirect} binder={PrivilegedBinder} (IKVM_PRIVILEGED_DIRECT={(JVM.PrivilegedDirect ? 1 : 0)}) | default_impl resolved={DefaultImplResolved} unresolved={DefaultImplUnresolved} (IKVM_LAZY_DEFAULT_IMPL={(JVM.LazyDefaultImpl ? 1 : 0)})");
             Console.WriteLine($"[IKVM lazybody] gen2 clean={Gen2Clean} unexpectedDynamic={Gen2UnexpectedDynamic} callerID={Gen2CallerID} depWaits={DependencyWaits} missingSite={MissingBakedSite} bakedLambda={Gen2BakedLambdaSite} cidReal={Gen2CallerIDReal} cidReused={Gen2CallerIDReused} cidForeign={Gen2CallerIDForeign} scratchShared={Gen2ScratchShared} slim={(JVM.LazySlim ? 1 : 0)} released={Released}");
             if (JVM.LazyInPlace)
-                Console.WriteLine($"[IKVM lazybody] inplace ok={InPlaceOk} late={InPlaceLate} declined={InPlaceDeclined} failed={InPlaceFailed} unsupported={InPlaceUnsupported} queued={InPlaceQueued} batches={InPlaceBatches} deferrals={InPlaceDeferrals} forced={InPlaceForced}");
+                Console.WriteLine($"[IKVM lazybody] inplace ok={InPlaceOk} late={InPlaceLate} declined={InPlaceDeclined} failed={InPlaceFailed} unsupported={InPlaceUnsupported} queued={InPlaceQueued} batches={InPlaceBatches} deferrals={InPlaceDeferrals} forced={InPlaceForced}{RelinkBackendSuffix()}");
             if (JVM.LazySigLoadProbes > 0)
                 Console.WriteLine($"[IKVM lazybody] sigload entries={SigLoadEntries} loaded={SigLoadLoaded} failed={SigLoadFailed} already={SigLoadAlready} deferred={SigLoadDeferred} (IKVM_LAZY_SIGLOAD={JVM.LazySigLoadProbes})");
             if (JVM.LazyPartialProbes > 0)
