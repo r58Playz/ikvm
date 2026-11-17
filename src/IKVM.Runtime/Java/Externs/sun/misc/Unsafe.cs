@@ -3058,6 +3058,10 @@ namespace IKVM.Java.Externs.sun.misc
                     default:
                         throw new global::java.lang.IllegalArgumentException();
                 }
+                // StoreLoad: a Java volatile store must not pass a later volatile load. Volatile.Write and `volatile. stind`
+                // are release stores only; until 2026-11-16 the fence IKVM puts in front of every volatile READ supplied it,
+                // and mono's wasm JIT can now drop that fence (MONO_WASM_JIT_VOLATILE_LOAD). Cold: <= 0.01% of a 26.2 tick.
+                Thread.MemoryBarrier();
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -3124,6 +3128,10 @@ namespace IKVM.Java.Externs.sun.misc
                         PutFieldVolatile(o, offset, x);
                         break;
                 }
+                // StoreLoad: a Java volatile store must not pass a later volatile load. Volatile.Write and `volatile. stind`
+                // are release stores only; until 2026-11-16 the fence IKVM puts in front of every volatile READ supplied it,
+                // and mono's wasm JIT can now drop that fence (MONO_WASM_JIT_VOLATILE_LOAD). Cold: <= 0.01% of a 26.2 tick.
+                Thread.MemoryBarrier();
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -3190,6 +3198,10 @@ namespace IKVM.Java.Externs.sun.misc
                         PutFieldVolatile(o, offset, x);
                         break;
                 }
+                // StoreLoad: a Java volatile store must not pass a later volatile load. Volatile.Write and `volatile. stind`
+                // are release stores only; until 2026-11-16 the fence IKVM puts in front of every volatile READ supplied it,
+                // and mono's wasm JIT can now drop that fence (MONO_WASM_JIT_VOLATILE_LOAD). Cold: <= 0.01% of a 26.2 tick.
+                Thread.MemoryBarrier();
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -3256,6 +3268,10 @@ namespace IKVM.Java.Externs.sun.misc
                         PutFieldVolatile(o, offset, x);
                         break;
                 }
+                // StoreLoad: a Java volatile store must not pass a later volatile load. Volatile.Write and `volatile. stind`
+                // are release stores only; until 2026-11-16 the fence IKVM puts in front of every volatile READ supplied it,
+                // and mono's wasm JIT can now drop that fence (MONO_WASM_JIT_VOLATILE_LOAD). Cold: <= 0.01% of a 26.2 tick.
+                Thread.MemoryBarrier();
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -3321,6 +3337,10 @@ namespace IKVM.Java.Externs.sun.misc
                         PutFieldVolatile(o, offset, x);
                         break;
                 }
+                // StoreLoad: a Java volatile store must not pass a later volatile load. Volatile.Write and `volatile. stind`
+                // are release stores only; until 2026-11-16 the fence IKVM puts in front of every volatile READ supplied it,
+                // and mono's wasm JIT can now drop that fence (MONO_WASM_JIT_VOLATILE_LOAD). Cold: <= 0.01% of a 26.2 tick.
+                Thread.MemoryBarrier();
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -3386,6 +3406,10 @@ namespace IKVM.Java.Externs.sun.misc
                         PutFieldVolatile(o, offset, x);
                         break;
                 }
+                // StoreLoad: a Java volatile store must not pass a later volatile load. Volatile.Write and `volatile. stind`
+                // are release stores only; until 2026-11-16 the fence IKVM puts in front of every volatile READ supplied it,
+                // and mono's wasm JIT can now drop that fence (MONO_WASM_JIT_VOLATILE_LOAD). Cold: <= 0.01% of a 26.2 tick.
+                Thread.MemoryBarrier();
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -3451,6 +3475,10 @@ namespace IKVM.Java.Externs.sun.misc
                         PutFieldVolatile(o, offset, x);
                         break;
                 }
+                // StoreLoad: a Java volatile store must not pass a later volatile load. Volatile.Write and `volatile. stind`
+                // are release stores only; until 2026-11-16 the fence IKVM puts in front of every volatile READ supplied it,
+                // and mono's wasm JIT can now drop that fence (MONO_WASM_JIT_VOLATILE_LOAD). Cold: <= 0.01% of a 26.2 tick.
+                Thread.MemoryBarrier();
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -3517,6 +3545,10 @@ namespace IKVM.Java.Externs.sun.misc
                         PutFieldVolatile(o, offset, x);
                         break;
                 }
+                // StoreLoad: a Java volatile store must not pass a later volatile load. Volatile.Write and `volatile. stind`
+                // are release stores only; until 2026-11-16 the fence IKVM puts in front of every volatile READ supplied it,
+                // and mono's wasm JIT can now drop that fence (MONO_WASM_JIT_VOLATILE_LOAD). Cold: <= 0.01% of a 26.2 tick.
+                Thread.MemoryBarrier();
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
@@ -3583,6 +3615,10 @@ namespace IKVM.Java.Externs.sun.misc
                         PutFieldVolatile(o, offset, x);
                         break;
                 }
+                // StoreLoad: a Java volatile store must not pass a later volatile load. Volatile.Write and `volatile. stind`
+                // are release stores only; until 2026-11-16 the fence IKVM puts in front of every volatile READ supplied it,
+                // and mono's wasm JIT can now drop that fence (MONO_WASM_JIT_VOLATILE_LOAD). Cold: <= 0.01% of a 26.2 tick.
+                Thread.MemoryBarrier();
             }
             catch (Exception e) when (e is not global::java.lang.Throwable)
             {
