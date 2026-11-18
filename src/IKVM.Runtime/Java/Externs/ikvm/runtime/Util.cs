@@ -50,53 +50,77 @@ namespace IKVM.Java.Externs.ikvm.runtime
 #endif
         }
 
-        /// <summary>
-        /// An immutable (key, value) pair published into a direct-mapped cache slot with one reference write, so a
-        /// reader sees either a whole old entry or a whole new one.
-        /// </summary>
-        sealed class DirectCacheEntry<TKey, TValue> where TKey : class where TValue : class
-        {
-            internal readonly TKey Key;
-            internal readonly TValue Value;
-            internal DirectCacheEntry(TKey key, TValue value) { Key = key; Value = value; }
-        }
-
         const int DirectCacheMask = 1023;
-
-        // concrete CLR type -> RuntimeJavaType, in front of wrapperByConcreteType (R314/I1: the ConcurrentDictionary
-        // lookup was most of Object.getClass()'s cost on the server tick)
-        static readonly DirectCacheEntry<Type, RuntimeJavaType>[] wrapperByConcreteTypeFast = new DirectCacheEntry<Type, RuntimeJavaType>[DirectCacheMask + 1];
 
         static int DirectCacheIndex(IntPtr handle) => (int)(((long)handle >> 3) & DirectCacheMask);
 
+        /// <summary>
+        /// A <see cref="wrapperByConcreteTypeFast"/> entry: the type's wrapper, and whether an instance of the type can
+        /// carry a ghost tag, which then overrides the wrapper. Immutable and published into its slot with one reference
+        /// write, so a reader sees either a whole old entry or a whole new one.
+        /// </summary>
+        sealed class TypeCacheEntry
+        {
+            internal readonly Type Key;
+            internal readonly RuntimeJavaType Value;
+            internal readonly bool MayBeGhost;
+            internal TypeCacheEntry(Type key, RuntimeJavaType value, bool mayBeGhost) { Key = key; Value = value; MayBeGhost = mayBeGhost; }
+        }
+
+        // concrete CLR type -> RuntimeJavaType, in front of wrapperByConcreteType (R314/I1: the ConcurrentDictionary
+        // lookup was most of Object.getClass()'s cost on the server tick)
+        static readonly TypeCacheEntry[] wrapperByConcreteTypeFast = new TypeCacheEntry[DirectCacheMask + 1];
+
+        /// <summary>
+        /// Whether an instance of <paramref name="t"/> can carry a ghost tag. Ghost tags are per object (a side table)
+        /// and only ARRAYS are ever tagged (every GhostTag.SetTag site tags a new array: multianewarray_ghost,
+        /// anewarray_ghost, DynamicMultianewarray, DynamicNewarray, reflect.Array, CloneArrayWithGhostTag), and a ghost
+        /// array is an object[] of some rank (RuntimeJavaType.TypeAsArrayType), so with IKVM_GETCLASS_FAST only an array
+        /// whose innermost element type is object is asked; without it, every array, as before.
+        /// </summary>
+        static bool MayBeGhostArray(Type t)
+        {
+            if (t.IsArray == false)
+                return false;
+            if (JVM.GetClassFast == false)
+                return true;
+            while (t.IsArray)
+                t = t.GetElementType();
+            return t == typeof(object);
+        }
+
         internal static RuntimeJavaType GetTypeWrapperFromObject(RuntimeContext context, object o)
         {
-            // Ghost tags are attached per-object (side table), so this must stay uncached and first -- but only
-            // ARRAYS are ever tagged (every GhostTag.SetTag site tags a new array: multianewarray_ghost,
-            // anewarray_ghost, DynamicMultianewarray, DynamicNewarray, reflect.Array), so a non-array never has one
-            // and skips the ConditionalWeakTable lookup (R314/I1).
-            if (o is Array)
+            // The type cache first, then the ghost tag where the type says one can exist. Before IKVM_GETCLASS_FAST every
+            // array asked the ConditionalWeakTable first (a ghost tag overrides the wrapper either way): 31 k
+            // GetTypeWrapperFromObject calls and 2.5 M instructions a 26.2 server tick, mostly Arrays.copyOf / toArray
+            // asking an array for getClass() (findings 2026-11-09 / 2026-11-16).
+            var t = o.GetType();
+            ref var slot = ref wrapperByConcreteTypeFast[DirectCacheIndex(t.TypeHandle.Value)];
+            var e = System.Threading.Volatile.Read(ref slot);
+            if (e == null || ReferenceEquals(e.Key, t) == false)
+            {
+                if (!wrapperByConcreteType.TryGetValue(t, out var resolved))
+                {
+                    resolved = ResolveTypeWrapperFromType(context, t);
+                    wrapperByConcreteType[t] = resolved;
+                }
+
+                if (resolved == null)
+                    return o is Array ? GhostTag.GetTag(o) : null;
+
+                e = new TypeCacheEntry(t, resolved, MayBeGhostArray(t));
+                System.Threading.Volatile.Write(ref slot, e);
+            }
+
+            if (e.MayBeGhost)
             {
                 var ghostType = GhostTag.GetTag(o);
                 if (ghostType != null)
                     return ghostType;
             }
 
-            var t = o.GetType();
-            ref var slot = ref wrapperByConcreteTypeFast[DirectCacheIndex(t.TypeHandle.Value)];
-            var e = System.Threading.Volatile.Read(ref slot);
-            if (e != null && ReferenceEquals(e.Key, t))
-                return e.Value;
-
-            if (!wrapperByConcreteType.TryGetValue(t, out var resolved))
-            {
-                resolved = ResolveTypeWrapperFromType(context, t);
-                wrapperByConcreteType[t] = resolved;
-            }
-
-            if (resolved != null)
-                System.Threading.Volatile.Write(ref slot, new DirectCacheEntry<Type, RuntimeJavaType>(t, resolved));
-            return resolved;
+            return e.Value;
         }
 
         static RuntimeJavaType ResolveTypeWrapperFromType(RuntimeContext context, Type t)

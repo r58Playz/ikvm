@@ -1145,6 +1145,16 @@ namespace IKVM.Runtime
                             ilGenerator.DoEmit();
                             if (nonleaf)
                                 mb.SetImplementationFlags(mb.GetMethodImplementationFlags());
+#if !IMPORTER
+                            // wasm fork (IKVM_DEFAULT_INLINE, JVM.cs): a small default method's static <default> helper, which
+                            // every implementor's forwarder calls directly, may be inlined into it whatever its IL size -- never
+                            // one carrying the in-place relink hook or a lazy-body trampoline (inlined into a forwarder on
+                            // another class, those made the forwarder fail to JIT; see JVM.cs)
+                            if (JVM.DefaultInline > 0 && inPlaceFlag == null && lazyBody == null &&
+                                m.IsVirtual && classFile.IsInterface && !m.IsAbstract && !wrapper.IsGhost &&
+                                m.ExceptionTable.Length == 0 && m.Instructions.Length > 0 && m.Instructions[m.Instructions.Length - 1].PC <= JVM.DefaultInline)
+                                mb.SetImplementationFlags(mb.GetMethodImplementationFlags() | MethodImplAttributes.AggressiveInlining);
+#endif
 #if IMPORTER
                             ilGenerator.EmitLineNumberTable(mb);
 #else

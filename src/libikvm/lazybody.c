@@ -82,3 +82,21 @@ int32_t IKVM_lazy_relink_stat(int which)
     default: return -1;
     }
 }
+
+/* Defined in the mono runtime (src/mono/mono/mini/interp/tiering.c) when linked into the same module. */
+IKVM_WEAK int mono_ikvm_type_initialized(void *type);
+
+/*
+ * Whether a type's static constructor has FINISHED (IKVM_MH_INIT_DONE): 1 yes; 0 not yet, or still running (on this or
+ * another thread); -1 a type shape the runtime does not answer; -2 unsupported runtime (CoreCLR). type is a MonoType*
+ * from RuntimeTypeHandle.Value. Metadata reads only: no lock, no allocation, so the managed import suppresses the GC
+ * transition.
+ */
+int IKVM_type_initialized(void *type)
+{
+#if defined(__wasm__) || defined(__linux__) || defined(__APPLE__)
+    if (!mono_ikvm_type_initialized)
+        return -2;
+#endif
+    return mono_ikvm_type_initialized(type);
+}

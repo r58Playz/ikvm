@@ -91,6 +91,9 @@ namespace IKVM.Java.Externs.sun.misc
             readonly byte[] fieldKinds;
             readonly int[] rawOffsets;
             readonly Type[] refReceiverTypes;   // per reference field: the last receiver type that passed GetRawRefOffset's check
+            // IKVM_UNSAFE_FAST & 1, per start field: the encoded end offset of the run of primitive fields from it whose CLR
+            // layout matches the encoded one byte for byte (GetRawSpanOffset), or RawOffsetUnresolved until known
+            readonly int[] runEnds;
 
             /// <summary>
             /// Initializes a new instance.
@@ -111,6 +114,7 @@ namespace IKVM.Java.Externs.sun.misc
                 fieldKinds = new byte[fields.Length];
                 rawOffsets = new int[fields.Length];
                 refReceiverTypes = new Type[fields.Length];
+                runEnds = new int[fields.Length];
                 for (var i = 0; i < fields.Length; i++)
                 {
                     var field = fields[i];
@@ -124,6 +128,7 @@ namespace IKVM.Java.Externs.sun.misc
                     fieldSizes[i] = size;
                     fieldKinds[i] = GetFieldKind(field);
                     rawOffsets[i] = RawOffsetUnresolved;
+                    runEnds[i] = RawOffsetUnresolved;
                     offset = checked(offset + size);
                 }
             }
@@ -281,6 +286,83 @@ namespace IKVM.Java.Externs.sun.misc
                 // every thread computes the same value, so the unsynchronized store is benign
                 rawOffsets[index] = raw;
                 return raw;
+            }
+
+            /// <summary>
+            /// IKVM_UNSAFE_FAST &amp; 1: the in-object offset for a <paramref name="size"/>-byte access at encoded
+            /// <paramref name="offset"/> that GetRawOffset refused -- one that starts at a primitive field but is not of its
+            /// kind or size (JOML's getLong over two adjacent float fields; getInt of a float field). Answered when the
+            /// access starts exactly at a field and every byte it covers lies in a run of primitive fields whose CLR
+            /// offsets follow one another exactly as their encoded ones do: then the raw bytes ARE the concatenation the
+            /// field-by-field path (Try{Read,Write}EncodedObjectPrimitive) produces. Each field's raw offset is the one
+            /// ComputeRawOffset already verified against the reflective read. Returns -1 for the general path.
+            /// </summary>
+            public int GetRawSpanOffset(object target, int offset, int size)
+            {
+                var starts = fieldStartOffsets;
+                var lo = 0;
+                var hi = starts.Length - 1;
+
+                while (lo <= hi)
+                {
+                    var mid = lo + ((hi - lo) >> 1);
+                    var start = starts[mid];
+
+                    if (offset == start)
+                    {
+                        var end = runEnds[mid];
+                        if (end == RawOffsetUnresolved)
+                            end = ResolveRun(mid, target);
+                        if (end < 0 || offset + size > end)
+                            return -1;
+                        var raw = rawOffsets[mid];
+                        return raw >= 0 ? raw : -1;
+                    }
+
+                    if (offset < start)
+                        hi = mid - 1;
+                    else
+                        lo = mid + 1;
+                }
+
+                return -1;
+            }
+
+            /// <summary>
+            /// The encoded end of the layout-matching primitive run from field <paramref name="index"/>, at most 8 bytes
+            /// long (the widest access), cached in runEnds; -1 without caching when <paramref name="target"/> cannot
+            /// resolve a field's raw offset (not an instance of its declaring type: a later receiver decides).
+            /// </summary>
+            int ResolveRun(int index, object target)
+            {
+                var start = fieldStartOffsets[index];
+                var end = start;
+                var nextRaw = -1;
+
+                for (var k = index; k < fieldStartOffsets.Length && end - start < 8; k++)
+                {
+                    var kind = fieldKinds[k];
+                    if (kind == FieldKindNone || kind >= FieldKindRefObject)
+                        break;
+
+                    var raw = rawOffsets[k];
+                    if (raw == RawOffsetUnresolved)
+                    {
+                        raw = ResolveRawOffset(k, target);
+                        if (raw < 0 && rawOffsets[k] == RawOffsetUnresolved)
+                            return -1;
+                    }
+
+                    if (raw < 0 || (k > index && raw != nextRaw))
+                        break;
+
+                    nextRaw = raw + fieldSizes[k];
+                    end = fieldStartOffsets[k] + fieldSizes[k];
+                }
+
+                // every thread computes the same value, so the unsynchronized store is benign
+                runEnds[index] = end;
+                return end;
             }
 
 #endif
@@ -477,6 +559,39 @@ namespace IKVM.Java.Externs.sun.misc
             var value = (int)offset;
             var info = objectFieldOffsetsByTypeId[(value >> ObjectFieldOffsetTypeIdShift) & ObjectFieldOffsetTypeIdMask];
             return info != null ? info.GetRawOffset(o, value & ObjectFieldOffsetValueMask, kind) : -1;
+        }
+
+        /// <summary>
+        /// IKVM_UNSAFE_FAST &amp; 1: the in-object offset for a <paramref name="size"/>-byte access at an encoded field
+        /// offset that <see cref="EncodedFieldRawOffset"/> refused (<see cref="ObjectFieldOffsetInfo.GetRawSpanOffset"/>),
+        /// or -1. The caller has already tested IsEncodedObjectFieldOffset.
+        /// </summary>
+        static int EncodedFieldRawSpanOffset(object o, long offset, int size)
+        {
+            if (!JVM.UnsafeSpanFast)
+                return -1;
+
+            var value = (int)offset;
+            var info = objectFieldOffsetsByTypeId[(value >> ObjectFieldOffsetTypeIdShift) & ObjectFieldOffsetTypeIdMask];
+            var raw = info != null ? info.GetRawSpanOffset(o, value & ObjectFieldOffsetValueMask, size) : -1;
+            NoteSpan(raw >= 0);
+            return raw;
+        }
+
+        // IKVM_UNSAFE_FAST & 1's counts, approximate (unsynchronized): span accesses done in place, and the ones refused
+        // (they take the field-by-field path). Printed each time the total reaches a power of two from 2^10, so the last
+        // line gives the magnitude; JOML's matrix uploads should read almost all `in place`.
+        static int spanHits, spanRefused;
+
+        static void NoteSpan(bool hit)
+        {
+            if (hit)
+                spanHits++;
+            else
+                spanRefused++;
+            var total = spanHits + spanRefused;
+            if (total >= 1024 && (total & (total - 1)) == 0)
+                Console.WriteLine($"[IKVM unsafe] span: in place={spanHits} refused={spanRefused} (IKVM_UNSAFE_FAST={JVM.UnsafeFast})");
         }
 
         /// <summary>
@@ -1193,6 +1308,9 @@ namespace IKVM.Java.Externs.sun.misc
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindShort);
                 if (raw >= 0)
                     return RawField<short>(o, raw);
+                raw = EncodedFieldRawSpanOffset(o, offset, sizeof(short));
+                if (raw >= 0)
+                    return SysUnsafe.ReadUnaligned<short>(ref RawField<byte>(o, raw));
             }
 #if NET6_0_OR_GREATER
             else if (o is Array array)
@@ -1258,6 +1376,12 @@ namespace IKVM.Java.Externs.sun.misc
                 if (raw >= 0)
                 {
                     RawField<short>(o, raw) = x;
+                    return;
+                }
+                raw = EncodedFieldRawSpanOffset(o, offset, sizeof(short));
+                if (raw >= 0)
+                {
+                    SysUnsafe.WriteUnaligned(ref RawField<byte>(o, raw), x);
                     return;
                 }
             }
@@ -1480,6 +1604,9 @@ namespace IKVM.Java.Externs.sun.misc
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindInt);
                 if (raw >= 0)
                     return RawField<int>(o, raw);
+                raw = EncodedFieldRawSpanOffset(o, offset, sizeof(int));
+                if (raw >= 0)
+                    return SysUnsafe.ReadUnaligned<int>(ref RawField<byte>(o, raw));
             }
 #if NET6_0_OR_GREATER
             else if (o is Array array)
@@ -1545,6 +1672,12 @@ namespace IKVM.Java.Externs.sun.misc
                 if (raw >= 0)
                 {
                     RawField<int>(o, raw) = x;
+                    return;
+                }
+                raw = EncodedFieldRawSpanOffset(o, offset, sizeof(int));
+                if (raw >= 0)
+                {
+                    SysUnsafe.WriteUnaligned(ref RawField<byte>(o, raw), x);
                     return;
                 }
             }
@@ -1622,6 +1755,9 @@ namespace IKVM.Java.Externs.sun.misc
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindLong);
                 if (raw >= 0)
                     return RawField<long>(o, raw);
+                raw = EncodedFieldRawSpanOffset(o, offset, sizeof(long));
+                if (raw >= 0)
+                    return SysUnsafe.ReadUnaligned<long>(ref RawField<byte>(o, raw));
             }
 #if NET6_0_OR_GREATER
             else if (o is Array array)
@@ -1687,6 +1823,12 @@ namespace IKVM.Java.Externs.sun.misc
                 if (raw >= 0)
                 {
                     RawField<long>(o, raw) = x;
+                    return;
+                }
+                raw = EncodedFieldRawSpanOffset(o, offset, sizeof(long));
+                if (raw >= 0)
+                {
+                    SysUnsafe.WriteUnaligned(ref RawField<byte>(o, raw), x);
                     return;
                 }
             }
@@ -1764,6 +1906,9 @@ namespace IKVM.Java.Externs.sun.misc
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindFloat);
                 if (raw >= 0)
                     return RawField<float>(o, raw);
+                raw = EncodedFieldRawSpanOffset(o, offset, sizeof(float));
+                if (raw >= 0)
+                    return SysUnsafe.ReadUnaligned<float>(ref RawField<byte>(o, raw));
             }
 #if NET6_0_OR_GREATER
             else if (o is Array array)
@@ -1832,6 +1977,12 @@ namespace IKVM.Java.Externs.sun.misc
                 if (raw >= 0)
                 {
                     RawField<float>(o, raw) = x;
+                    return;
+                }
+                raw = EncodedFieldRawSpanOffset(o, offset, sizeof(float));
+                if (raw >= 0)
+                {
+                    SysUnsafe.WriteUnaligned(ref RawField<byte>(o, raw), x);
                     return;
                 }
             }
@@ -1910,6 +2061,9 @@ namespace IKVM.Java.Externs.sun.misc
                 var raw = EncodedFieldRawOffset(o, offset, FieldKindDouble);
                 if (raw >= 0)
                     return RawField<double>(o, raw);
+                raw = EncodedFieldRawSpanOffset(o, offset, sizeof(double));
+                if (raw >= 0)
+                    return SysUnsafe.ReadUnaligned<double>(ref RawField<byte>(o, raw));
             }
 #if NET6_0_OR_GREATER
             else if (o is Array array)
@@ -1978,6 +2132,12 @@ namespace IKVM.Java.Externs.sun.misc
                 if (raw >= 0)
                 {
                     RawField<double>(o, raw) = x;
+                    return;
+                }
+                raw = EncodedFieldRawSpanOffset(o, offset, sizeof(double));
+                if (raw >= 0)
+                {
+                    SysUnsafe.WriteUnaligned(ref RawField<byte>(o, raw), x);
                     return;
                 }
             }
@@ -2590,7 +2750,33 @@ namespace IKVM.Java.Externs.sun.misc
         /// <returns></returns>
         public static bool shouldBeInitialized(object self, global::java.lang.Class c)
         {
-            return RuntimeJavaType.FromClass(c).HasStaticInitializer;
+            var tw = RuntimeJavaType.FromClass(c);
+            return tw.HasStaticInitializer && ClassInitFinished(tw) == false;
+        }
+
+        /// <summary>
+        /// IKVM_MH_INIT_DONE (JVM.cs): whether <paramref name="tw"/>'s CLR type initializer -- which runs the Java
+        /// static initializer -- has finished. False whenever that cannot be told (knob off, an array, a type still being
+        /// built, a runtime that does not answer), which keeps every caller on its initializing path.
+        /// </summary>
+        static bool ClassInitFinished(RuntimeJavaType tw)
+        {
+#if FIRST_PASS
+            return false;
+#else
+            if (JVM.MhInitDone == false || tw.IsArray)
+                return false;
+
+            try
+            {
+                var t = tw.IsRemapped ? tw.TypeAsBaseType : tw.TypeAsTBD;
+                return t != null && t is not System.Reflection.Emit.TypeBuilder && LibIkvm.TypeInitialized(t) == 1;
+            }
+            catch
+            {
+                return false;
+            }
+#endif
         }
 
         /// <summary>
@@ -2601,7 +2787,7 @@ namespace IKVM.Java.Externs.sun.misc
         public static void ensureClassInitialized(object self, global::java.lang.Class c)
         {
             var tw = RuntimeJavaType.FromClass(c);
-            if (tw.IsArray == false)
+            if (tw.IsArray == false && ClassInitFinished(tw) == false)
             {
                 try
                 {

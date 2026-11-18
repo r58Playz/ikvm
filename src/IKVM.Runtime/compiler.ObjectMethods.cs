@@ -67,8 +67,16 @@ namespace IKVM.Runtime
                 if (getter.Kind != MethodHandleKind.GetField || getter.Member is not RuntimeJavaField field || field.IsStatic || field.DeclaringType != recordType)
                     return false;
 
-                if (field.FieldTypeWrapper.IsUnloadable || field.FieldTypeWrapper.IsGhost || field.IsAccessibleFrom(recordType, clazz, recordType) == false)
-                    return false;
+                // A component whose type lazy linking left unloadable is a CLR object field (erased), and every use below
+                // treats a non-primitive component as java.lang.Object (Objects.hashCode / Objects.equals /
+                // String.valueOf(Object)), so it is no reason to keep the MethodHandle chain (IKVM_RECORD_UNLOADABLE).
+                // A ghost interface is a wrapper struct and still declines.
+                if (field.FieldTypeWrapper.IsGhost)
+                    return LazyBodyStats.NoteRecordDeclined(LazyBodyStats.RecordDeclineGhost);
+                if (field.IsAccessibleFrom(recordType, clazz, recordType) == false)
+                    return LazyBodyStats.NoteRecordDeclined(LazyBodyStats.RecordDeclineAccess);
+                if (field.FieldTypeWrapper.IsUnloadable && JVM.RecordUnloadable == false)
+                    return LazyBodyStats.NoteRecordDeclined(LazyBodyStats.RecordDeclineUnloadable);
 
                 field.Link();
                 fields[i] = field;
@@ -81,15 +89,15 @@ namespace IKVM.Runtime
             {
                 case "toString" when argTypes.Length == 1 && argTypes[0] == recordType && retType == context.JavaBase.TypeOfJavaLangString:
                     EmitRecordToString(recordType, componentNames, fields);
-                    return true;
+                    return LazyBodyStats.NoteRecordInline(fields);
                 case "hashCode" when argTypes.Length == 1 && argTypes[0] == recordType && retType == context.PrimitiveJavaTypeFactory.INT:
                     EmitRecordHashCode(recordType, fields);
-                    return true;
+                    return LazyBodyStats.NoteRecordInline(fields);
                 case "equals" when argTypes.Length == 2 && argTypes[0] == recordType && argTypes[1] == context.JavaBase.TypeOfJavaLangObject && retType == context.PrimitiveJavaTypeFactory.BOOLEAN:
                     EmitRecordEquals(recordType, fields);
-                    return true;
+                    return LazyBodyStats.NoteRecordInline(fields);
                 default:
-                    return false;
+                    return LazyBodyStats.NoteRecordDeclined(LazyBodyStats.RecordDeclineOther);
             }
         }
 

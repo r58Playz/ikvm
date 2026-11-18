@@ -2916,6 +2916,132 @@ namespace IKVM.Runtime
 #endif
         }
 
+        // IKVM_UNSAFE_FAST & 2 (JVM.cs): the call targets intrinsics.cs gives sun.misc / jdk.internal.misc
+        // Unsafe.get/put<T>(Object, long) at a site whose base is not provably null. `self` is the Unsafe receiver the
+        // replaced virtual call had: null throws as that call would. sun.misc.Unsafe's Java wrapper and its
+        // beforeMemoryAccess check (JDK 25's sun.misc.Unsafe memory-access warning) are skipped, as are the native stub
+        // and the jdk.internal forwarder; the extern below is the one both of those end in.
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static short UnsafeGetShort(object self, object o, long offset)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            if (self == null)
+                throw new global::java.lang.NullPointerException();
+            return IKVM.Java.Externs.sun.misc.Unsafe.getShort(self, o, offset);
+#endif
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void UnsafePutShort(object self, object o, long offset, short x)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            if (self == null)
+                throw new global::java.lang.NullPointerException();
+            IKVM.Java.Externs.sun.misc.Unsafe.putShort(self, o, offset, x);
+#endif
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int UnsafeGetInt(object self, object o, long offset)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            if (self == null)
+                throw new global::java.lang.NullPointerException();
+            return IKVM.Java.Externs.sun.misc.Unsafe.getInt(self, o, offset);
+#endif
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void UnsafePutInt(object self, object o, long offset, int x)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            if (self == null)
+                throw new global::java.lang.NullPointerException();
+            IKVM.Java.Externs.sun.misc.Unsafe.putInt(self, o, offset, x);
+#endif
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static long UnsafeGetLong(object self, object o, long offset)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            if (self == null)
+                throw new global::java.lang.NullPointerException();
+            return IKVM.Java.Externs.sun.misc.Unsafe.getLong(self, o, offset);
+#endif
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void UnsafePutLong(object self, object o, long offset, long x)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            if (self == null)
+                throw new global::java.lang.NullPointerException();
+            IKVM.Java.Externs.sun.misc.Unsafe.putLong(self, o, offset, x);
+#endif
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float UnsafeGetFloat(object self, object o, long offset)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            if (self == null)
+                throw new global::java.lang.NullPointerException();
+            return IKVM.Java.Externs.sun.misc.Unsafe.getFloat(self, o, offset);
+#endif
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void UnsafePutFloat(object self, object o, long offset, float x)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            if (self == null)
+                throw new global::java.lang.NullPointerException();
+            IKVM.Java.Externs.sun.misc.Unsafe.putFloat(self, o, offset, x);
+#endif
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static double UnsafeGetDouble(object self, object o, long offset)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            if (self == null)
+                throw new global::java.lang.NullPointerException();
+            return IKVM.Java.Externs.sun.misc.Unsafe.getDouble(self, o, offset);
+#endif
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void UnsafePutDouble(object self, object o, long offset, double x)
+        {
+#if FIRST_PASS || IMPORTER || EXPORTER
+            throw new NotImplementedException();
+#else
+            if (self == null)
+                throw new global::java.lang.NullPointerException();
+            IKVM.Java.Externs.sun.misc.Unsafe.putDouble(self, o, offset, x);
+#endif
+        }
+
 #if FIRST_PASS == false && IMPORTER == false && EXPORTER == false
 
         /// <summary>

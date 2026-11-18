@@ -146,6 +146,13 @@ namespace IKVM.Runtime
             /// </summary>
             [DllImport("ikvm", EntryPoint = "IKVM_park_post", SetLastError = false), SuppressGCTransition]
             internal static extern void IKVM_park_post_nogc(int key);
+
+            /// <summary>
+            /// Invokes the native 'IKVM_type_initialized' function (libikvm lazybody.c; mono's mono_ikvm_type_initialized)
+            /// without the GC transition: metadata reads only; it neither blocks nor calls back into managed code.
+            /// </summary>
+            [DllImport("ikvm", SetLastError = false), SuppressGCTransition]
+            internal static extern int IKVM_type_initialized(nint type);
 #endif
 
         }
@@ -163,6 +170,27 @@ namespace IKVM.Runtime
         /// Never throws: every refusal is a return code, because a failed swap must degrade to the body
         /// that was already running rather than fail a method that worked.
         /// </remarks>
+        /// <summary>
+        /// Whether <paramref name="type"/>'s static constructor has FINISHED (IKVM_MH_INIT_DONE): 1 yes; 0 not yet, or still
+        /// running; negative when the runtime cannot say (CoreCLR, a type shape mono does not answer, a missing export).
+        /// RuntimeHelpers.RunClassConstructor cannot answer this: it returns at once on the thread running the initializer.
+        /// </summary>
+        internal static int TypeInitialized(Type type)
+        {
+#if NET
+            try
+            {
+                return Externs.IKVM_type_initialized(type.TypeHandle.Value);
+            }
+            catch
+            {
+                return -2;
+            }
+#else
+            return -2;
+#endif
+        }
+
         internal static int ReplaceMethodBody(nint target, nint source)
         {
             try

@@ -276,6 +276,58 @@ namespace IKVM.Runtime
         // ParkFast).
         internal static readonly bool UnsafeRefFast = SafeGetEnvironmentVariable("IKVM_UNSAFE_REF") == "1";
 
+        // wasm fork (IKVM_UNSAFE_FAST, 2026-11-16): two cuts in the object form of Unsafe's scalar get/put.
+        // Bit 1: an access that starts at a primitive field but is not that field's own kind or size -- JOML's
+        // MemUtilUnsafe reads a Matrix4f eight bytes (two float fields) at a time with getLong(m, m00 + 8*i) -- is done in
+        // place when the fields it covers lie in the CLR object exactly as in the encoded offset space (checked once per
+        // start field, Unsafe.cs ObjectFieldOffsetInfo.GetRawSpanOffset), instead of byte by byte through each field's
+        // reflective accessor (~2,700 instructions a getLong; 23% of the 26.2 render thread's instructions, 2026-11-16).
+        // Bit 2: a call site of sun.misc / jdk.internal.misc Unsafe.get/put<T>(Object, long) whose base is not provably
+        // null calls the extern directly (intrinsics.cs, ByteCodeHelper.UnsafeGet*/UnsafePut*), skipping sun.misc.Unsafe's
+        // Java wrapper (and its beforeMemoryAccess warning check), the native stub and the jdk.internal forwarder; it is
+        // decided when the site is compiled. Default 3; "0" is the A/B.
+        internal static readonly int UnsafeFast = ParseInt(SafeGetEnvironmentVariable("IKVM_UNSAFE_FAST"), 3);
+
+        // wasm fork (IKVM_RECORD_UNLOADABLE, 2026-11-17): a record's ObjectMethods.bootstrap site (javac's toString /
+        // hashCode / equals) is compiled inline (compiler.ObjectMethods.cs) even when a component's type is still unloadable
+        // -- under lazy class loading, any component class not yet loaded when the record links. Declining it ran the JDK's
+        // MethodHandle chain on every call: LambdaForm invokers, delegate dispatch, an Unsafe getReference per component and
+        // DirectMethodHandle's class-init check; on 26.2's world-generation workers that chain (DensityFunction records
+        // hashed as map keys) is most of the 12-14% delegate dispatch (findings 2026-11-15, levers2). The inline code is the
+        // JDK's formula (hashCombiner x*31+h, Objects.hashCode / equals, String.valueOf), so a record's results do not change
+        // with the path. `[IKVM records]` counts sites and declines. Default 1; "0" is the A/B (decided when a site compiles).
+        internal static readonly bool RecordUnloadable = SafeGetEnvironmentVariable("IKVM_RECORD_UNLOADABLE") != "0";
+
+        // wasm fork (IKVM_MH_INIT_DONE, 2026-11-17): Unsafe.shouldBeInitialized answers false once the class's static
+        // initializer has FINISHED (mono's vtable->initialized, LibIkvm.TypeInitialized), where it answered
+        // HasStaticInitializer -- a fixed property, so DirectMethodHandle.checkInitialized never succeeded, updateForm never
+        // dropped the invokeStaticInit barrier, and every static call through a method handle on a class with a <clinit>
+        // ran ensureClassInitialized -> Finish -> RunClassInit -> RunClassConstructor (3.4% of a 26.2 world-generation
+        // worker, findings 2026-11-15 levers2). ensureClassInitialized takes the same answer as an early exit. A class
+        // whose initializer failed or is still running keeps the barrier. Default 1; "0" is the A/B.
+        internal static readonly bool MhInitDone = SafeGetEnvironmentVariable("IKVM_MH_INIT_DONE") != "0";
+
+        // wasm fork (IKVM_GETCLASS_FAST, 2026-11-17): Object.getClass() asks the ghost-tag table only for an array whose
+        // innermost element type is object -- the only arrays a ghost tag can be on -- and only after the type cache
+        // (Util.GetTypeWrapperFromObject); int[], String[], Foo[] skip it. And an array class caches its component type
+        // (RuntimeJavaType.ElementTypeWrapper), which getComponentType -- Arrays.copyOf(T[]), toArray(T[]) -- recomputed
+        // with a substring and a locked class-loader lookup on every call. Default 1; "0" is the A/B.
+        internal static readonly bool GetClassFast = SafeGetEnvironmentVariable("IKVM_GETCLASS_FAST") != "0";
+
+        // wasm fork (IKVM_DEFAULT_INLINE, 2026-11-17): a default method whose bytecode is at most this many bytes, with no
+        // exception handlers, gets AggressiveInlining on its static <default> helper (RuntimeByteCodeJavaType.FinishContext),
+        // so the per-implementor forwarder -- `call <default>m` -- carries the body. Without it the helper is usually over
+        // mono's 20-byte inline limit (the lazy-relink hook alone is ~15 IL bytes), and 26.2's LevelHeightAccessor.getMaxY /
+        // getMinSectionY family still cost a call each after RECV_CLASS (`<default>` bodies called 9.7 k a server tick,
+        // findings 2026-11-15 levers2). 35 is HotSpot's MaxInlineSize; 0 = off. Decided when a class is compiled.
+        // DEFAULT 0: as first built (every small helper, relink hook included) it made the forwarders themselves fail to JIT
+        // -- 262n server door_shape 133 -> 8.55 M calls in a 60 s window, server tick +26% cycles / +62% instructions, gone
+        // with "0" (findings 2026-11-17, build 31 bisect). Now restricted to helpers with no relink hook or lazy trampoline,
+        // which is unmeasured.
+        internal static readonly int DefaultInline = ParseInt(SafeGetEnvironmentVariable("IKVM_DEFAULT_INLINE"), 0);
+        internal static readonly bool UnsafeSpanFast = (UnsafeFast & 1) != 0;
+        internal static readonly bool UnsafeCallFast = (UnsafeFast & 2) != 0;
+
         // wasm fork (IKVM_PARK_FAST, 2026-11-05): the server's idle wait between ticks parks ~211 times a tick
         // (LockSupport.parkNanos(100 us)), and each park paid (a) two setBlocker stores through the reflective
         // Unsafe.putReferenceVolatile path -- a catch-when filter, a Dictionary lookup by offset, a delegate into a

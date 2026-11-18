@@ -102,6 +102,7 @@ namespace IKVM.Runtime
             intrinsics.Add(new IntrinsicKey("java.lang.Math", "min", "(FF)F"), Math_min_float);
             intrinsics.Add(new IntrinsicKey("java.lang.Math", "sqrt", "(D)D"), Math_sqrt);
             intrinsics.Add(new IntrinsicKey("java.lang.StrictMath", "sqrt", "(D)D"), Math_sqrt);
+            intrinsics.Add(new IntrinsicKey("java.lang.System", "identityHashCode", "(Ljava.lang.Object;)I"), System_identityHashCode);
             intrinsics.Add(new IntrinsicKey("java.lang.System", "arraycopy", "(Ljava.lang.Object;ILjava.lang.Object;II)V"), System_arraycopy);
             intrinsics.Add(new IntrinsicKey("java.util.concurrent.atomic.AtomicReferenceFieldUpdater", "newUpdater", "(Ljava.lang.Class;Ljava.lang.Class;Ljava.lang.String;)Ljava.util.concurrent.atomic.AtomicReferenceFieldUpdater;"), AtomicReferenceFieldUpdater_newUpdater);
 #if IMPORTER
@@ -607,6 +608,23 @@ namespace IKVM.Runtime
             return true;
         }
 
+        // java.lang.System.identityHashCode -> System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode, which the native
+        // System.identityHashCode extern (Externs/java/lang/System.cs) calls anyway: the JIT inlines its lock-word read
+        // where the call went through IKVM.Java's stub and the extern. Same value, null included (0). Runtime compiler only.
+        static bool System_identityHashCode(EmitIntrinsicContext eic)
+        {
+#if IMPORTER || EXPORTER
+            return false;
+#else
+            var helpers = eic.Method.DeclaringType.Context.Resolver.ResolveCoreType(typeof(System.Runtime.CompilerServices.RuntimeHelpers).FullName).AsReflection();
+            var m = helpers.GetMethod("GetHashCode", new[] { eic.Method.DeclaringType.Context.Types.Object });
+            if (m == null)
+                return false;
+            eic.Emitter.Emit(OpCodes.Call, m);
+            return true;
+#endif
+        }
+
         /// <summary>
         /// Calls to System.arraycopy can be replaced with directly optimized versions.
         /// </summary>
@@ -996,17 +1014,18 @@ namespace IKVM.Runtime
 
         // === off-heap (absolute-address) Unsafe scalar accessors ===
         // The raw address is a native pointer (a wasm linear-memory offset); off-heap memory is
-        // never GC-managed, so the ldind/stind is GC-safe. The managed object+offset form is not
-        // intrinsified here (we fall through so the regular call handles it correctly).
+        // never GC-managed, so the ldind/stind is GC-safe. The managed object+offset form (a base that is not
+        // provably null) is the regular call, or with IKVM_UNSAFE_FAST & 2 a direct call of the extern that call ends in
+        // (EmitUnsafeManagedCall); byte and boolean keep the regular call.
 
         // get<T>(Object o, long address): stack [Unsafe this(2)][Object o(1)][long address(0)].
         // Only fires when o is provably null (the off-heap form); else falls through.
-        static bool EmitUnsafeOffHeapGet(EmitIntrinsicContext eic, OpCode ldind)
+        static bool EmitUnsafeOffHeapGet(EmitIntrinsicContext eic, OpCode ldind, string managed = null)
         {
             if (eic.GetStackTypeWrapper(0, 2) == eic.Context.Context.VerifierJavaTypeFactory.Null)
                 return false; // unknown receiver
             if (eic.GetStackTypeWrapper(0, 1) != eic.Context.Context.VerifierJavaTypeFactory.Null)
-                return false; // managed object+offset form -> let the normal call handle it
+                return managed != null && EmitUnsafeManagedCall(eic, managed); // managed object+offset form
             var addr = eic.Emitter.AllocTempLocal(eic.Method.DeclaringType.Context.Types.Int64);
             eic.Emitter.Emit(OpCodes.Stloc, addr);  // pop address
             eic.Emitter.Emit(OpCodes.Pop);          // pop null object
@@ -1036,12 +1055,12 @@ namespace IKVM.Runtime
         }
 
         // put<T>(Object o, long address, T value): stack [this(3)][o(2)][address(1)][value(0)].
-        static bool EmitUnsafeOffHeapPut(EmitIntrinsicContext eic, Type valueType, OpCode stind)
+        static bool EmitUnsafeOffHeapPut(EmitIntrinsicContext eic, Type valueType, OpCode stind, string managed = null)
         {
             if (eic.GetStackTypeWrapper(0, 3) == eic.Context.Context.VerifierJavaTypeFactory.Null)
                 return false;
             if (eic.GetStackTypeWrapper(0, 2) != eic.Context.Context.VerifierJavaTypeFactory.Null)
-                return false;
+                return managed != null && EmitUnsafeManagedCall(eic, managed); // managed object+offset form
             var val = eic.Emitter.AllocTempLocal(valueType);
             var addr = eic.Emitter.AllocTempLocal(eic.Method.DeclaringType.Context.Types.Int64);
             eic.Emitter.Emit(OpCodes.Stloc, val);   // pop value
@@ -1078,14 +1097,35 @@ namespace IKVM.Runtime
             return true;
         }
 
+        /// <summary>
+        /// IKVM_UNSAFE_FAST &amp; 2 (JVM.cs): the object+offset form of get/put&lt;T&gt;(Object, long[, T]) as one static call
+        /// of ByteCodeHelper.<paramref name="name"/>, whose parameters are the virtual call's receiver and arguments in
+        /// order, so the stack is consumed as it stands; it null-checks the receiver and calls the extern the virtual
+        /// call ends in. Runtime compiler only: the core library is compiled before this existed and is not recompiled.
+        /// </summary>
+        static bool EmitUnsafeManagedCall(EmitIntrinsicContext eic, string name)
+        {
+#if IMPORTER || EXPORTER
+            return false;
+#else
+            if (!JVM.UnsafeCallFast)
+                return false;
+            var helper = eic.Method.DeclaringType.Context.Resolver.ResolveRuntimeType("IKVM.Runtime.ByteCodeHelper").AsReflection().GetMethod(name);
+            if (helper == null)
+                return false;
+            eic.Emitter.Emit(OpCodes.Call, helper);
+            return true;
+#endif
+        }
+
         static bool Unsafe_getByteOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapGet(eic, OpCodes.Ldind_I1);
-        static bool Unsafe_getShortOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapGet(eic, OpCodes.Ldind_I2);
-        static bool Unsafe_getIntOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapGet(eic, OpCodes.Ldind_I4);
-        static bool Unsafe_getLongOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapGet(eic, OpCodes.Ldind_I8);
+        static bool Unsafe_getShortOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapGet(eic, OpCodes.Ldind_I2, "UnsafeGetShort");
+        static bool Unsafe_getIntOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapGet(eic, OpCodes.Ldind_I4, "UnsafeGetInt");
+        static bool Unsafe_getLongOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapGet(eic, OpCodes.Ldind_I8, "UnsafeGetLong");
         static bool Unsafe_putByteOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Int32, OpCodes.Stind_I1);
-        static bool Unsafe_putShortOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Int32, OpCodes.Stind_I2);
-        static bool Unsafe_putIntOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Int32, OpCodes.Stind_I4);
-        static bool Unsafe_putLongOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Int64, OpCodes.Stind_I8);
+        static bool Unsafe_putShortOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Int32, OpCodes.Stind_I2, "UnsafePutShort");
+        static bool Unsafe_putIntOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Int32, OpCodes.Stind_I4, "UnsafePutInt");
+        static bool Unsafe_putLongOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Int64, OpCodes.Stind_I8, "UnsafePutLong");
 
         static bool Unsafe_getByteAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsGet(eic, OpCodes.Ldind_I1);
         static bool Unsafe_getShortAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsGet(eic, OpCodes.Ldind_I2);
@@ -1096,10 +1136,10 @@ namespace IKVM.Runtime
         static bool Unsafe_putIntAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsPut(eic, eic.Method.DeclaringType.Context.Types.Int32, OpCodes.Stind_I4);
         static bool Unsafe_putLongAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsPut(eic, eic.Method.DeclaringType.Context.Types.Int64, OpCodes.Stind_I8);
 
-        static bool Unsafe_getFloatOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapGet(eic, OpCodes.Ldind_R4);
-        static bool Unsafe_getDoubleOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapGet(eic, OpCodes.Ldind_R8);
-        static bool Unsafe_putFloatOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Single, OpCodes.Stind_R4);
-        static bool Unsafe_putDoubleOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Double, OpCodes.Stind_R8);
+        static bool Unsafe_getFloatOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapGet(eic, OpCodes.Ldind_R4, "UnsafeGetFloat");
+        static bool Unsafe_getDoubleOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapGet(eic, OpCodes.Ldind_R8, "UnsafeGetDouble");
+        static bool Unsafe_putFloatOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Single, OpCodes.Stind_R4, "UnsafePutFloat");
+        static bool Unsafe_putDoubleOffHeap(EmitIntrinsicContext eic) => EmitUnsafeOffHeapPut(eic, eic.Method.DeclaringType.Context.Types.Double, OpCodes.Stind_R8, "UnsafePutDouble");
         static bool Unsafe_getFloatAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsGet(eic, OpCodes.Ldind_R4);
         static bool Unsafe_getDoubleAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsGet(eic, OpCodes.Ldind_R8);
         static bool Unsafe_putFloatAbs(EmitIntrinsicContext eic) => EmitUnsafeAbsPut(eic, eic.Method.DeclaringType.Context.Types.Single, OpCodes.Stind_R4);

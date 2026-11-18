@@ -1290,6 +1290,9 @@ namespace IKVM.Runtime
             get;
         }
 
+        // wasm fork (IKVM_GETCLASS_FAST, JVM.cs): an array class's component type, once looked up
+        RuntimeJavaType elementTypeWrapperCache;
+
         internal RuntimeJavaType ElementTypeWrapper
         {
             get
@@ -1302,17 +1305,25 @@ namespace IKVM.Runtime
                     return context.VerifierJavaTypeFactory.Null;
                 }
 
-                // TODO consider caching the element type
                 switch (name[1])
                 {
                     case '[':
-                        // NOTE this call to LoadClassByDottedNameFast can never fail and will not trigger a class load
-                        // (because the ultimate element type was already loaded when this type was created)
-                        return ClassLoader.TryLoadClassByName(name.Substring(1));
                     case 'L':
+                        // The element type of a reference array is looked up by name in this class's loader, a substring
+                        // and a locked dictionary lookup; getComponentType asks on every Arrays.copyOf(T[]) and
+                        // toArray(T[]). The answer cannot change (the element type was loaded when this type was
+                        // created), so it is kept; the benign race stores the same wrapper.
+                        var cached = elementTypeWrapperCache;
+                        if (cached != null)
+                            return cached;
                         // NOTE this call to LoadClassByDottedNameFast can never fail and will not trigger a class load
                         // (because the ultimate element type was already loaded when this type was created)
-                        return ClassLoader.TryLoadClassByName(name.Substring(2, name.Length - 3));
+                        var element = ClassLoader.TryLoadClassByName(name[1] == '[' ? name.Substring(1) : name.Substring(2, name.Length - 3));
+#if !IMPORTER && !EXPORTER
+                        if (JVM.GetClassFast)
+                            elementTypeWrapperCache = element;
+#endif
+                        return element;
                     case 'Z':
                         return context.PrimitiveJavaTypeFactory.BOOLEAN;
                     case 'B':

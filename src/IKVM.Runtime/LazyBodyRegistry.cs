@@ -307,6 +307,51 @@ namespace IKVM.Runtime
         internal static int IndyFailed;           // kept the chain: building the direct target threw
         internal static int IndyInstalled;
 
+        // wasm fork (IKVM_RECORD_UNLOADABLE): ObjectMethods.bootstrap sites (record toString / hashCode / equals) compiled
+        // inline (compiler.ObjectMethods.cs), those of them with a component whose type was unloadable, and the declines by
+        // reason -- a declined site runs the MethodHandle chain on every call. Compile-time counts; "other" is a method
+        // name or type the intrinsic's switch does not take. Refusals before the component loop (a bootstrap argument of
+        // the wrong kind, an unloadable or ghost record class, a getter that is not the record's own field) are not counted.
+        internal const int RecordDeclineUnloadable = 0;
+        internal const int RecordDeclineGhost = 1;
+        internal const int RecordDeclineAccess = 2;
+        internal const int RecordDeclineOther = 3;
+        internal static int RecordInline;
+        internal static int RecordInlineUnloadable;
+        internal static readonly int[] RecordDeclined = new int[4];
+
+        internal static bool NoteRecordInline(RuntimeJavaField[] fields)
+        {
+            var n = Interlocked.Increment(ref RecordInline);
+            foreach (var f in fields)
+            {
+                if (f.FieldTypeWrapper.IsUnloadable)
+                {
+                    Interlocked.Increment(ref RecordInlineUnloadable);
+                    break;
+                }
+            }
+            if ((n & (n - 1)) == 0)
+                ReportRecords();
+            return true;
+        }
+
+        internal static bool NoteRecordDeclined(int reason)
+        {
+            var n = Interlocked.Increment(ref RecordDeclined[reason]);
+            if ((n & (n - 1)) == 0)
+                ReportRecords();
+            return false;
+        }
+
+        internal static void ReportRecords()
+        {
+            if (Enabled == false)
+                return;
+
+            Console.WriteLine($"[IKVM records] inline={RecordInline} (with an unloadable component {RecordInlineUnloadable}) | declined: unloadable={RecordDeclined[RecordDeclineUnloadable]} ghost={RecordDeclined[RecordDeclineGhost]} access={RecordDeclined[RecordDeclineAccess]} other={RecordDeclined[RecordDeclineOther]} (IKVM_RECORD_UNLOADABLE={(JVM.RecordUnloadable ? 1 : 0)})");
+        }
+
         internal static void NoteIndyInstalled()
         {
             var n = Interlocked.Increment(ref IndyInstalled);
