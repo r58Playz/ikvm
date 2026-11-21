@@ -58,9 +58,11 @@ namespace IKVM.Java.Externs.ikvm.runtime
                 var e = System.Threading.Volatile.Read(ref wrapperByConcreteTypeFast[DirectCacheIndex(t.TypeHandle.Value)]);
                 if (e != null && ReferenceEquals(e.Key, t) && e.Class != null)
                     return e.Class;
+                return getClassFromObjectSlow(o);
             }
 
-            return getClassFromObjectSlow(o);
+            // switch off: the path before IKVM_GETCLASS_INLINE, one call (no slow-path frame in between)
+            return GetTypeWrapperFromObject(JVM.Context, o).ClassObject;
 #endif
         }
 
