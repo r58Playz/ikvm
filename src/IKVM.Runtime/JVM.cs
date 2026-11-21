@@ -322,6 +322,15 @@ namespace IKVM.Runtime
         /// </summary>
         internal static readonly bool GetClassInline = SafeGetEnvironmentVariable("IKVM_GETCLASS_INLINE") == "1";
 
+        /// <summary>
+        /// IKVM_CAST_MEMO=1: in a method that reads an erased (retyped) field more than once, each read's cast compares
+        /// the value with the last value this activation cast for that field and skips the castclass when they are the
+        /// same reference (Compiler.EmitRetypedFieldCast). Exact: a hit is a reference already checked against the same
+        /// type; a racing writer's new value misses and is checked. mctick: ~141 k of ~950 k checks a tick re-check a
+        /// re-read field (cast census v3, 2026-11-21). Plan abstract-hatching-stearns L1. Off by default.
+        /// </summary>
+        internal static readonly bool CastMemo = SafeGetEnvironmentVariable("IKVM_CAST_MEMO") == "1";
+
         // wasm fork (IKVM_DEFAULT_INLINE, 2026-11-17): a default method whose bytecode is at most this many bytes, with no
         // exception handlers, gets AggressiveInlining on its static <default> helper (RuntimeByteCodeJavaType.FinishContext),
         // so the per-implementor forwarder -- `call <default>m` -- carries the body. Without it the helper is usually over

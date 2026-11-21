@@ -3851,11 +3851,78 @@ namespace IKVM.Runtime
             if (retyped == null)
                 return;
 
-            retyped.EmitCheckcast(ilGenerator);
+#if !IMPORTER && !EXPORTER
+            var field = JVM.CastMemo ? cpi.GetField() : null;
+            if (field != null && RetypedReadCount(field) >= 2)
+                EmitRetypedFieldCastMemo(field, retyped);
+            else
+#endif
+                retyped.EmitCheckcast(ilGenerator);
             System.Threading.Interlocked.Increment(ref LazyBodyStats.FieldRetyped);
             if (finish.IsLazyRecompile)
                 System.Threading.Interlocked.Increment(ref LazyBodyStats.FieldRetypedGen2);
         }
+
+#if !IMPORTER && !EXPORTER
+        Dictionary<RuntimeJavaField, int> retypedReads;               // IKVM_CAST_MEMO: retyped reads per field, this method
+        Dictionary<RuntimeJavaField, CodeEmitterLocal> retypedMemo;   // ... and each memoized field's last cast value
+
+        /// <summary>
+        /// How many getfield / getstatic of <paramref name="field"/> in this method the analyzer retyped (counted once per
+        /// method, over every instruction: dead ones only overcount).
+        /// </summary>
+        int RetypedReadCount(RuntimeJavaField field)
+        {
+            if (retypedReads == null)
+            {
+                retypedReads = new Dictionary<RuntimeJavaField, int>();
+                for (int i = 0; i < m.Instructions.Length; i++)
+                {
+                    var op = m.Instructions[i].NormalizedOpCode;
+                    if (op != NormalizedByteCode.__getfield && op != NormalizedByteCode.__getstatic)
+                        continue;
+                    var c = classFile.GetFieldref(m.Instructions[i].Arg1);
+                    if (MethodAnalyzer.GetRetypedFieldType(clazz, c) == null)
+                        continue;
+                    var f = c.GetField();
+                    if (f == null)
+                        continue;
+                    retypedReads.TryGetValue(f, out var n);
+                    retypedReads[f] = n + 1;
+                }
+            }
+
+            return retypedReads.TryGetValue(field, out var k) ? k : 0;
+        }
+
+        /// <summary>
+        /// The retyped read's cast through this method's memo for the field: <c>dup; ldloc memo; beq HIT; castclass T;
+        /// dup; stloc memo; br DONE; HIT: pop; ldloc memo; DONE:</c>. A hit is the reference this activation last cast to
+        /// T (the memo starts null, and null passes castclass anyway), so the outcome is the castclass's own.
+        /// </summary>
+        void EmitRetypedFieldCastMemo(RuntimeJavaField field, RuntimeJavaType retyped)
+        {
+            var type = retyped.TypeAsTBD;
+            retypedMemo ??= new Dictionary<RuntimeJavaField, CodeEmitterLocal>();
+            if (retypedMemo.TryGetValue(field, out var memo) == false)
+                retypedMemo[field] = memo = ilGenerator.DeclareLocal(type);
+
+            var hit = ilGenerator.DefineLabel();
+            var done = ilGenerator.DefineLabel();
+            ilGenerator.Emit(OpCodes.Dup);
+            ilGenerator.Emit(OpCodes.Ldloc, memo);
+            ilGenerator.EmitBeq(hit);
+            ilGenerator.EmitCastclass(type);
+            ilGenerator.Emit(OpCodes.Dup);
+            ilGenerator.Emit(OpCodes.Stloc, memo);
+            ilGenerator.EmitBr(done);
+            ilGenerator.MarkLabel(hit);
+            ilGenerator.Emit(OpCodes.Pop);
+            ilGenerator.Emit(OpCodes.Ldloc, memo);
+            ilGenerator.MarkLabel(done);
+            System.Threading.Interlocked.Increment(ref LazyBodyStats.CastMemoSites);
+        }
+#endif
 
         private void DynamicGetPutField(Instruction instr, int i)
         {
