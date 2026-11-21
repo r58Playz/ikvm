@@ -2496,9 +2496,12 @@ namespace IKVM.Runtime
         // intrinsics these bodies expand to (OP_ATOMIC_LOAD_*, OP_ATOMIC_CAS_I4, ...), so inlining one would bail the
         // caller. Drop the attribute once it does.
         // It now does (R360; the 64-bit ones under MONO_WASM_JIT_ATOMIC_I8=1, J1c), so the int / long / reference
-        // VolatileRead / VolatileWrite / CompareAndSwap below are AggressiveInlining (plan abstract-hatching-stearns C2):
-        // inlined, each is one wasm atomic. SHIP WITH MONO_WASM_JIT_ATOMIC_I8=1: without it an inlined 64-bit one is an
-        // icall, which JIT code reaches through the interpreter. The float / double ones keep NoInlining.
+        // VolatileRead / VolatileWrite / CompareAndSwap below are AggressiveInlining (plan abstract-hatching-stearns C2),
+        // and their bodies branch on IKVM_ATOMIC_INLINE (JVM.AtomicInline, static readonly): 1 = the atomic itself,
+        // inlined, one wasm atomic; 0 (default) = a call to the NoInlining *Call twin, today's shape. The switch lives in
+        // the body because java.base's callers are compiled by ikvmc and bake the helper they name. Use 1 only with
+        // MONO_WASM_JIT_ATOMIC_I8=1: without it an inlined 64-bit one is an icall, which JIT code reaches through the
+        // interpreter. The float / double ones keep NoInlining.
 
         /// <summary>
         /// Implements a volatile read against a reference to a bool. In Java, a volatile operation is atomic.
@@ -2631,9 +2634,22 @@ namespace IKVM.Runtime
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            return Volatile.Read(ref location);
+            if (JVM.AtomicInline)
+            {
+                return Volatile.Read(ref location);
+            }
+
+            return VolatileReadCall(ref location);
 #endif
         }
+
+#if !FIRST_PASS && !IMPORTER && !EXPORTER
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static int VolatileReadCall(ref int location)
+        {
+            return Volatile.Read(ref location);
+        }
+#endif
 
         /// <summary>
         /// Implements a volatile write against a reference to a int. In Java, a volatile operation is atomic.
@@ -2646,9 +2662,23 @@ namespace IKVM.Runtime
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            Volatile.Write(ref location, value);
+            if (JVM.AtomicInline)
+            {
+                Volatile.Write(ref location, value);
+                return;
+            }
+
+            VolatileWriteCall(ref location, value);
 #endif
         }
+
+#if !FIRST_PASS && !IMPORTER && !EXPORTER
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void VolatileWriteCall(ref int location, int value)
+        {
+            Volatile.Write(ref location, value);
+        }
+#endif
 
         /// <summary>
         /// Implements a volatile read against a reference to a long. In Java, a volatile operation is atomic.
@@ -2661,12 +2691,28 @@ namespace IKVM.Runtime
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
+            if (JVM.AtomicInline)
+            {
+                // Volatile.Read is atomic for 64-bit values on every platform .NET runs on, and a Java volatile read
+                // needs acquire only (the fence lives on the write, which stays Interlocked.Exchange). The CAS this
+                // replaced turned every read into a locked read-modify-write.
+                return Volatile.Read(ref location);
+            }
+
+            return VolatileReadCall(ref location);
+#endif
+        }
+
+#if !FIRST_PASS && !IMPORTER && !EXPORTER
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static long VolatileReadCall(ref long location)
+        {
             // Volatile.Read is atomic for 64-bit values on every platform .NET runs on, and a Java volatile read
             // needs acquire only (the fence lives on the write, which stays Interlocked.Exchange). The CAS this
             // replaced turned every read into a locked read-modify-write.
             return Volatile.Read(ref location);
-#endif
         }
+#endif
 
         /// <summary>
         /// Implements a volatile write against a reference to a long. In Java, a volatile operation is atomic.
@@ -2679,9 +2725,23 @@ namespace IKVM.Runtime
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            Interlocked.Exchange(ref location, value);
+            if (JVM.AtomicInline)
+            {
+                Interlocked.Exchange(ref location, value);
+                return;
+            }
+
+            VolatileWriteCall(ref location, value);
 #endif
         }
+
+#if !FIRST_PASS && !IMPORTER && !EXPORTER
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void VolatileWriteCall(ref long location, long value)
+        {
+            Interlocked.Exchange(ref location, value);
+        }
+#endif
 
         /// <summary>
         /// Implements a volatile read against a reference to a float. In Java, a volatile operation is atomic.
@@ -2757,9 +2817,22 @@ namespace IKVM.Runtime
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            return Interlocked.CompareExchange(ref location, value, expected) == expected;
+            if (JVM.AtomicInline)
+            {
+                return Interlocked.CompareExchange(ref location, value, expected) == expected;
+            }
+
+            return CompareAndSwapCall(ref location, expected, value);
 #endif
         }
+
+#if !FIRST_PASS && !IMPORTER && !EXPORTER
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static bool CompareAndSwapCall(ref object location, object expected, object value)
+        {
+            return Interlocked.CompareExchange(ref location, value, expected) == expected;
+        }
+#endif
 
         /// <summary>
         /// Implements the compare and swap operation against a reference to an int.
@@ -2774,9 +2847,22 @@ namespace IKVM.Runtime
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            return Interlocked.CompareExchange(ref location, value, expected) == expected;
+            if (JVM.AtomicInline)
+            {
+                return Interlocked.CompareExchange(ref location, value, expected) == expected;
+            }
+
+            return CompareAndSwapCall(ref location, expected, value);
 #endif
         }
+
+#if !FIRST_PASS && !IMPORTER && !EXPORTER
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static bool CompareAndSwapCall(ref int location, int expected, int value)
+        {
+            return Interlocked.CompareExchange(ref location, value, expected) == expected;
+        }
+#endif
 
         /// <summary>
         /// Implements a compare and swap operation against a reference to a long.
@@ -2791,9 +2877,22 @@ namespace IKVM.Runtime
 #if FIRST_PASS || IMPORTER || EXPORTER
             throw new NotImplementedException();
 #else
-            return Interlocked.CompareExchange(ref location, value, expected) == expected;
+            if (JVM.AtomicInline)
+            {
+                return Interlocked.CompareExchange(ref location, value, expected) == expected;
+            }
+
+            return CompareAndSwapCall(ref location, expected, value);
 #endif
         }
+
+#if !FIRST_PASS && !IMPORTER && !EXPORTER
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static bool CompareAndSwapCall(ref long location, long expected, long value)
+        {
+            return Interlocked.CompareExchange(ref location, value, expected) == expected;
+        }
+#endif
 
         /// <summary>
         /// Implements a compare and swap operation against a reference to a double.
