@@ -495,14 +495,27 @@ namespace IKVM.Java.Externs.java.lang
             return currentThread();
         }
 
+        /// <summary>
+        /// Thread.currentThread(): the thread-static read, inlinable (plan abstract-hatching-stearns C5: 7.1 k calls a
+        /// mctick tick were a frame of their own); attaching an unattached thread is out of line.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static global::java.lang.Thread currentThread()
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            return current ?? Attach(null, null, true);
+            return current ?? currentThreadAttach();
 #endif
         }
+
+#if FIRST_PASS == false
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static global::java.lang.Thread currentThreadAttach()
+        {
+            return Attach(null, null, true);
+        }
+#endif
 
         public static void setCurrentThread(global::java.lang.Thread self, global::java.lang.Thread thread)
         {

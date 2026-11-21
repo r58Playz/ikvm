@@ -314,6 +314,14 @@ namespace IKVM.Runtime
         // with a substring and a locked class-loader lookup on every call. Default 1; "0" is the A/B.
         internal static readonly bool GetClassFast = SafeGetEnvironmentVariable("IKVM_GETCLASS_FAST") != "0";
 
+        /// <summary>
+        /// IKVM_GETCLASS_INLINE=1: Object.getClass() answers from the direct-mapped type cache's own Class in an
+        /// AggressiveInlining fast path (Util.getClassFromObject), so a JIT that inlines it makes no call; the slow path
+        /// fills the entry's Class. Off (default): every getClass is a call into GetTypeWrapperFromObject, as before.
+        /// Plan abstract-hatching-stearns C1c.
+        /// </summary>
+        internal static readonly bool GetClassInline = SafeGetEnvironmentVariable("IKVM_GETCLASS_INLINE") == "1";
+
         // wasm fork (IKVM_DEFAULT_INLINE, 2026-11-17): a default method whose bytecode is at most this many bytes, with no
         // exception handlers, gets AggressiveInlining on its static <default> helper (RuntimeByteCodeJavaType.FinishContext),
         // so the per-implementor forwarder -- `call <default>m` -- carries the body. Without it the helper is usually over

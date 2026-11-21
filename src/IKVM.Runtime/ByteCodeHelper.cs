@@ -2495,6 +2495,10 @@ namespace IKVM.Runtime
         // -- a clause method was never inlinable -- because the runtime's wasm JIT does not yet lower the atomic
         // intrinsics these bodies expand to (OP_ATOMIC_LOAD_*, OP_ATOMIC_CAS_I4, ...), so inlining one would bail the
         // caller. Drop the attribute once it does.
+        // It now does (R360; the 64-bit ones under MONO_WASM_JIT_ATOMIC_I8=1, J1c), so the int / long / reference
+        // VolatileRead / VolatileWrite / CompareAndSwap below are AggressiveInlining (plan abstract-hatching-stearns C2):
+        // inlined, each is one wasm atomic. SHIP WITH MONO_WASM_JIT_ATOMIC_I8=1: without it an inlined 64-bit one is an
+        // icall, which JIT code reaches through the interpreter. The float / double ones keep NoInlining.
 
         /// <summary>
         /// Implements a volatile read against a reference to a bool. In Java, a volatile operation is atomic.
@@ -2621,7 +2625,7 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <returns></returns>
-        [MethodImpl(MethodImplOptions.NoInlining)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int VolatileRead(ref int location)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
@@ -2636,7 +2640,7 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <param name="value"></param>
-        [MethodImpl(MethodImplOptions.NoInlining)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void VolatileWrite(ref int location, int value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
@@ -2651,7 +2655,7 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <returns></returns>
-        [MethodImpl(MethodImplOptions.NoInlining)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static long VolatileRead(ref long location)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
@@ -2669,7 +2673,7 @@ namespace IKVM.Runtime
         /// </summary>
         /// <param name="location"></param>
         /// <param name="value"></param>
-        [MethodImpl(MethodImplOptions.NoInlining)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void VolatileWrite(ref long location, long value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
@@ -2747,7 +2751,7 @@ namespace IKVM.Runtime
         /// <param name="expected"></param>
         /// <param name="value"></param>
         /// <returns></returns>
-        [MethodImpl(MethodImplOptions.NoInlining)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool CompareAndSwap(ref object location, object expected, object value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
@@ -2764,7 +2768,7 @@ namespace IKVM.Runtime
         /// <param name="expected"></param>
         /// <param name="value"></param>
         /// <returns></returns>
-        [MethodImpl(MethodImplOptions.NoInlining)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool CompareAndSwap(ref int location, int expected, int value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER
@@ -2781,7 +2785,7 @@ namespace IKVM.Runtime
         /// <param name="expected"></param>
         /// <param name="value"></param>
         /// <returns></returns>
-        [MethodImpl(MethodImplOptions.NoInlining)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool CompareAndSwap(ref long location, long expected, long value)
         {
 #if FIRST_PASS || IMPORTER || EXPORTER

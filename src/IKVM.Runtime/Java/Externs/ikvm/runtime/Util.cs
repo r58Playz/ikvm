@@ -41,14 +41,47 @@ namespace IKVM.Java.Externs.ikvm.runtime
         // contexts are ever used concurrently.
         static readonly ConcurrentDictionary<Type, RuntimeJavaType> wrapperByConcreteType = new ConcurrentDictionary<Type, RuntimeJavaType>();
 
+        /// <summary>
+        /// Object.getClass(). The fast path is small enough to inline into every Java caller, on mono's wasm JIT and on
+        /// RyuJIT alike: the direct-mapped type cache, and the Class the entry holds once a slow call has seen it. An
+        /// entry whose type can carry a ghost tag never holds one (the tag, per object, overrides the type's class).
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         public static global::java.lang.Class getClassFromObject(object o)
         {
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            return GetTypeWrapperFromObject(JVM.Context, o).ClassObject;
+            if (JVM.GetClassInline)
+            {
+                var t = o.GetType();
+                var e = System.Threading.Volatile.Read(ref wrapperByConcreteTypeFast[DirectCacheIndex(t.TypeHandle.Value)]);
+                if (e != null && ReferenceEquals(e.Key, t) && e.Class != null)
+                    return e.Class;
+            }
+
+            return getClassFromObjectSlow(o);
 #endif
         }
+
+#if !FIRST_PASS
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static global::java.lang.Class getClassFromObjectSlow(object o)
+        {
+            var c = GetTypeWrapperFromObject(JVM.Context, o).ClassObject;
+            if (JVM.GetClassInline)
+            {
+                // the entry GetTypeWrapperFromObject left for this type: give it the Class, unless a ghost tag can apply
+                var t = o.GetType();
+                ref var slot = ref wrapperByConcreteTypeFast[DirectCacheIndex(t.TypeHandle.Value)];
+                var e = System.Threading.Volatile.Read(ref slot);
+                if (e != null && ReferenceEquals(e.Key, t) && e.Class == null && e.MayBeGhost == false && ReferenceEquals(e.Value.ClassObject, c))
+                    System.Threading.Volatile.Write(ref slot, new TypeCacheEntry(t, e.Value, false, c));
+            }
+
+            return c;
+        }
+#endif
 
         const int DirectCacheMask = 1023;
 
@@ -64,6 +97,11 @@ namespace IKVM.Java.Externs.ikvm.runtime
             internal readonly Type Key;
             internal readonly RuntimeJavaType Value;
             internal readonly bool MayBeGhost;
+#if !FIRST_PASS
+            /// <summary>Value's Class for getClassFromObject's fast path: null until a slow call sets it, and always null when MayBeGhost.</summary>
+            internal readonly global::java.lang.Class Class;
+            internal TypeCacheEntry(Type key, RuntimeJavaType value, bool mayBeGhost, global::java.lang.Class cls) { Key = key; Value = value; MayBeGhost = mayBeGhost; Class = cls; }
+#endif
             internal TypeCacheEntry(Type key, RuntimeJavaType value, bool mayBeGhost) { Key = key; Value = value; MayBeGhost = mayBeGhost; }
         }
 
