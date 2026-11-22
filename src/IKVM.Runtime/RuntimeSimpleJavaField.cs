@@ -259,17 +259,31 @@ namespace IKVM.Runtime
             else if (FieldTypeWrapper == DeclaringType.Context.PrimitiveJavaTypeFactory.INT)
                 il.Emit(OpCodes.Call, DeclaringType.Context.ByteCodeHelperMethods.VolatileWriteInt);
             else if (FieldTypeWrapper == DeclaringType.Context.PrimitiveJavaTypeFactory.LONG)
+            {
+                // Interlocked.Exchange: seq-cst, no barrier needed after it
                 il.Emit(OpCodes.Call, DeclaringType.Context.ByteCodeHelperMethods.VolatileWriteLong);
+                return;
+            }
             else if (FieldTypeWrapper == DeclaringType.Context.PrimitiveJavaTypeFactory.FLOAT)
                 il.Emit(OpCodes.Call, DeclaringType.Context.ByteCodeHelperMethods.VolatileWriteFloat);
             else if (FieldTypeWrapper == DeclaringType.Context.PrimitiveJavaTypeFactory.DOUBLE)
+            {
+                // Interlocked.Exchange: seq-cst, no barrier needed after it
                 il.Emit(OpCodes.Call, DeclaringType.Context.ByteCodeHelperMethods.VolatileWriteDouble);
+                return;
+            }
             else
             {
                 il.Emit(OpCodes.Volatile);
                 FieldTypeWrapper.EmitStind(il);
                 il.EmitMemoryBarrier();
+                return;
             }
+
+            // wasm fork (plan v3 L2 R1): the bool / byte / char / short / int / float helpers store with Volatile.Write,
+            // which is release-only (a plain store once AOT-compiled; all but int's helper are never inlined), so the
+            // StoreLoad a Java volatile store needs comes from here, as it does for the stind above.
+            il.EmitMemoryBarrier();
         }
 
         protected override void EmitUnsafeCompareAndSwapImpl(CodeEmitter il)

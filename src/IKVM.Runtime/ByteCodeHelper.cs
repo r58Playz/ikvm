@@ -3763,6 +3763,65 @@ namespace IKVM.Runtime
         }
 
         /// <summary>
+        /// wasm fork (plan v3 L6(a)): a call site delegate whose arity passes <see cref="MethodHandleUtil.MaxArity"/> packs
+        /// its trailing arguments into an MHA`8 (nested through t8; MethodHandleUtil.CreateDelegateType). Its arguments
+        /// flattened, as (type, delegate argument, fields to read from it): null when the last parameter packs nothing.
+        /// Entity.checkInsideBlocks' 10-capture lambda kept the whole method-handle chain for this (~1,900 cycles a call).
+        /// </summary>
+        static List<(Type Type, int Arg, FieldInfo[] Path)> FlattenPackedDelegateArgs(ParameterInfo[] dp, RuntimeContext context)
+        {
+            if (dp.Length == 0 || !context.MethodHandleUtil.IsPackedArgsContainer(dp[dp.Length - 1].ParameterType))
+                return null;
+
+            var list = new List<(Type, int, FieldInfo[])>();
+            for (int i = 0; i < dp.Length - 1; i++)
+                list.Add((dp[i].ParameterType, i, Array.Empty<FieldInfo>()));
+
+            var path = new List<FieldInfo>();
+            var t = dp[dp.Length - 1].ParameterType;
+            for (;;)
+            {
+                var ga = t.GetGenericArguments();
+                for (int k = 0; k < 7; k++)
+                {
+                    var f = t.GetField("t" + (k + 1));
+                    if (f == null)
+                        return null;
+                    list.Add((ga[k], dp.Length - 1, new List<FieldInfo>(path) { f }.ToArray()));
+                }
+
+                var f8 = t.GetField("t8");
+                if (f8 == null)
+                    return null;
+                if (!context.MethodHandleUtil.IsPackedArgsContainer(ga[7]))
+                {
+                    list.Add((ga[7], dp.Length - 1, new List<FieldInfo>(path) { f8 }.ToArray()));
+                    return list;
+                }
+
+                path.Add(f8);
+                t = ga[7];
+            }
+        }
+
+        /// <summary>
+        /// Pushes argument <paramref name="i"/> of the thunk's flattened list: the delegate's own argument, or a field read
+        /// out of its packed one (ldfld on the MHA value, so a nested one is read field by field).
+        /// </summary>
+        static void EmitDirectLambdaArg(CodeEmitter ilgen, List<(Type Type, int Arg, FieldInfo[] Path)> flat, int i)
+        {
+            if (flat == null)
+            {
+                ilgen.EmitLdarg(i);
+                return;
+            }
+
+            ilgen.EmitLdarg(flat[i].Arg);
+            foreach (var f in flat[i].Path)
+                ilgen.Emit(OpCodes.Ldfld, f);
+        }
+
+        /// <summary>
         /// The capturing shape: a delegate calling the static factory <paramref name="dmh"/> names, bound straight to it when
         /// the call site's delegate signature is the factory's own, else through a thunk that casts erased arguments.
         /// </summary>
@@ -3797,15 +3856,17 @@ namespace IKVM.Runtime
             var args = mw.GetParameters();
             var ret = mw.ReturnType;
 
-            // a length mismatch means the delegate packs its arguments (arity > MethodHandleUtil.MaxArity)
-            if (dp.Length != args.Length || !CanEmitDirectBinderReturn(ret, invoke.ReturnType, context))
+            // a length mismatch means the delegate packs its arguments (arity > MethodHandleUtil.MaxArity): the thunk
+            // unpacks them (plan v3 L6(a))
+            var flat = dp.Length != args.Length ? FlattenPackedDelegateArgs(dp, context) : null;
+            if ((flat == null ? dp.Length : flat.Count) != args.Length || !CanEmitDirectBinderReturn(ret, invoke.ReturnType, context))
             {
                 Interlocked.Increment(ref LazyBodyStats.IndyRejSig);
                 return null;
             }
             for (int i = 0; i < args.Length; i++)
             {
-                if (!CanEmitDirectBinderConversion(dp[i].ParameterType, args[i]))
+                if (!CanEmitDirectBinderConversion(flat == null ? dp[i].ParameterType : flat[i].Type, args[i]))
                 {
                     Interlocked.Increment(ref LazyBodyStats.IndyRejSig);
                     return null;
@@ -3822,7 +3883,7 @@ namespace IKVM.Runtime
             mw.ResolveMethod();
 
             // the usual case: the site was compiled with every type loadable, so its delegate has the factory's signature
-            if (mw.GetMethod() is MethodInfo mi && HasExactSignature(mi, invoke))
+            if (flat == null && mw.GetMethod() is MethodInfo mi && HasExactSignature(mi, invoke))
             {
                 var bound = Delegate.CreateDelegate(typeof(T), mi, false) as T;
                 if (bound != null)
@@ -3841,8 +3902,8 @@ namespace IKVM.Runtime
             var ilgen = context.CodeEmitterFactory.Create(dm);
             for (int i = 0; i < args.Length; i++)
             {
-                ilgen.EmitLdarg(i);
-                EmitDirectBinderConversion(ilgen, dpTypes[i], args[i]);
+                EmitDirectLambdaArg(ilgen, flat, i);
+                EmitDirectBinderConversion(ilgen, flat == null ? dpTypes[i] : flat[i].Type, args[i]);
             }
 
             mw.EmitCall(ilgen);
@@ -3885,15 +3946,17 @@ namespace IKVM.Runtime
             var dp = invoke.GetParameters();
             var args = mw.GetParameters();
 
-            // a length mismatch means the delegate packs its arguments (arity > MethodHandleUtil.MaxArity)
-            if (dp.Length != args.Length || !CanEmitDirectBinderReturn(tw, invoke.ReturnType, context))
+            // a length mismatch means the delegate packs its arguments (arity > MethodHandleUtil.MaxArity): the thunk
+            // unpacks them (plan v3 L6(a))
+            var flat = dp.Length != args.Length ? FlattenPackedDelegateArgs(dp, context) : null;
+            if ((flat == null ? dp.Length : flat.Count) != args.Length || !CanEmitDirectBinderReturn(tw, invoke.ReturnType, context))
             {
                 Interlocked.Increment(ref LazyBodyStats.IndyRejSig);
                 return null;
             }
             for (int i = 0; i < args.Length; i++)
             {
-                if (!CanEmitDirectBinderConversion(dp[i].ParameterType, args[i]))
+                if (!CanEmitDirectBinderConversion(flat == null ? dp[i].ParameterType : flat[i].Type, args[i]))
                 {
                     Interlocked.Increment(ref LazyBodyStats.IndyRejSig);
                     return null;
@@ -3914,8 +3977,8 @@ namespace IKVM.Runtime
             var ilgen = context.CodeEmitterFactory.Create(dm);
             for (int i = 0; i < args.Length; i++)
             {
-                ilgen.EmitLdarg(i);
-                EmitDirectBinderConversion(ilgen, dpTypes[i], args[i]);
+                EmitDirectLambdaArg(ilgen, flat, i);
+                EmitDirectBinderConversion(ilgen, flat == null ? dpTypes[i] : flat[i].Type, args[i]);
             }
 
             mw.EmitNewobj(ilgen);
