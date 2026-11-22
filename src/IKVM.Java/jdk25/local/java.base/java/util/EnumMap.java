@@ -226,7 +226,8 @@ public class EnumMap<K extends Enum<K>, V> extends AbstractMap<K, V>
      *            key
      */
     public boolean containsKey(Object key) {
-        return isValidKey(key) && vals[((Enum<?>)key).ordinal()] != null;
+        // IKVM: the own-constant test inline, isValidKey (now a call) only for anything else
+        return (isOwnConstant(key) || isValidKey(key)) && vals[((Enum<?>)key).ordinal()] != null;
     }
 
     private boolean containsMapping(Object key, Object value) {
@@ -250,7 +251,8 @@ public class EnumMap<K extends Enum<K>, V> extends AbstractMap<K, V>
      * distinguish these two cases.
      */
     public V get(Object key) {
-        return (isValidKey(key) ?
+        // IKVM: the own-constant test inline, isValidKey (now a call) only for anything else
+        return ((isOwnConstant(key) || isValidKey(key)) ?
                 unmaskNull(vals[((Enum<?>)key).ordinal()]) : null);
     }
 
@@ -291,7 +293,7 @@ public class EnumMap<K extends Enum<K>, V> extends AbstractMap<K, V>
      *     {@code null} with the specified key.)
      */
     public V remove(Object key) {
-        if (!isValidKey(key))
+        if (!isOwnConstant(key) && !isValidKey(key)) // IKVM: as get
             return null;
         int index = ((Enum<?>)key).ordinal();
         Object oldValue = vals[index];
@@ -321,8 +323,6 @@ public class EnumMap<K extends Enum<K>, V> extends AbstractMap<K, V>
         if (key == null)
             return false;
 
-        if (isOwnConstant(key)) // IKVM
-            return true;
         // Cheaper than instanceof Enum followed by getDeclaringClass
         Class<?> keyClass = key.getClass();
         return keyClass == keyType || keyClass.getSuperclass() == keyType;

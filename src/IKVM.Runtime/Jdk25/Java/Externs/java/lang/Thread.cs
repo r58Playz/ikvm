@@ -505,9 +505,7 @@ namespace IKVM.Java.Externs.java.lang
 #if FIRST_PASS
             throw new NotImplementedException();
 #else
-            if (JVM.CurrentThreadInline)
-                return current ?? currentThreadAttach();
-            return currentThreadCall();
+            return current ?? currentThreadAttach();
 #endif
         }
 
@@ -518,12 +516,6 @@ namespace IKVM.Java.Externs.java.lang
             return Attach(null, null, true);
         }
 
-        /// <summary>IKVM_CURRENTTHREAD_INLINE=0: the call, as before.</summary>
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        static global::java.lang.Thread currentThreadCall()
-        {
-            return current ?? Attach(null, null, true);
-        }
 #endif
 
         public static void setCurrentThread(global::java.lang.Thread self, global::java.lang.Thread thread)

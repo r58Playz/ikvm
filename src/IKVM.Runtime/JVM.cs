@@ -339,12 +339,6 @@ namespace IKVM.Runtime
         /// </summary>
         internal static readonly bool AtomicInline = SafeGetEnvironmentVariable("IKVM_ATOMIC_INLINE") == "1";
 
-        /// <summary>
-        /// IKVM_CURRENTTHREAD_INLINE=1: Thread.currentThread() reads the thread-static in its own (AggressiveInlining)
-        /// body; 0 (default): it calls the NoInlining twin, as before. Plan abstract-hatching-stearns C5.
-        /// </summary>
-        internal static readonly bool CurrentThreadInline = SafeGetEnvironmentVariable("IKVM_CURRENTTHREAD_INLINE") == "1";
-
         // wasm fork (IKVM_DEFAULT_INLINE, 2026-11-17): a default method whose bytecode is at most this many bytes, with no
         // exception handlers, gets AggressiveInlining on its static <default> helper (RuntimeByteCodeJavaType.FinishContext),
         // so the per-implementor forwarder -- `call <default>m` -- carries the body. Without it the helper is usually over
