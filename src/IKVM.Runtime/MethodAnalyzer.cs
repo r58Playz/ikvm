@@ -633,7 +633,9 @@ namespace IKVM.Runtime
                                         {
                                             if (cpi.GetMethod() != null && cpi.GetMethod().ReturnType.IsUnloadable)
                                             {
-                                                s.PushType(cpi.GetMethod().ReturnType);
+                                                // wasm fork (plan v3 L6(b)): or the constant pool's now-loadable type, which
+                                                // the compiler casts to (GetRetypedReturnType)
+                                                s.PushType(GetRetypedReturnType(_type, inst.NormalizedOpCode, cpi) ?? cpi.GetMethod().ReturnType);
                                             }
                                             else if (retType == _context.PrimitiveJavaTypeFactory.DOUBLE)
                                             {
@@ -2650,6 +2652,67 @@ namespace IKVM.Runtime
                 return null;
 
             if (field.DeclaringType.ClassLoader != accessor.ClassLoader)
+                return null;
+
+            var element = type.IsArray ? type.GetUltimateElementTypeWrapper() : type;
+            if (element is not RuntimeByteCodeJavaType || element.IsInterface)
+                return null;
+
+            if (element.IsPublic == false && element.ClassLoader != accessor.ClassLoader)
+                return null;
+
+            return type;
+#endif
+        }
+
+        /// <summary>
+        /// wasm fork (plan v3 L6(b), IKVM_LAZY_RETYPE_RET=1): the type the result of a call whose callee's baked return type
+        /// is ERASED (unloadable) is given in place of the erased one, or null to keep it. The compiler casts the result to
+        /// it right after the call (Compiler.EmitRetypedReturnCast), so its consumers take their static forms.
+        /// </summary>
+        /// <remarks>
+        /// GetRetypedFieldType's argument, for a return value: the analyzer and the compiler must decide identically, so
+        /// both call this; the decision does not depend on how PatchInvoke later rewrites the instruction -- a resolved
+        /// method on a loadable class stays a plain invoke, becomes __privileged_* (both accepted here) or a hard error
+        /// (unreachable after it); __dynamic_* needs an unloadable class (refused here). Refused besides: invokespecial
+        /// (the compiler resolves its own target), intrinsics (they emit their own code and skip the return conversion),
+        /// a callee of another loader (the name may mean another class: IKVM checks no loader constraints), and the
+        /// element-type rules of GetRetypedFieldType (a bytecode class, not an interface, visible to the accessor). The
+        /// callee was verified to return its declared type, so the cast rejects nothing Java accepts.
+        /// </remarks>
+        internal static RuntimeJavaType GetRetypedReturnType(RuntimeJavaType accessor, NormalizedByteCode invoke, ClassFile.ConstantPoolItemMI cpi)
+        {
+#if IMPORTER || EXPORTER
+            return null;
+#else
+            if (JVM.LazyRetypeReturns == false)
+                return null;
+
+            switch (invoke)
+            {
+                case NormalizedByteCode.__invokevirtual:
+                case NormalizedByteCode.__invokeinterface:
+                case NormalizedByteCode.__invokestatic:
+                case NormalizedByteCode.__privileged_invokevirtual:
+                case NormalizedByteCode.__privileged_invokestatic:
+                    break;
+                default:
+                    return null;
+            }
+
+            var classType = cpi.GetClassType();
+            if (classType == null || classType.IsUnloadable)
+                return null;
+
+            var mw = cpi.GetMethod();
+            if (mw == null || mw.IsIntrinsic || mw.ReturnType.IsUnloadable == false)
+                return null;
+
+            var type = cpi.GetRetType();
+            if (type == null || type.IsUnloadable || type.IsPrimitive)
+                return null;
+
+            if (mw.DeclaringType.ClassLoader != accessor.ClassLoader)
                 return null;
 
             var element = type.IsArray ? type.GetUltimateElementTypeWrapper() : type;

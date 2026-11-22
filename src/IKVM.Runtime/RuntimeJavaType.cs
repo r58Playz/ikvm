@@ -121,9 +121,39 @@ namespace IKVM.Runtime
             where T : class
         {
 
+#if !FIRST_PASS && !IMPORTER && !EXPORTER
+            /// <summary>
+            /// wasm fork (plan v3 L6(c), IKVM_INSTANCECHECK_MEMO): the exact type of the last instance that passed. In this
+            /// shared generic body `obj is T` is a runtime-generic-context fetch and a type-check helper on mono, while
+            /// GetType() is two loads (the vtable's type); a generation-1 entry check that never relinks (an interface
+            /// default method's: TypedInstance.&lt;default&gt;is, ~70% of ~2.3 k checks a tick on the 26.2 server tick) asks
+            /// with the same exact type every time. Exact: `is T` depends on the exact type alone, and only a type that
+            /// passed is stored. A racing write leaves some passing type or the old one: a miss, never a wrong answer.
+            /// </summary>
+            Type lastPass;
+#endif
+
             internal override Type Type => typeof(T);
 
-            internal override bool IsInstanceOf(object obj) => obj is T;
+            internal override bool IsInstanceOf(object obj)
+            {
+#if !FIRST_PASS && !IMPORTER && !EXPORTER
+                if (JVM.InstanceCheckMemo && obj != null)
+                {
+                    var t = obj.GetType();
+                    if ((object)t == (object)lastPass)
+                        return true;
+                    if (obj is T)
+                    {
+                        lastPass = t;
+                        return true;
+                    }
+
+                    return false;
+                }
+#endif
+                return obj is T;
+            }
 
         }
 

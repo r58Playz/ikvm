@@ -1595,6 +1595,7 @@ namespace IKVM.Runtime
 
                             method.EmitCall(ilGenerator);
                             EmitReturnTypeConversion(method.ReturnType);
+                            EmitRetypedReturnCast(instr.NormalizedOpCode, instr.Arg1);
                             nonleaf = true;
                             break;
                         }
@@ -1872,6 +1873,7 @@ namespace IKVM.Runtime
                                 }
 
                                 EmitReturnTypeConversion(method.ReturnType);
+                                EmitRetypedReturnCast(instr.NormalizedOpCode, instr.Arg1);
                             }
                             break;
                         }
@@ -3845,6 +3847,22 @@ namespace IKVM.Runtime
         /// No store-side counterpart: putfield/putstatic convert to the FIELD's type, which is erased, so a typed value
         /// is stored into the object field as it stands.
         /// </remarks>
+        /// <summary>
+        /// wasm fork (plan v3 L6(b)): casts an erased call result to the type the analyzer gave it
+        /// (MethodAnalyzer.GetRetypedReturnType), once, where it is defined. A null passes it.
+        /// </summary>
+        void EmitRetypedReturnCast(NormalizedByteCode invoke, int constantPoolIndex)
+        {
+            var retyped = MethodAnalyzer.GetRetypedReturnType(clazz, invoke, classFile.GetMethodref(new MethodrefConstantHandle(checked((ushort)constantPoolIndex))));
+            if (retyped == null)
+                return;
+
+            retyped.EmitCheckcast(ilGenerator);
+#if !IMPORTER && !EXPORTER
+            System.Threading.Interlocked.Increment(ref LazyBodyStats.ReturnRetyped);
+#endif
+        }
+
         void EmitRetypedFieldCast(ClassFile.ConstantPoolItemFieldref cpi)
         {
             var retyped = MethodAnalyzer.GetRetypedFieldType(clazz, cpi);

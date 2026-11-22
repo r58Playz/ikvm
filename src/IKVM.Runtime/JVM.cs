@@ -223,6 +223,20 @@ namespace IKVM.Runtime
         // read -3.7% cycles / -4.2% instructions, non-overlapping (R466). "0" is the A/B.
         internal static readonly bool LazyTypeDeps = SafeGetEnvironmentVariable("IKVM_LAZY_TYPEDEPS") != "0";
 
+        // wasm fork (plan v3 L6(b)): the RETURN half of LazyTypeDeps's retyping. A call whose callee's baked signature
+        // erased its return type (the callee's class linked before that type loaded) leaves the value unloadable in the
+        // caller for good, so every consumer casts it again (tickChunk's sections loop: Array, Object[] and
+        // LevelChunkSection at 14-15 k casts a tick each, 2026-11-21 census). With this on, the analyzer types the call's
+        // result with the constant pool's now-loadable type and the compiler casts once, right after the call
+        // (MethodAnalyzer.GetRetypedReturnType; the same restrictions as fields). Candidacy is untouched: a callee return
+        // type still makes no method a relink candidate (compiler.cs, typed-spindle s1's bridge recursion). "1" = on.
+        internal static readonly bool LazyRetypeReturns = SafeGetEnvironmentVariable("IKVM_LAZY_RETYPE_RET") == "1";
+
+        // wasm fork (plan v3 L6(c)): RuntimeJavaType.InstanceCheckOf<T> remembers the exact type of the last instance that
+        // passed, so a dynamic cast or instanceof against a cached check answers a repeated type with two loads instead
+        // of the shared-generic `obj is T`. "1" = on.
+        internal static readonly bool InstanceCheckMemo = SafeGetEnvironmentVariable("IKVM_INSTANCECHECK_MEMO") == "1";
+
         // wasm fork (plan2x F7a): count an unloadable PARAMETER type as a relink dependency. A method whose only
         // unloadable is its own signature was refused as `nodyn`, and so kept generation 1's entry check -- the full
         // dynamic cast chain (DynamicCastResolve + InstanceCheckOf.IsInstanceOf) on every unloadable parameter on
