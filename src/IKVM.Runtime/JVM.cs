@@ -331,27 +331,30 @@ namespace IKVM.Runtime
         /// <summary>
         /// IKVM_GETCLASS_INLINE=1: Object.getClass() answers from the direct-mapped type cache's own Class in an
         /// AggressiveInlining fast path (Util.getClassFromObject), so a JIT that inlines it makes no call; the slow path
-        /// fills the entry's Class. Off (default): every getClass is a call into GetTypeWrapperFromObject, as before.
-        /// Plan abstract-hatching-stearns C1c.
+        /// fills the entry's Class. On by default since 2026-11-22 (M4 findings M3: a bundle with CAST_MEMO, ATOMIC_INLINE
+        /// and the wasm JIT's cast / class-record / inline knobs, mctick -4.8% cycles a tick); "0": every getClass is a
+        /// call into GetTypeWrapperFromObject, as before. Plan abstract-hatching-stearns C1c.
         /// </summary>
-        internal static readonly bool GetClassInline = SafeGetEnvironmentVariable("IKVM_GETCLASS_INLINE") == "1";
+        internal static readonly bool GetClassInline = SafeGetEnvironmentVariable("IKVM_GETCLASS_INLINE") != "0";
 
         /// <summary>
         /// IKVM_CAST_MEMO=1: in a method that reads an erased (retyped) field more than once, each read's cast compares
         /// the value with the last value this activation cast for that field and skips the castclass when they are the
         /// same reference (Compiler.EmitRetypedFieldCast). Exact: a hit is a reference already checked against the same
         /// type; a racing writer's new value misses and is checked. mctick: ~141 k of ~950 k checks a tick re-check a
-        /// re-read field (cast census v3, 2026-11-21). Plan abstract-hatching-stearns L1. Off by default.
+        /// re-read field (cast census v3, 2026-11-21). Plan abstract-hatching-stearns L1. On by default since 2026-11-22
+        /// (the M3 bundle, IKVM_GETCLASS_INLINE); "0" turns it off.
         /// </summary>
-        internal static readonly bool CastMemo = SafeGetEnvironmentVariable("IKVM_CAST_MEMO") == "1";
+        internal static readonly bool CastMemo = SafeGetEnvironmentVariable("IKVM_CAST_MEMO") != "0";
 
         /// <summary>
         /// IKVM_ATOMIC_INLINE=1: ByteCodeHelper's int / long / reference VolatileRead, VolatileWrite and CompareAndSwap do
-        /// the atomic in their own (AggressiveInlining) body, so a JIT that inlines them emits one atomic; 0 (default):
-        /// they call their NoInlining twins, as before. Needs MONO_WASM_JIT_ATOMIC_I8=1 on the wasm JIT. Plan
-        /// abstract-hatching-stearns C2.
+        /// the atomic in their own (AggressiveInlining) body, so a JIT that inlines them emits one atomic; "0": they call
+        /// their NoInlining twins, as before. On by default since 2026-11-22 (the M3 bundle, IKVM_GETCLASS_INLINE), with
+        /// MONO_WASM_JIT_ATOMIC_I8 now on by default too: off there, an inlined 64-bit atomic is an icall through the
+        /// interpreter. Plan abstract-hatching-stearns C2.
         /// </summary>
-        internal static readonly bool AtomicInline = SafeGetEnvironmentVariable("IKVM_ATOMIC_INLINE") == "1";
+        internal static readonly bool AtomicInline = SafeGetEnvironmentVariable("IKVM_ATOMIC_INLINE") != "0";
 
         // wasm fork (IKVM_DEFAULT_INLINE, 2026-11-17): a default method whose bytecode is at most this many bytes, with no
         // exception handlers, gets AggressiveInlining on its static <default> helper (RuntimeByteCodeJavaType.FinishContext),
