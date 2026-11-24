@@ -232,6 +232,19 @@ namespace IKVM.Runtime
         // type still makes no method a relink candidate (compiler.cs, typed-spindle s1's bridge recursion). "1" = on.
         internal static readonly bool LazyRetypeReturns = SafeGetEnvironmentVariable("IKVM_LAZY_RETYPE_RET") == "1";
 
+        // wasm fork: the PARAMETER half of the retyping. A generation-2 body checks each erased (unloadable) parameter once
+        // at entry (Compiler, TryResolveForEntryCheck: `ldarg; castclass T; pop`), but the parameter keeps its erased
+        // type, so every later use casts it again at its consumer (getfield, call arguments, ...). With this on, a
+        // generation-2 compile keeps that entry cast and stores its result in a local typed T, and the analyzer types the
+        // parameter's local slot T from entry (MethodAnalyzer's retypedArgs, handed over by the compiler, so the two
+        // cannot disagree). Only where T is a class or an array of classes accessible from the method's class (every
+        // refusal of TryResolveForEntryCheck stands: ghost, ghost array, value, remapped), never `this`, never a
+        // parameter whose local slot the method ever writes, never in a method with jsr. Counted as argRetyped in the
+        // [IKVM lazybody] eval line (and argRetyped #N lines). jbox2d, R440 protocol, 2026-11-24 (M4, n=3 a side, on first
+        // twice, off first once): 32-63 parameters retyped, and SLOWER, 0.4295-0.4378 ms/step against 0.4152-0.4195 off; unexplained.
+        // Default off; "1" = on.
+        internal static readonly bool LazyRetypeArgs = SafeGetEnvironmentVariable("IKVM_LAZY_RETYPE_ARGS") == "1";
+
         // wasm fork (plan v3 L6(c)): RuntimeJavaType.InstanceCheckOf<T> remembers the exact type of the last instance that
         // passed, so a dynamic cast or instanceof against a cached check answers a repeated type with two loads instead
         // of the shared-generic `obj is T`. "1" = on.

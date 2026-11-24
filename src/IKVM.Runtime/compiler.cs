@@ -60,6 +60,7 @@ namespace IKVM.Runtime
         readonly UntangledExceptionTable exceptions;
         readonly List<string> harderrors;
         readonly LocalVarInfo localVars;
+        readonly CodeEmitterLocal[] retypedArgLocals;    // wasm fork (IKVM_LAZY_RETYPE_ARGS): per parameter, the typed local its entry check stored, or null
         bool nonleaf;
         readonly bool debug;
         readonly bool keepAlive;
@@ -120,9 +121,17 @@ namespace IKVM.Runtime
             // at class-finish time: this runs at first execution, where TryRecompileLazyBody has already
             // relinked the whole constant pool with LoadMode.Link. Anything that still fails to resolve keeps
             // the dynamic form, which is exactly the old behaviour.
+            //
+            // wasm fork (IKVM_LAZY_RETYPE_ARGS=1): on a recompile, a parameter whose entry check resolved to a class keeps
+            // the checked value in a local typed T (retypedArgLocals) instead of popping it, and the analyzer is told the
+            // slot starts as T (retypedArgs), so its uses need no further cast. CanRetypeArg holds the restrictions.
             var args = mw.GetParameters();
+            RuntimeJavaType[] retypedArgs = null;
+            int argLocal = m.IsStatic ? 0 : 1;
             for (int i = 0; i < args.Length; i++)
             {
+                int local = argLocal;
+                argLocal += args[i].IsWidePrimitive ? 2 : 1;
                 if (args[i].IsUnloadable)
                 {
                     var resolved = finish.IsLazyRecompile ? TryResolveForEntryCheck(clazz, args[i]) : null;
@@ -131,7 +140,24 @@ namespace IKVM.Runtime
                         resolved.EmitCheckcast(ilGenerator);
                     else
                         EmitDynamicCast(args[i]);
-                    ilGenerator.Emit(OpCodes.Pop);
+                    if (resolved != null && CanRetypeArg(resolved, local))
+                    {
+                        retypedArgs ??= new RuntimeJavaType[args.Length];
+                        retypedArgLocals ??= new CodeEmitterLocal[args.Length];
+                        retypedArgs[i] = resolved;
+                        retypedArgLocals[i] = ilGenerator.DeclareLocal(GetLocalBuilderType(resolved));
+                        ilGenerator.Emit(OpCodes.Stloc, retypedArgLocals[i]);
+#if !IMPORTER && !EXPORTER
+                        // the eval summary prints only every 1,000 evaluations, which a small program never reaches
+                        var nRetyped = System.Threading.Interlocked.Increment(ref LazyBodyStats.ArgRetyped);
+                        if (nRetyped <= 16 || (nRetyped & (nRetyped - 1)) == 0 || nRetyped % 500 == 0)
+                            Console.WriteLine($"[IKVM lazybody] argRetyped #{nRetyped}: {clazz.Name}.{m.Name}{m.Signature} param {i} as {resolved.Name}");
+#endif
+                    }
+                    else
+                    {
+                        ilGenerator.Emit(OpCodes.Pop);
+                    }
                 }
             }
 
@@ -149,7 +175,7 @@ namespace IKVM.Runtime
                 {
                     JsrInliner.InlineJsrs(classLoader, mw, classFile, m);
                 }
-                MethodAnalyzer verifier = finish.Context.MethodAnalyzerFactory.Create(host, clazz, mw, classFile, m, classLoader);
+                MethodAnalyzer verifier = finish.Context.MethodAnalyzerFactory.Create(host, clazz, mw, classFile, m, classLoader, retypedArgs);
                 exceptions = MethodAnalyzer.UntangleExceptionBlocks(finish.Context, classFile, m);
                 ma = verifier.GetCodeInfoAndErrors(exceptions, out harderrors);
 #if !IMPORTER && !FIRST_PASS
@@ -224,6 +250,19 @@ namespace IKVM.Runtime
                     else
                     {
                         tw = args[arg - 1];
+                    }
+                    int param = m.IsStatic ? arg : arg - 1;
+                    if (retypedArgLocals != null && retypedArgLocals[param] != null)
+                    {
+                        // IKVM_LAZY_RETYPE_ARGS: the entry check already stored the checked value; the slot is never
+                        // written (CanRetypeArg), so this is its only LocalVar and the analyzer typed it as that local
+                        v.builder = retypedArgLocals[param];
+                        if (debug && v.name != null)
+                        {
+                            v.builder.SetLocalSymInfo(v.name);
+                        }
+                        v.isArg = false;
+                        continue;
                     }
                     if (!tw.IsUnloadable && (v.type != tw || tw.TypeAsLocalOrStackType != tw.TypeAsSignatureType))
                     {
@@ -696,6 +735,53 @@ namespace IKVM.Runtime
             var result = new string[dependencies.Count];
             dependencies.CopyTo(result);
             return result;
+        }
+
+        /// <summary>
+        /// wasm fork (IKVM_LAZY_RETYPE_ARGS=1): true if the generation-2 entry check's resolved type <paramref name="resolved"/>
+        /// for the parameter in local slot <paramref name="local"/> may stand for the parameter from entry on.
+        /// </summary>
+        /// <remarks>
+        /// Only called on a recompile (resolved is non-null only then). Refused: an interface or an array of interfaces
+        /// (the verifier treats interfaces as Object, so the slot gains nothing it could rely on), a type not accessible
+        /// from the class (GetLocalBuilderType would widen the local), a method with jsr (the inliner rewrites the code
+        /// after this decision), and any slot the method writes (astore, any other store, iinc or a wide store over it):
+        /// with no store the parameter is the slot's only definition, so the analyzer's type for it is T everywhere and
+        /// LocalVarInfo gives it exactly one LocalVar, the one the compiler maps to the typed local.
+        /// </remarks>
+        bool CanRetypeArg(RuntimeJavaType resolved, int local)
+        {
+            if (JVM.LazyRetypeArgs == false)
+                return false;
+
+            var element = resolved.IsArray ? resolved.GetUltimateElementTypeWrapper() : resolved;
+            if (element.IsInterface || element.IsPrimitive || resolved.IsAccessibleFrom(clazz) == false)
+                return false;
+
+            if (m.HasJsr)
+                return false;
+
+            var code = m.Instructions;
+            for (int i = 0; i < code.Length; i++)
+            {
+                switch (code[i].NormalizedOpCode)
+                {
+                    case NormalizedByteCode.__astore:
+                    case NormalizedByteCode.__istore:
+                    case NormalizedByteCode.__fstore:
+                    case NormalizedByteCode.__iinc:
+                        if (code[i].NormalizedArg1 == local)
+                            return false;
+                        break;
+                    case NormalizedByteCode.__lstore:
+                    case NormalizedByteCode.__dstore:
+                        if (code[i].NormalizedArg1 == local || code[i].NormalizedArg1 + 1 == local)
+                            return false;
+                        break;
+                }
+            }
+
+            return true;
         }
 
         /// <summary>

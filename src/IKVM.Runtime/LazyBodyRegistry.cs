@@ -269,6 +269,7 @@ namespace IKVM.Runtime
         internal static int FieldRetyped;
         internal static int FieldRetypedGen2;
         internal static int ReturnRetyped;       // IKVM_LAZY_RETYPE_RET: call results cast once to their now-loadable type
+        internal static int ArgRetyped;          // IKVM_LAZY_RETYPE_ARGS: erased parameters held in a typed local from the entry check on (counted per compile, including recompiles later declined)
         internal static int CastMemoSites;   // IKVM_CAST_MEMO: retyped field reads compiled through a memo (plan abstract-hatching-stearns L1)
         internal static int PrivilegedDirect;     // wasm fork (R408): privileged invokes compiled as a direct call (IKVM_PRIVILEGED_DIRECT=1)
         internal static int PrivilegedBinder;
@@ -510,7 +511,7 @@ namespace IKVM.Runtime
             if (Enabled == false)
                 return;
 
-            Console.WriteLine($"[IKVM lazybody] eval seen={Seen} accepted={Accepted} opOnly={OperandOnly} typeOnly={TypeOnly} fieldRetyped={FieldRetyped} (gen2 {FieldRetypedGen2}, memo {CastMemoSites}) returnRetyped={ReturnRetyped} nodynSig={NoDynSig} sigOnly={SigOnly} rej: shape={RejShape} nodyn={RejNoDynamic} arity={RejArity} sigAwkward={RejSigAwkward} sigUnloadable={RejSigUnloadable} eh={RejExceptionHandlers}");
+            Console.WriteLine($"[IKVM lazybody] eval seen={Seen} accepted={Accepted} opOnly={OperandOnly} typeOnly={TypeOnly} fieldRetyped={FieldRetyped} (gen2 {FieldRetypedGen2}, memo {CastMemoSites}) returnRetyped={ReturnRetyped} argRetyped={ArgRetyped} nodynSig={NoDynSig} sigOnly={SigOnly} rej: shape={RejShape} nodyn={RejNoDynamic} arity={RejArity} sigAwkward={RejSigAwkward} sigUnloadable={RejSigUnloadable} eh={RejExceptionHandlers}");
             Console.WriteLine($"[IKVM privileged] direct={PrivilegedDirect} binder={PrivilegedBinder} (IKVM_PRIVILEGED_DIRECT={(JVM.PrivilegedDirect ? 1 : 0)}) | default_impl resolved={DefaultImplResolved} unresolved={DefaultImplUnresolved} (IKVM_LAZY_DEFAULT_IMPL={(JVM.LazyDefaultImpl ? 1 : 0)})");
             Console.WriteLine($"[IKVM lazybody] gen2 clean={Gen2Clean} unexpectedDynamic={Gen2UnexpectedDynamic} callerID={Gen2CallerID} depWaits={DependencyWaits} missingSite={MissingBakedSite} bakedLambda={Gen2BakedLambdaSite} cidReal={Gen2CallerIDReal} cidReused={Gen2CallerIDReused} cidForeign={Gen2CallerIDForeign} scratchShared={Gen2ScratchShared} slim={(JVM.LazySlim ? 1 : 0)} released={Released}");
             if (JVM.LazyInPlace)

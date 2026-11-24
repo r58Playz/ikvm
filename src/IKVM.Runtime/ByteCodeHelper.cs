@@ -1309,7 +1309,7 @@ namespace IKVM.Runtime
                         {
                             var n = Interlocked.Increment(ref LazyBodyStats.InPlaceOk);
                             if (n == 1 || n % 250 == 0)
-                                Console.WriteLine($"[IKVM lazybody] inplace ok={n} late={LazyBodyStats.InPlaceLate} declined={LazyBodyStats.InPlaceDeclined} failed={LazyBodyStats.InPlaceFailed} batches={LazyBodyStats.InPlaceBatches}");
+                                Console.WriteLine($"[IKVM lazybody] inplace ok={n} late={LazyBodyStats.InPlaceLate} declined={LazyBodyStats.InPlaceDeclined} failed={LazyBodyStats.InPlaceFailed} batches={LazyBodyStats.InPlaceBatches} argRetyped={LazyBodyStats.ArgRetyped}");
                         }
                         else if (r == 0)
                         {

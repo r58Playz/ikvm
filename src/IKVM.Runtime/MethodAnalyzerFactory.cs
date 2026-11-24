@@ -76,9 +76,9 @@ namespace IKVM.Runtime
         /// <param name="method"></param>
         /// <param name="classLoader"></param>
         /// <returns></returns>
-        public MethodAnalyzer Create(RuntimeJavaType host, RuntimeJavaType wrapper, RuntimeJavaMethod mw, ClassFile classFile, ClassFile.Method method, RuntimeClassLoader classLoader)
+        public MethodAnalyzer Create(RuntimeJavaType host, RuntimeJavaType wrapper, RuntimeJavaMethod mw, ClassFile classFile, ClassFile.Method method, RuntimeClassLoader classLoader, RuntimeJavaType[] retypedArgs = null)
         {
-            return new MethodAnalyzer(_context, host, wrapper, mw, classFile, method, classLoader);
+            return new MethodAnalyzer(_context, host, wrapper, mw, classFile, method, classLoader, retypedArgs);
         }
 
     }

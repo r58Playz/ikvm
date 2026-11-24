@@ -80,7 +80,10 @@ namespace IKVM.Runtime
         /// <param name="classLoader"></param>
         /// <exception cref="VerifyError"></exception>
         /// <exception cref="ClassFormatError"></exception>
-        internal MethodAnalyzer(RuntimeContext context, RuntimeJavaType host, RuntimeJavaType type, RuntimeJavaMethod method, ClassFile classFile, ClassFile.Method classFileMethod, RuntimeClassLoader classLoader) :
+        /// <param name="retypedArgs">wasm fork (IKVM_LAZY_RETYPE_ARGS): per parameter (excluding <c>this</c>), null or the
+        /// type the compiler's entry check casts an erased parameter to and holds it as; the parameter's local slot starts
+        /// with that type instead of the erased one. The compiler decides it and maps the slot to its typed local.</param>
+        internal MethodAnalyzer(RuntimeContext context, RuntimeJavaType host, RuntimeJavaType type, RuntimeJavaMethod method, ClassFile classFile, ClassFile.Method classFileMethod, RuntimeClassLoader classLoader, RuntimeJavaType[] retypedArgs = null) :
             this(context)
         {
             if (classFileMethod.VerifyError != null)
@@ -141,6 +144,8 @@ namespace IKVM.Runtime
             for (int i = 0; i < argTypes.Length; i++)
             {
                 var argType = argTypes[i];
+                if (retypedArgs != null && retypedArgs[i] != null)
+                    argType = retypedArgs[i];
                 if (argType.IsIntOnStackPrimitive)
                     argType = context.PrimitiveJavaTypeFactory.INT;
 
