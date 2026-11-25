@@ -281,6 +281,7 @@ namespace IKVM.Runtime
         internal static int VStoreRtCross;       // ... runtime-checked because the writer is in another loader than the field
         internal static int VStoreRtUnloaded;    // ... runtime-checked because the field's type was not loaded in the writer (of which generation 2: VStoreRtUnloadedGen2)
         internal static int VStoreRtUnloadedGen2;
+        internal static int ArgIfaceSkipped;     // IKVM_LAZY_ARG_IFACE: generation-2 entry checks of erased interface parameters left out
         internal static int CastMemoSites;   // IKVM_CAST_MEMO: retyped field reads compiled through a memo (plan abstract-hatching-stearns L1)
         internal static int PrivilegedDirect;     // wasm fork (R408): privileged invokes compiled as a direct call (IKVM_PRIVILEGED_DIRECT=1)
         internal static int PrivilegedBinder;
@@ -522,7 +523,7 @@ namespace IKVM.Runtime
             if (Enabled == false)
                 return;
 
-            Console.WriteLine($"[IKVM lazybody] eval seen={Seen} accepted={Accepted} opOnly={OperandOnly} typeOnly={TypeOnly} fieldRetyped={FieldRetyped} (gen2 {FieldRetypedGen2}, memo {CastMemoSites}) returnRetyped={ReturnRetyped} argRetyped={ArgRetyped} instrUnchecked={InstrUnchecked} vstore=proven:{VStoreProven}/cast:{VStoreCast}/rt:{VStoreRuntime}/rtcalls:{VStoreRuntimeCalls}/binder:{VStoreBinderCast}/decline:{VStoreBinderDecline}/readElided:{VStoreReadElided}/rtCross:{VStoreRtCross}/rtUnloaded:{VStoreRtUnloaded}(gen2 {VStoreRtUnloadedGen2}) nodynSig={NoDynSig} sigOnly={SigOnly} rej: shape={RejShape} nodyn={RejNoDynamic} arity={RejArity} sigAwkward={RejSigAwkward} sigUnloadable={RejSigUnloadable} eh={RejExceptionHandlers}");
+            Console.WriteLine($"[IKVM lazybody] eval seen={Seen} accepted={Accepted} opOnly={OperandOnly} typeOnly={TypeOnly} fieldRetyped={FieldRetyped} (gen2 {FieldRetypedGen2}, memo {CastMemoSites}) returnRetyped={ReturnRetyped} argRetyped={ArgRetyped} instrUnchecked={InstrUnchecked} vstore=proven:{VStoreProven}/cast:{VStoreCast}/rt:{VStoreRuntime}/rtcalls:{VStoreRuntimeCalls}/binder:{VStoreBinderCast}/decline:{VStoreBinderDecline}/readElided:{VStoreReadElided}/rtCross:{VStoreRtCross}/rtUnloaded:{VStoreRtUnloaded}(gen2 {VStoreRtUnloadedGen2}) argIfaceSkipped={ArgIfaceSkipped} nodynSig={NoDynSig} sigOnly={SigOnly} rej: shape={RejShape} nodyn={RejNoDynamic} arity={RejArity} sigAwkward={RejSigAwkward} sigUnloadable={RejSigUnloadable} eh={RejExceptionHandlers}");
             Console.WriteLine($"[IKVM privileged] direct={PrivilegedDirect} binder={PrivilegedBinder} (IKVM_PRIVILEGED_DIRECT={(JVM.PrivilegedDirect ? 1 : 0)}) | default_impl resolved={DefaultImplResolved} unresolved={DefaultImplUnresolved} (IKVM_LAZY_DEFAULT_IMPL={(JVM.LazyDefaultImpl ? 1 : 0)})");
             Console.WriteLine($"[IKVM lazybody] gen2 clean={Gen2Clean} unexpectedDynamic={Gen2UnexpectedDynamic} callerID={Gen2CallerID} depWaits={DependencyWaits} missingSite={MissingBakedSite} bakedLambda={Gen2BakedLambdaSite} cidReal={Gen2CallerIDReal} cidReused={Gen2CallerIDReused} cidForeign={Gen2CallerIDForeign} scratchShared={Gen2ScratchShared} slim={(JVM.LazySlim ? 1 : 0)} released={Released}");
             if (JVM.LazyInPlace)

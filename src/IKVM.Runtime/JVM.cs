@@ -277,6 +277,13 @@ namespace IKVM.Runtime
         // Fault gate 16 runs, 0 faults. Default 1 since 2026-11-24; "0" = off.
         internal static readonly int LazyVerifyStores = int.TryParse(SafeGetEnvironmentVariable("IKVM_LAZY_VERIFY_STORES"), out var lvs) ? lvs : 1;
 
+        // wasm fork (findings M32): a generation-2 body checks each erased parameter at entry (compiler.cs, TryResolveForEntryCheck +
+        // castclass), interfaces included. HotSpot's verifier treats an interface-typed slot as Object and never checks what it
+        // holds (verificationType.cpp:74-82; a wrong value fails later, at invokeinterface or a checkcast), so for an interface or
+        // interface-array parameter that check is stricter than HotSpot and buys nothing a later use relies on: every use of the
+        // still-erased slot casts. "1" = skip it.
+        internal static readonly bool LazyArgIface = SafeGetEnvironmentVariable("IKVM_LAZY_ARG_IFACE") == "1";
+
         // wasm fork (plan v3 L6(c)): RuntimeJavaType.InstanceCheckOf<T> remembers the exact type of the last instance that
         // passed, so a dynamic cast or instanceof against a cached check answers a repeated type with two loads instead
         // of the shared-generic `obj is T`. "1" = on.

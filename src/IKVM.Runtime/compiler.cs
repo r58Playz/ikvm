@@ -137,6 +137,13 @@ namespace IKVM.Runtime
                     var resolved = finish.IsLazyRecompile ? TryResolveForEntryCheck(clazz, args[i]) : null;
                     bool canRetype = resolved != null && CanRetypeArg(resolved, local);
 #if !IMPORTER && !EXPORTER
+                    // IKVM_LAZY_ARG_IFACE (JVM.cs): HotSpot does not check an interface-typed parameter
+                    if (resolved != null && canRetype == false && JVM.LazyArgIface
+                        && (resolved.IsArray ? resolved.GetUltimateElementTypeWrapper() : resolved).IsInterface)
+                    {
+                        System.Threading.Interlocked.Increment(ref LazyBodyStats.ArgIfaceSkipped);
+                        continue;
+                    }
                     // IKVM_INSTR_ERASED_UNCHECKED (an instrument): no entry check at all, or an unchecked move into the typed local
                     if (resolved != null && canRetype == false && (JVM.InstrErasedUnchecked & 4) != 0 && UncheckedErasedEligible(resolved))
                     {
