@@ -158,7 +158,9 @@ namespace IKVM.Runtime
         // point on CoreCLR). Unset by default; ignored where mono's swap works.
         internal static readonly string LazyRelinkBackend = SafeGetEnvironmentVariable("IKVM_RELINK_BACKEND");
 
-        // Allow <init> to be relinked IN PLACE. DEFAULT OFF until measured.
+        // Allow <init> to be relinked IN PLACE. Default ON since 2026-11-24 (with IKVM_LAZY_VERIFY_STORES, whose erased-field
+        // stores in constructors then compile proven at generation 2 instead of checked: see its numbers); "0" = off. Alone
+        // it was a wash (R280 on x86 1.16.1; mctick 2026-11-24 3.714 against 3.687 ms/tick, n=3 / n=4).
         //
         // The shared candidacy gate rejects <init>/<clinit> because "a constructor's TRAMPOLINE would run
         // before the object is initialised" -- which is correct for TryMoveBodyToHelper, where the body is
@@ -188,7 +190,7 @@ namespace IKVM.Runtime
         // also compiles <clinit>, which must stay exempt. It is static-only IL -- a volatile static
         // read, a branch and a static call -- so it never touches `this` and is legal ahead of the
         // base-constructor call.
-        internal static readonly bool LazyInPlaceCtors = SafeGetEnvironmentVariable("IKVM_LAZY_CTORS") == "1";
+        internal static readonly bool LazyInPlaceCtors = SafeGetEnvironmentVariable("IKVM_LAZY_CTORS") != "0";
 
         // Admit a candidate whose SIGNATURE mentions an unloadable type. Default OFF.
         //
@@ -266,8 +268,14 @@ namespace IKVM.Runtime
         // the declaring loader has it loaded (LinkNoLoad: no new load), else declines to the method-handle path, whose
         // DirectMethodHandle checks. Reflection and VarHandle already check; Unsafe and JNI do not, as in HotSpot. Then the
         // retyped read of an erased class-typed field (same loader as its declaring class) is Unsafe.As<T>. No class is
-        // loaded earlier than today. Counted as vstore= in the [IKVM lazybody] eval line. 0 / unset = off.
-        internal static readonly int LazyVerifyStores = int.TryParse(SafeGetEnvironmentVariable("IKVM_LAZY_VERIFY_STORES"), out var lvs) ? lvs : 0;
+        // loaded earlier than today. Counted as vstore= in the [IKVM lazybody] eval line.
+        // Pays with IKVM_LAZY_CTORS (constructors are the main writers and stay generation 1 without it, so their stores
+        // keep the runtime check): mctick (26.2 server tick, M4, one binary, 2026-11-24, findings M30/M31) defaults 3.773 /
+        // 3.687 ms/tick in two batches, this + LAZY_CTORS 3.632 / 3.641 (-3.7% disjoint, -1.3% overlapping; n=3 / n=4);
+        // this alone -1.2% and +1.2%; jbox2d -0.4%. Positive control (runs/2026-11-24-vstore/pc): a wrong-class store into
+        // an erased field throws ClassCastException at the store (HotSpot: VerifyError at link) instead of being stored.
+        // Fault gate 16 runs, 0 faults. Default 1 since 2026-11-24; "0" = off.
+        internal static readonly int LazyVerifyStores = int.TryParse(SafeGetEnvironmentVariable("IKVM_LAZY_VERIFY_STORES"), out var lvs) ? lvs : 1;
 
         // wasm fork (plan v3 L6(c)): RuntimeJavaType.InstanceCheckOf<T> remembers the exact type of the last instance that
         // passed, so a dynamic cast or instanceof against a cached check answers a repeated type with two loads instead
