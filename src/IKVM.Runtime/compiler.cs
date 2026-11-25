@@ -135,12 +135,26 @@ namespace IKVM.Runtime
                 if (args[i].IsUnloadable)
                 {
                     var resolved = finish.IsLazyRecompile ? TryResolveForEntryCheck(clazz, args[i]) : null;
+                    bool canRetype = resolved != null && CanRetypeArg(resolved, local);
+#if !IMPORTER && !EXPORTER
+                    // IKVM_INSTR_ERASED_UNCHECKED (an instrument): no entry check at all, or an unchecked move into the typed local
+                    if (resolved != null && canRetype == false && JVM.InstrErasedUnchecked && UncheckedErasedEligible(resolved))
+                    {
+                        System.Threading.Interlocked.Increment(ref LazyBodyStats.InstrUnchecked);
+                        continue;
+                    }
+#endif
                     ilGenerator.EmitLdarg(i + (m.IsStatic ? 0 : 1));
                     if (resolved != null)
-                        resolved.EmitCheckcast(ilGenerator);
+                    {
+#if !IMPORTER && !EXPORTER
+                        if (canRetype == false || TryEmitUncheckedErased(resolved) == false)
+#endif
+                            resolved.EmitCheckcast(ilGenerator);
+                    }
                     else
                         EmitDynamicCast(args[i]);
-                    if (resolved != null && CanRetypeArg(resolved, local))
+                    if (canRetype)
                     {
                         retypedArgs ??= new RuntimeJavaType[args.Length];
                         retypedArgLocals ??= new CodeEmitterLocal[args.Length];
@@ -3943,11 +3957,49 @@ namespace IKVM.Runtime
             if (retyped == null)
                 return;
 
-            retyped.EmitCheckcast(ilGenerator);
+#if !IMPORTER && !EXPORTER
+            if (TryEmitUncheckedErased(retyped) == false)
+#endif
+                retyped.EmitCheckcast(ilGenerator);
 #if !IMPORTER && !EXPORTER
             System.Threading.Interlocked.Increment(ref LazyBodyStats.ReturnRetyped);
 #endif
         }
+
+#if !IMPORTER && !EXPORTER
+        static MethodInfo unsafeAsObject;   // System.Runtime.CompilerServices.Unsafe.As<T>(object)
+
+        bool UncheckedErasedEligible(RuntimeJavaType t)
+        {
+            var element = t.IsArray ? t.GetUltimateElementTypeWrapper() : t;
+            return !(element.IsInterface || element.IsPrimitive || t.IsGhost || t.IsGhostArray || t.IsRemapped || element.IsRemapped
+                || t.IsNonPrimitiveValueType || t.IsUnloadable || t.IsAccessibleFrom(clazz) == false);
+        }
+
+        /// <summary>
+        /// IKVM_INSTR_ERASED_UNCHECKED (an instrument that must never ship; JVM.cs has why): emits
+        /// <c>Unsafe.As&lt;T&gt;</c> in place of the checkcast of an erased value to <paramref name="t"/>, and returns true,
+        /// when <paramref name="t"/> is a plain class or an array of one accessible from this class; false (emit the
+        /// checkcast) otherwise.
+        /// </summary>
+        bool TryEmitUncheckedErased(RuntimeJavaType t)
+        {
+            if (JVM.InstrErasedUnchecked == false || UncheckedErasedEligible(t) == false)
+                return false;
+            if (unsafeAsObject == null)
+            {
+                foreach (var mi in typeof(System.Runtime.CompilerServices.Unsafe).GetMethods())
+                    if (mi.Name == "As" && mi.IsGenericMethodDefinition && mi.GetGenericArguments().Length == 1
+                        && mi.GetParameters().Length == 1 && mi.GetParameters()[0].ParameterType == typeof(object))
+                        unsafeAsObject = mi;
+                if (unsafeAsObject == null)
+                    return false;
+            }
+            ilGenerator.Emit(OpCodes.Call, unsafeAsObject.MakeGenericMethod(t.TypeAsTBD));
+            System.Threading.Interlocked.Increment(ref LazyBodyStats.InstrUnchecked);
+            return true;
+        }
+#endif
 
         void EmitRetypedFieldCast(ClassFile.ConstantPoolItemFieldref cpi)
         {
@@ -3956,6 +4008,11 @@ namespace IKVM.Runtime
                 return;
 
 #if !IMPORTER && !EXPORTER
+            if (TryEmitUncheckedErased(retyped))
+            {
+                System.Threading.Interlocked.Increment(ref LazyBodyStats.FieldRetyped);
+                return;
+            }
             var field = JVM.CastMemo ? cpi.GetField() : null;
             if (field != null && RetypedReadCount(field) >= 2)
                 EmitRetypedFieldCastMemo(field, retyped);

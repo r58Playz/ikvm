@@ -245,6 +245,15 @@ namespace IKVM.Runtime
         // Default off; "1" = on.
         internal static readonly bool LazyRetypeArgs = SafeGetEnvironmentVariable("IKVM_LAZY_RETYPE_ARGS") == "1";
 
+        // wasm fork, AN INSTRUMENT THAT MUST NEVER SHIP (plan v2 lever 1a, findings M26): the read-side casts of erased
+        // CLASS types -- retyped field reads, retyped call results, the generation-2 parameter entry check -- become
+        // Unsafe.As<T> (mono: a move typed T, no check). IKVM verifies no store into an erased slot (InstructionState
+        // PopTypeImpl accepts it when either side is unloadable), so these casts are today the only check of what such a
+        // slot holds: with this on, invalid bytecode corrupts memory instead of throwing. It exists to measure the cast
+        // part of lazy linking's residue on bytecode known to be valid (the benchmarks). Interfaces, ghosts and remapped
+        // types keep their casts. "1" = on.
+        internal static readonly bool InstrErasedUnchecked = SafeGetEnvironmentVariable("IKVM_INSTR_ERASED_UNCHECKED") == "1";
+
         // wasm fork (plan v3 L6(c)): RuntimeJavaType.InstanceCheckOf<T> remembers the exact type of the last instance that
         // passed, so a dynamic cast or instanceof against a cached check answers a repeated type with two loads instead
         // of the shared-generic `obj is T`. "1" = on.
