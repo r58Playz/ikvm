@@ -1571,6 +1571,10 @@ namespace IKVM.Runtime
                                 nonleaf = true; // we may trigger a static initializer, which is equivalent to a call
                             RuntimeJavaField field = cpi.GetField();
                             RuntimeJavaType tw = field.FieldTypeWrapper;
+#if !IMPORTER && !EXPORTER
+                            if ((JVM.LazyVerifyStores & 1) != 0 && tw.IsUnloadable)
+                                EmitErasedFieldStoreCheck(cpi, field, ma.GetStackTypeWrapper(i, 0));
+#endif
                             tw.EmitConvStackTypeToSignatureType(ilGenerator, ma.GetStackTypeWrapper(i, 0));
                             if (strictfp)
                             {
@@ -1604,6 +1608,10 @@ namespace IKVM.Runtime
                                 }
                                 ilGenerator.Emit(OpCodes.Ldloc, temp);
                             }
+#if !IMPORTER && !EXPORTER
+                            if ((JVM.LazyVerifyStores & 1) != 0 && tw.IsUnloadable)
+                                EmitErasedFieldStoreCheck(cpi, field, ma.GetStackTypeWrapper(i, 0));
+#endif
                             tw.EmitConvStackTypeToSignatureType(ilGenerator, ma.GetStackTypeWrapper(i, 0));
                             if (strictfp)
                             {
@@ -3984,8 +3992,15 @@ namespace IKVM.Runtime
         /// </summary>
         bool TryEmitUncheckedErased(RuntimeJavaType t, int site)
         {
-            if ((JVM.InstrErasedUnchecked & site) == 0 || UncheckedErasedEligible(t) == false)
+            if ((JVM.InstrErasedUnchecked & site) == 0 || UncheckedErasedEligible(t) == false || EmitUnsafeAs(t) == false)
                 return false;
+            System.Threading.Interlocked.Increment(ref LazyBodyStats.InstrUnchecked);
+            return true;
+        }
+
+        /// <summary>Emits <c>Unsafe.As&lt;T&gt;(object)</c> for <paramref name="t"/>'s CLR type (mono: a move typed T).</summary>
+        bool EmitUnsafeAs(RuntimeJavaType t)
+        {
             if (unsafeAsObject == null)
             {
                 foreach (var mi in typeof(System.Runtime.CompilerServices.Unsafe).GetMethods())
@@ -3996,8 +4011,48 @@ namespace IKVM.Runtime
                     return false;
             }
             ilGenerator.Emit(OpCodes.Call, unsafeAsObject.MakeGenericMethod(t.TypeAsTBD));
-            System.Threading.Interlocked.Increment(ref LazyBodyStats.InstrUnchecked);
             return true;
+        }
+
+        static MethodInfo checkErasedFieldStore;   // ByteCodeHelper.CheckErasedFieldStore, resolved here so ikvmc's helper table is unchanged
+
+        /// <summary>
+        /// IKVM_LAZY_VERIFY_STORES bit 1 (JVM.cs): with the value on top of the stack, proves at compile time that a store
+        /// into the erased field <paramref name="field"/> puts a value of its declared type there, or emits the check at the
+        /// store. Proven: a null value; writer and field in one loader with the declared type loaded and either an interface
+        /// (array) or Object -- HotSpot's verifier does not check those either -- or a loaded value type assignable to it.
+        /// Otherwise a castclass (same loader, type loaded) or ByteCodeHelper.CheckErasedFieldStore, which resolves the type
+        /// through the declaring class's loader at execution (a cross-loader writer, or a type not loaded when this compiled).
+        /// The value stays on the stack.
+        /// </summary>
+        void EmitErasedFieldStoreCheck(ClassFile.ConstantPoolItemFieldref cpi, RuntimeJavaField field, RuntimeJavaType value)
+        {
+            if (value == finish.Context.VerifierJavaTypeFactory.Null)
+            {
+                System.Threading.Interlocked.Increment(ref LazyBodyStats.VStoreProven);
+                return;
+            }
+            var declared = cpi.GetFieldType();
+            var sameLoader = field.DeclaringType.ClassLoader == clazz.ClassLoader;
+            if (sameLoader && declared != null && declared.IsUnloadable == false && declared.IsPrimitive == false)
+            {
+                var element = declared.IsArray ? declared.GetUltimateElementTypeWrapper() : declared;
+                if (element.IsInterface || declared == finish.Context.JavaBase.TypeOfJavaLangObject
+                    || (value.IsUnloadable == false && value.IsPrimitive == false && value.IsAssignableTo(declared)))
+                {
+                    System.Threading.Interlocked.Increment(ref LazyBodyStats.VStoreProven);
+                    return;
+                }
+                declared.EmitCheckcast(ilGenerator);
+                System.Threading.Interlocked.Increment(ref LazyBodyStats.VStoreCast);
+                return;
+            }
+            checkErasedFieldStore ??= typeof(ByteCodeHelper).GetMethod("CheckErasedFieldStore");
+            ilGenerator.Emit(OpCodes.Dup);
+            field.DeclaringType.EmitClassLiteral(ilGenerator);
+            ilGenerator.Emit(OpCodes.Ldstr, field.FieldTypeWrapper.Name);
+            ilGenerator.Emit(OpCodes.Call, checkErasedFieldStore);
+            System.Threading.Interlocked.Increment(ref LazyBodyStats.VStoreRuntime);
         }
 #endif
 
@@ -4011,6 +4066,14 @@ namespace IKVM.Runtime
             if (TryEmitUncheckedErased(retyped, 1))
             {
                 System.Threading.Interlocked.Increment(ref LazyBodyStats.FieldRetyped);
+                return;
+            }
+            // IKVM_LAZY_VERIFY_STORES bit 1: every store into this field was proven or checked (EmitErasedFieldStoreCheck),
+            // and GetRetypedFieldType admits only a reader in the field's declaring loader and a class (not interface) type
+            if ((JVM.LazyVerifyStores & 1) != 0 && UncheckedErasedEligible(retyped) && EmitUnsafeAs(retyped))
+            {
+                System.Threading.Interlocked.Increment(ref LazyBodyStats.FieldRetyped);
+                System.Threading.Interlocked.Increment(ref LazyBodyStats.VStoreReadElided);
                 return;
             }
             var field = JVM.CastMemo ? cpi.GetField() : null;

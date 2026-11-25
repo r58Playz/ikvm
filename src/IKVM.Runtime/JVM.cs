@@ -255,6 +255,20 @@ namespace IKVM.Runtime
         // three before 2026-11-24 evening, so 7 is that. 0 / unset = off.
         internal static readonly int InstrErasedUnchecked = int.TryParse(SafeGetEnvironmentVariable("IKVM_INSTR_ERASED_UNCHECKED"), out var ieu) ? ieu : 0;
 
+        // wasm fork (plan v2 lever 1b, findings M26/M27): HotSpot's invariant for erased slots, so their reads need no cast.
+        // HotSpot checks a typed slot only at the store, in the verifier of the STORING class (loading the slot's class
+        // through that class's loader); IKVM's verifier accepts a store into an erased slot unchecked, which is why every
+        // read of one casts. Bit 1, FIELDS: every putfield / putstatic into a field whose baked type is erased either is
+        // proven at compile time (writer and field share a loader, both types loaded, value assignable, or the target is an
+        // interface / Object, which HotSpot does not check either) or checks the value at the store -- a castclass, or
+        // ByteCodeHelper.CheckErasedFieldStore resolving the type through the DECLARING class's loader (cross-loader writers,
+        // types still unloaded at compile time); generation 1's direct binder for a dynamic putfield casts to the type when
+        // the declaring loader has it loaded (LinkNoLoad: no new load), else declines to the method-handle path, whose
+        // DirectMethodHandle checks. Reflection and VarHandle already check; Unsafe and JNI do not, as in HotSpot. Then the
+        // retyped read of an erased class-typed field (same loader as its declaring class) is Unsafe.As<T>. No class is
+        // loaded earlier than today. Counted as vstore= in the [IKVM lazybody] eval line. 0 / unset = off.
+        internal static readonly int LazyVerifyStores = int.TryParse(SafeGetEnvironmentVariable("IKVM_LAZY_VERIFY_STORES"), out var lvs) ? lvs : 0;
+
         // wasm fork (plan v3 L6(c)): RuntimeJavaType.InstanceCheckOf<T> remembers the exact type of the last instance that
         // passed, so a dynamic cast or instanceof against a cached check answers a repeated type with two loads instead
         // of the shared-generic `obj is T`. "1" = on.

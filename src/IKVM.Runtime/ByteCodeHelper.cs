@@ -365,6 +365,29 @@ namespace IKVM.Runtime
 #endif
         }
 
+        /// <summary>
+        /// wasm fork (IKVM_LAZY_VERIFY_STORES bit 1, JVM.cs): checks a value stored into a field whose baked type is erased,
+        /// against the field's declared type resolved through the field's DECLARING class's loader. An interface (or array
+        /// of interfaces) target accepts any reference, as HotSpot's verifier does. A null value is not checked and loads
+        /// nothing; a non-null value of a class assignable to the type means the type is already loaded.
+        /// </summary>
+        public static void CheckErasedFieldStore(object value, global::java.lang.Class declaringClass, string fieldTypeName)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            if (value == null)
+                return;
+            System.Threading.Interlocked.Increment(ref LazyBodyStats.VStoreRuntimeCalls);
+            var tw = RuntimeJavaType.FromClass(declaringClass).ClassLoader.LoadClassByName(fieldTypeName);
+            var element = tw.IsArray ? tw.GetUltimateElementTypeWrapper() : tw;
+            if (element.IsInterface)
+                return;
+            if (!tw.DynamicIsInstance(value))
+                DynamicCastFailed(value, tw.ClassObject);
+#endif
+        }
+
         [DebuggerStepThrough]
         public static object DynamicCast(object obj, global::java.lang.Class clazz)
         {
@@ -1837,6 +1860,23 @@ namespace IKVM.Runtime
                         return null;
                     hasReceiver = !isStaticKind;
                     args = isPut ? new[] { fw.FieldTypeWrapper } : Array.Empty<RuntimeJavaType>();
+                    // IKVM_LAZY_VERIFY_STORES bit 1: a store into an erased field is checked against its real type, which
+                    // must already be loaded in the declaring loader (no new load here); else the method-handle path checks
+                    if (isPut && (JVM.LazyVerifyStores & 1) != 0 && fw.FieldTypeWrapper.IsUnloadable)
+                    {
+                        var real = fw.DeclaringType.ClassLoader.LoadClass(fw.FieldTypeWrapper.Name, LoadMode.LinkNoLoad);
+                        if (real == null || real.IsUnloadable || real.IsGhost || real.IsGhostArray || real.IsNonPrimitiveValueType)
+                        {
+                            System.Threading.Interlocked.Increment(ref LazyBodyStats.VStoreBinderDecline);
+                            return null;
+                        }
+                        var realElement = real.IsArray ? real.GetUltimateElementTypeWrapper() : real;
+                        if (realElement.IsInterface == false)
+                        {
+                            args = new[] { real };
+                            System.Threading.Interlocked.Increment(ref LazyBodyStats.VStoreBinderCast);
+                        }
+                    }
                     ret = isPut ? context.PrimitiveJavaTypeFactory.VOID : fw.FieldTypeWrapper;
                     break;
                 default:
