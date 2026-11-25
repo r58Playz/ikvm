@@ -251,8 +251,9 @@ namespace IKVM.Runtime
         // PopTypeImpl accepts it when either side is unloadable), so these casts are today the only check of what such a
         // slot holds: with this on, invalid bytecode corrupts memory instead of throwing. It exists to measure the cast
         // part of lazy linking's residue on bytecode known to be valid (the benchmarks). Interfaces, ghosts and remapped
-        // types keep their casts. "1" = on.
-        internal static readonly bool InstrErasedUnchecked = SafeGetEnvironmentVariable("IKVM_INSTR_ERASED_UNCHECKED") == "1";
+        // types keep their casts. A bit mask: 1 field reads, 2 call results, 4 parameter entry checks; "1" alone was all
+        // three before 2026-11-24 evening, so 7 is that. 0 / unset = off.
+        internal static readonly int InstrErasedUnchecked = int.TryParse(SafeGetEnvironmentVariable("IKVM_INSTR_ERASED_UNCHECKED"), out var ieu) ? ieu : 0;
 
         // wasm fork (plan v3 L6(c)): RuntimeJavaType.InstanceCheckOf<T> remembers the exact type of the last instance that
         // passed, so a dynamic cast or instanceof against a cached check answers a repeated type with two loads instead

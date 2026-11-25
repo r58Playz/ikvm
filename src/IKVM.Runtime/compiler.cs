@@ -138,7 +138,7 @@ namespace IKVM.Runtime
                     bool canRetype = resolved != null && CanRetypeArg(resolved, local);
 #if !IMPORTER && !EXPORTER
                     // IKVM_INSTR_ERASED_UNCHECKED (an instrument): no entry check at all, or an unchecked move into the typed local
-                    if (resolved != null && canRetype == false && JVM.InstrErasedUnchecked && UncheckedErasedEligible(resolved))
+                    if (resolved != null && canRetype == false && (JVM.InstrErasedUnchecked & 4) != 0 && UncheckedErasedEligible(resolved))
                     {
                         System.Threading.Interlocked.Increment(ref LazyBodyStats.InstrUnchecked);
                         continue;
@@ -148,7 +148,7 @@ namespace IKVM.Runtime
                     if (resolved != null)
                     {
 #if !IMPORTER && !EXPORTER
-                        if (canRetype == false || TryEmitUncheckedErased(resolved) == false)
+                        if (canRetype == false || TryEmitUncheckedErased(resolved, 4) == false)
 #endif
                             resolved.EmitCheckcast(ilGenerator);
                     }
@@ -3958,7 +3958,7 @@ namespace IKVM.Runtime
                 return;
 
 #if !IMPORTER && !EXPORTER
-            if (TryEmitUncheckedErased(retyped) == false)
+            if (TryEmitUncheckedErased(retyped, 2) == false)
 #endif
                 retyped.EmitCheckcast(ilGenerator);
 #if !IMPORTER && !EXPORTER
@@ -3982,9 +3982,9 @@ namespace IKVM.Runtime
         /// when <paramref name="t"/> is a plain class or an array of one accessible from this class; false (emit the
         /// checkcast) otherwise.
         /// </summary>
-        bool TryEmitUncheckedErased(RuntimeJavaType t)
+        bool TryEmitUncheckedErased(RuntimeJavaType t, int site)
         {
-            if (JVM.InstrErasedUnchecked == false || UncheckedErasedEligible(t) == false)
+            if ((JVM.InstrErasedUnchecked & site) == 0 || UncheckedErasedEligible(t) == false)
                 return false;
             if (unsafeAsObject == null)
             {
@@ -4008,7 +4008,7 @@ namespace IKVM.Runtime
                 return;
 
 #if !IMPORTER && !EXPORTER
-            if (TryEmitUncheckedErased(retyped))
+            if (TryEmitUncheckedErased(retyped, 1))
             {
                 System.Threading.Interlocked.Increment(ref LazyBodyStats.FieldRetyped);
                 return;
