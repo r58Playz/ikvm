@@ -4014,15 +4014,16 @@ namespace IKVM.Runtime
             return true;
         }
 
-        static MethodInfo checkErasedFieldStore;   // ByteCodeHelper.CheckErasedFieldStore, resolved here so ikvmc's helper table is unchanged
+        static MethodInfo checkErasedFieldStore;   // ByteCodeHelper.CheckErasedFieldStoreResolve, resolved here so ikvmc's helper table is unchanged
 
         /// <summary>
         /// IKVM_LAZY_VERIFY_STORES bit 1 (JVM.cs): with the value on top of the stack, proves at compile time that a store
         /// into the erased field <paramref name="field"/> puts a value of its declared type there, or emits the check at the
         /// store. Proven: a null value; writer and field in one loader with the declared type loaded and either an interface
         /// (array) or Object -- HotSpot's verifier does not check those either -- or a loaded value type assignable to it.
-        /// Otherwise a castclass (same loader, type loaded) or ByteCodeHelper.CheckErasedFieldStore, which resolves the type
-        /// through the declaring class's loader at execution (a cross-loader writer, or a type not loaded when this compiled).
+        /// Otherwise a castclass (same loader, type loaded) or a cached dynamic check whose first execution resolves the type
+        /// through the declaring class's loader (ByteCodeHelper.CheckErasedFieldStoreResolve: a cross-loader writer, or a type
+        /// not loaded when this compiled).
         /// The value stays on the stack.
         /// </summary>
         void EmitErasedFieldStoreCheck(ClassFile.ConstantPoolItemFieldref cpi, RuntimeJavaField field, RuntimeJavaType value)
@@ -4047,11 +4048,51 @@ namespace IKVM.Runtime
                 System.Threading.Interlocked.Increment(ref LazyBodyStats.VStoreCast);
                 return;
             }
-            checkErasedFieldStore ??= typeof(ByteCodeHelper).GetMethod("CheckErasedFieldStore");
+            {
+                int n;
+                if (sameLoader == false)
+                    n = System.Threading.Interlocked.Increment(ref LazyBodyStats.VStoreRtCross);
+                else
+                {
+                    n = System.Threading.Interlocked.Increment(ref LazyBodyStats.VStoreRtUnloaded);
+                    if (finish.IsLazyRecompile)
+                        System.Threading.Interlocked.Increment(ref LazyBodyStats.VStoreRtUnloadedGen2);
+                }
+                if (n <= 6)
+                    Console.WriteLine($"[IKVM vstore] runtime #{n} {(sameLoader ? "unloaded" : "cross")}{(finish.IsLazyRecompile ? " gen2" : "")}: {clazz.Name}.{m.Name} -> {field.DeclaringType.Name}.{field.Name} ({field.FieldTypeWrapper.Name}; writer sees {(declared == null ? "null" : declared.IsUnloadable ? "unloadable" : declared.Name)}; loaders {clazz.ClassLoader.GetType().Name}/{field.DeclaringType.ClassLoader.GetType().Name})");
+            }
+            // EmitDynamicCast's shape: a null passes and loads nothing; else the site's cached InstanceCheck, resolved once
+            checkErasedFieldStore ??= typeof(ByteCodeHelper).GetMethod("CheckErasedFieldStoreResolve");
+            var ok = ilGenerator.DefineLabel();
+            var fast = ilGenerator.DefineLabel();
+            var done = ilGenerator.DefineLabel();
             ilGenerator.Emit(OpCodes.Dup);
+            ilGenerator.EmitBrfalse(ok);
+            var cache = finish.DefineDynamicInstanceCheckCacheField();
+            var obj = ilGenerator.AllocTempLocal(finish.Context.Types.Object);
+            ilGenerator.Emit(OpCodes.Stloc, obj);
+            ilGenerator.Emit(OpCodes.Ldsfld, cache);
+            ilGenerator.EmitBrtrue(fast);
+            ilGenerator.Emit(OpCodes.Ldloc, obj);
             field.DeclaringType.EmitClassLiteral(ilGenerator);
             ilGenerator.Emit(OpCodes.Ldstr, field.FieldTypeWrapper.Name);
+            ilGenerator.Emit(OpCodes.Ldsflda, cache);
             ilGenerator.Emit(OpCodes.Call, checkErasedFieldStore);
+            ilGenerator.EmitBr(done);
+            ilGenerator.MarkLabel(fast);
+            ilGenerator.Emit(OpCodes.Ldsfld, cache);
+            ilGenerator.Emit(OpCodes.Ldloc, obj);
+            ilGenerator.Emit(OpCodes.Call, finish.Context.ByteCodeHelperMethods.InstanceCheckIsInstanceOf);
+            ilGenerator.EmitBrtrue(done);
+            ilGenerator.Emit(OpCodes.Ldloc, obj);
+            field.DeclaringType.EmitClassLiteral(ilGenerator);
+            ilGenerator.Emit(OpCodes.Ldstr, field.FieldTypeWrapper.Name);
+            ilGenerator.Emit(OpCodes.Ldsflda, cache);
+            ilGenerator.Emit(OpCodes.Call, checkErasedFieldStore);   // throws: the cached check failed
+            ilGenerator.MarkLabel(done);
+            ilGenerator.Emit(OpCodes.Ldloc, obj);
+            ilGenerator.ReleaseTempLocal(obj);
+            ilGenerator.MarkLabel(ok);
             System.Threading.Interlocked.Increment(ref LazyBodyStats.VStoreRuntime);
         }
 #endif

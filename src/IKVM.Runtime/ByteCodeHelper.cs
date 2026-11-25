@@ -388,6 +388,35 @@ namespace IKVM.Runtime
 #endif
         }
 
+        /// <summary>
+        /// The resolving slow path of an IKVM_LAZY_VERIFY_STORES store check (Compiler.EmitErasedFieldStoreCheck): checks
+        /// <paramref name="value"/> (not null) as CheckErasedFieldStore does and publishes the call site's InstanceCheck --
+        /// the type's, or java.lang.Object's for an interface target, which accepts any reference -- so later executions test
+        /// the cache and never come here unless the test fails (then this throws).
+        /// </summary>
+        public static void CheckErasedFieldStoreResolve(object value, global::java.lang.Class declaringClass, string fieldTypeName, ref object cache)
+        {
+#if FIRST_PASS
+            throw new NotImplementedException();
+#else
+            System.Threading.Interlocked.Increment(ref LazyBodyStats.VStoreRuntimeCalls);
+            var tw = RuntimeJavaType.FromClass(declaringClass).ClassLoader.LoadClassByName(fieldTypeName);
+            var element = tw.IsArray ? tw.GetUltimateElementTypeWrapper() : tw;
+            if (element.IsInterface)
+            {
+                var any = JVM.Context.JavaBase.TypeOfJavaLangObject.DynamicInstanceCheck;
+                if (any != null)
+                    Volatile.Write(ref cache, any);
+                return;
+            }
+            var check = tw.DynamicInstanceCheck;
+            if (check != null)
+                Volatile.Write(ref cache, check);
+            if (!tw.DynamicIsInstance(value))
+                DynamicCastFailed(value, tw.ClassObject);
+#endif
+        }
+
         [DebuggerStepThrough]
         public static object DynamicCast(object obj, global::java.lang.Class clazz)
         {
