@@ -319,6 +319,12 @@ namespace IKVM.Runtime
         // -2.3%, all disjoint. "0" is the A/B.
         internal static readonly bool LazyDefaultImpl = SafeGetEnvironmentVariable("IKVM_LAZY_DEFAULT_IMPL") != "0";
 
+        // wasm fork (findings M61): when several `<default>` helpers of one name have the same parameter types after erasure
+        // (overloads differing only in an unloadable parameter's class), RelinkTarget picks the one whose MethodDef token is
+        // the helper's own. Without it the match is ambiguous, the relink is dropped, and the helper keeps generation 1.
+        // Default off; "1" = on.
+        internal static readonly bool LazyDefaultImplToken = SafeGetEnvironmentVariable("IKVM_LAZY_DEFAULT_TOKEN") == "1";
+
         // wasm fork (IKVM_INDY_DIRECT): link an invokedynamic whose bootstrap is LambdaMetafactory.metafactory/altMetafactory
         // -- a site IKVM's own LambdaMetafactory.Emit refused, which therefore runs the stock InnerClassLambdaMetafactory --
         // to a DIRECT target instead of to the CallSite's MethodHandle (ByteCodeHelper.TryCreateDirectLambdaCallSite). That

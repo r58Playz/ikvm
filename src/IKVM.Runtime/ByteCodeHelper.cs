@@ -1417,8 +1417,12 @@ namespace IKVM.Runtime
             }
             if (mw.HasCallerID)
                 types[types.Length - 1] = mw.DeclaringType.Context.JavaBase.TypeOfIkvmInternalCallerID.TypeAsSignatureType;
-            MethodInfo found = null;
+            // Overloads whose parameters erase to the same type (TypedInstance.is(TagKey) / is(HolderSet) / is(T): all
+            // `object`, told apart only by the unloadable modopt, which ParameterType does not carry) match by types
+            // alike; with IKVM_LAZY_DEFAULT_TOKEN the helper's own MethodDef token tells them apart (JVM.LazyDefaultImplToken).
+            MethodInfo found = null, byToken = null;
             int n = 0;
+            int token = mb.MetadataToken;
             foreach (var m in mw.DeclaringType.TypeAsTBD.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly))
             {
                 if (m.Name != mb.Name)
@@ -1429,7 +1433,13 @@ namespace IKVM.Runtime
                 var same = true;
                 for (int i = 0; i < ps.Length && same; i++)
                     same = ps[i].ParameterType == types[i];
-                if (same) { found = m; n++; }
+                if (same) { found = m; n++; if (m.MetadataToken == token) byToken = m; }
+            }
+            if (n > 1 && byToken != null && JVM.LazyDefaultImplToken)
+            {
+                Interlocked.Increment(ref LazyBodyStats.DefaultImplByToken);
+                found = byToken;
+                n = 1;
             }
             if (n != 1)
             {
