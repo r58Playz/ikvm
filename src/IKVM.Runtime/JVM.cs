@@ -128,6 +128,18 @@ namespace IKVM.Runtime
         /// </summary>
         internal static readonly int ArraycopyLoop = ParseInt(SafeGetEnvironmentVariable("IKVM_ARRAYCOPY_LOOP"), 64);
 
+        /// <summary>
+        /// IKVM_ARRAYCOPY_NOEH (wasm fork, findings M68): ByteCodeHelper.arraycopy carries no exception clause; its
+        /// clause-bearing fallback paths are ByteCodeHelper.ArraycopySlow. To mono a method with a clause is an EH method,
+        /// which it does not inline and which pays a per-activation EH record and per-block IL-offset stores, so every
+        /// System.arraycopy paid that. The knob picks which of two identical copies of the reference-array path arraycopy
+        /// calls: the clause-free one, or with "0" one wrapped in a try / catch that never fires (the A/B arm that keeps the
+        /// EH cost). mctick (26.2 server tick, M4, one DLL, 2026-11-26, both orders, n=6 a side): 3.540 against 3.447
+        /// ms/tick, -2.6% (one order disjoint, the other overlapping at one run); jbox2d level (0.3488 vs 0.3476, n=4):
+        /// its sort's copies cost the copying, not the frame. Default on since 2026-11-26.
+        /// </summary>
+        internal static readonly bool ArraycopyNoEh = SafeGetEnvironmentVariable("IKVM_ARRAYCOPY_NOEH") != "0";
+
         // Cap on successful recompiles (0 = unlimited). Used to bisect a recompile-induced fault down to the
         // first N methods.
         internal static readonly int LazyRecompileLimit = ParseInt(SafeGetEnvironmentVariable("IKVM_LAZY_RECOMPILE_LIMIT"), 0);

@@ -2247,10 +2247,29 @@ namespace IKVM.Runtime
 #if NET
             if (JVM.ArraycopyObj && src is object[] s && dest is object[] d)
             {
-                // Reference arrays, any runtime element types (IKVM_ARRAYCOPY_OBJ, R429/R430/R435), in this frame: the
-                // copies TimSort makes are short and many, and each nested call (a helper, Span.CopyTo, the bulk-move
-                // icall) was a per-copy cost. Java's rules: bounds before anything is copied; an element the destination
-                // cannot hold throws ArrayStoreException with the elements before it already copied.
+                // This method carries no exception clause (IKVM_ARRAYCOPY_NOEH, findings M68): the clause-bearing paths
+                // are ArraycopySlow, and the reference-array copy is one of two identical helpers, one of them wrapped in
+                // a clause that never fires (the knob's off arm).
+                if (JVM.ArraycopyNoEh)
+                    ArraycopyRef(s, srcStart, d, destStart, len);
+                else
+                    ArraycopyRefEh(s, srcStart, d, destStart, len);
+                return;
+            }
+#endif
+            ArraycopySlow(src, srcStart, dest, destStart, len);
+#endif
+        }
+
+#if !FIRST_PASS && NET
+        // Reference arrays, any runtime element types (IKVM_ARRAYCOPY_OBJ, R429/R430/R435): the copies TimSort makes are
+        // short and many. Clause-free, so mono compiles it as an ordinary method (IKVM_ARRAYCOPY_NOEH, findings M68).
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void ArraycopyRef(object[] s, int srcStart, object[] d, int destStart, int len)
+        {
+            {
+                // Java's rules: bounds before anything is copied; an element the destination cannot hold throws
+                // ArrayStoreException with the elements before it already copied.
                 if (len < 0 || srcStart < 0 || destStart < 0 || srcStart > s.Length - len || destStart > d.Length - len)
                     throw new global::java.lang.ArrayIndexOutOfBoundsException();
                 ref object sr = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(s), srcStart);
@@ -2290,7 +2309,69 @@ namespace IKVM.Runtime
                 }
                 return;
             }
+        }
+
+        // IKVM_ARRAYCOPY_NOEH's off arm: ArraycopyRef's body, copied text for text, inside a clause that never fires (the
+        // body throws only ArrayIndexOutOfBounds and ArrayTypeMismatch), so the copy runs as an EH method as it did in
+        // arraycopy before the split. The duplicate exists only for the A/B.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void ArraycopyRefEh(object[] s, int srcStart, object[] d, int destStart, int len)
+        {
+            try
+            {
+                // Java's rules: bounds before anything is copied; an element the destination cannot hold throws
+                // ArrayStoreException with the elements before it already copied.
+                if (len < 0 || srcStart < 0 || destStart < 0 || srcStart > s.Length - len || destStart > d.Length - len)
+                    throw new global::java.lang.ArrayIndexOutOfBoundsException();
+                ref object sr = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(s), srcStart);
+                ref object dr = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(d), destStart);
+                // Every element is storable when they are one array, the same array type, or the destination is exactly
+                // object[]. A short range is a ref-store loop (each store card-marks inline; backwards when one array's
+                // ranges overlap upwards), a longer one Span.CopyTo (the runtime's bulk array-ref copy).
+                if (s == d || (object)d.GetType() == (object)typeof(object[]) || (object)s.GetType() == (object)d.GetType())
+                {
+                    if (len > JVM.ArraycopyLoop)
+                        MemoryMarshal.CreateReadOnlySpan(ref sr, len).CopyTo(MemoryMarshal.CreateSpan(ref dr, len));
+                    else if (s == d && destStart > srcStart)
+                        for (int i = len - 1; i >= 0; i--)
+                            Unsafe.Add(ref dr, i) = Unsafe.Add(ref sr, i);
+                    else
+                        for (int i = 0; i < len; i++)
+                            Unsafe.Add(ref dr, i) = Unsafe.Add(ref sr, i);
+                    return;
+                }
+                // Otherwise every element needs a store check (TimSort's object[] tmp back into the Pair[] it sorts). A
+                // checked store that succeeds proves the element's exact class storable, so later elements of that class
+                // are stored directly. Each element is loaded once and the value checked is the value stored, so a thread
+                // writing src concurrently cannot slip an unstorable object past the check. Distinct arrays never overlap.
+                object ok = null;
+                for (int i = 0; i < len; i++)
+                {
+                    object o = Unsafe.Add(ref sr, i);
+                    if (o != null && (object)o.GetType() != ok)
+                    {
+                        d[destStart + i] = o; // ArrayTypeMismatchException surfaces as ArrayStoreException
+                        ok = o.GetType();
+                    }
+                    else
+                    {
+                        Unsafe.Add(ref dr, i) = o;
+                    }
+                }
+                return;
+            }
+            catch (InvalidCastException)
+            {
+                throw;
+            }
+        }
 #endif
+
+#if !FIRST_PASS
+        // arraycopy's paths with exception clauses (IKVM_ARRAYCOPY_NOEH): kept out of arraycopy so it stays clause-free.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void ArraycopySlow(object src, int srcStart, object dest, int destStart, int len)
+        {
             // If the two arrays are the same, we can use the fast path, but we're also required to do so,
             // to get the required memmove semantics.
             if (src == dest)
@@ -2353,8 +2434,8 @@ namespace IKVM.Runtime
                     }
                 }
             }
-#endif
         }
+#endif
 
         private static bool IsPrimitiveArrayType(Type type)
         {
